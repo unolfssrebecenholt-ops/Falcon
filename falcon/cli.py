@@ -39,6 +39,16 @@ def main(argv: Optional[list] = None) -> int:
     analyze_parser.add_argument("--limit", type=int, default=100)
     analyze_parser.add_argument("--drafts", choices=["template", "gpt", "off"], default="template")
 
+    daily_parser = subparsers.add_parser("run-yingdao-daily", help="Import Yingdao xlsx, analyze, and write report")
+    daily_parser.add_argument("xlsx_path")
+    daily_parser.add_argument("--keyword", required=True)
+    daily_parser.add_argument("--platform", default="xiaohongshu")
+    daily_parser.add_argument("--source-type", default="post", choices=["post", "comment"])
+    daily_parser.add_argument("--limit", type=int, default=100)
+    daily_parser.add_argument("--drafts", choices=["template", "gpt", "off"], default="template")
+    daily_parser.add_argument("--report-output", default="")
+    daily_parser.add_argument("--summary", choices=["off", "gpt"], default="off")
+
     report_parser = subparsers.add_parser("report", help="Write daily Markdown report")
     report_parser.add_argument("--output", default="")
     report_parser.add_argument("--summary", choices=["off", "gpt"], default="off")
@@ -83,35 +93,31 @@ def main(argv: Optional[list] = None) -> int:
 
     if args.command == "analyze":
         repo.init_schema()
-        client = GPT55Client.from_env() if args.drafts == "gpt" else None
-        if args.drafts == "gpt" and not client.is_configured():
-            raise SystemExit("GPT mode requires FALCON_GPT_BASE_URL, FALCON_GPT_ENDPOINT, and FALCON_GPT_API_KEY")
-
-        analyzer = HeuristicAnalyzer()
-        drafting = DraftingService(client=client if args.drafts == "gpt" else None)
-        analyzed = 0
-        tasks = 0
-        for item in repo.list_raw_items(limit=args.limit, unanalyzed_only=True):
-            result = analyzer.analyze(item)
-            analysis_id = repo.save_analysis(item.raw_id or 0, result)
-            analyzed += 1
-            if result.outreach_type != "ignore" and args.drafts != "off":
-                drafts, risk_note = drafting.generate(item, result)
-                if drafts:
-                    repo.create_outreach_task(item.raw_id or 0, analysis_id, result, drafts, risk_note)
-                    tasks += 1
+        analyzed, tasks = _analyze(repo, limit=args.limit, drafts_mode=args.drafts)
         print(f"Analyzed {analyzed} items, created {tasks} outreach tasks")
+        return 0
+
+    if args.command == "run-yingdao-daily":
+        repo.init_schema()
+        items = YingdaoXlsxAdapter().load(
+            Path(args.xlsx_path),
+            keyword=args.keyword,
+            platform=args.platform,
+            source_type=args.source_type,
+        )
+        ids = repo.upsert_raw_items(items)
+        print(f"Imported {len(set(ids))} unique items from {args.xlsx_path}")
+        analyzed, tasks = _analyze(repo, limit=args.limit, drafts_mode=args.drafts)
+        print(f"Analyzed {analyzed} items, created {tasks} outreach tasks")
+        output = Path(args.report_output) if args.report_output else Path("reports") / "daily-report.md"
+        _write_report(repo, output=output, summary_mode=args.summary)
+        print(f"Wrote {output}")
         return 0
 
     if args.command == "report":
         repo.init_schema()
-        summary_client = GPT55Client.from_env() if args.summary == "gpt" else None
-        if args.summary == "gpt" and not summary_client.is_configured():
-            raise SystemExit("GPT summary requires FALCON_GPT_BASE_URL, FALCON_GPT_ENDPOINT, and FALCON_GPT_API_KEY")
-        report = DailyReportBuilder(repo, summary_client=summary_client).build_markdown()
         output = Path(args.output) if args.output else Path("reports") / "daily-report.md"
-        output.parent.mkdir(parents=True, exist_ok=True)
-        output.write_text(report, encoding="utf-8")
+        _write_report(repo, output=output, summary_mode=args.summary)
         print(f"Wrote {output}")
         return 0
 
@@ -125,6 +131,36 @@ def main(argv: Optional[list] = None) -> int:
 
     parser.print_help()
     return 1
+
+
+def _analyze(repo: FalconRepository, limit: int, drafts_mode: str) -> tuple:
+    client = GPT55Client.from_env() if drafts_mode == "gpt" else None
+    if drafts_mode == "gpt" and not client.is_configured():
+        raise SystemExit("GPT mode requires FALCON_GPT_BASE_URL, FALCON_GPT_ENDPOINT, and FALCON_GPT_API_KEY")
+
+    analyzer = HeuristicAnalyzer()
+    drafting = DraftingService(client=client if drafts_mode == "gpt" else None)
+    analyzed = 0
+    tasks = 0
+    for item in repo.list_raw_items(limit=limit, unanalyzed_only=True):
+        result = analyzer.analyze(item)
+        analysis_id = repo.save_analysis(item.raw_id or 0, result)
+        analyzed += 1
+        if result.outreach_type != "ignore" and drafts_mode != "off":
+            drafts, risk_note = drafting.generate(item, result)
+            if drafts:
+                repo.create_outreach_task(item.raw_id or 0, analysis_id, result, drafts, risk_note)
+                tasks += 1
+    return analyzed, tasks
+
+
+def _write_report(repo: FalconRepository, output: Path, summary_mode: str) -> None:
+    summary_client = GPT55Client.from_env() if summary_mode == "gpt" else None
+    if summary_mode == "gpt" and not summary_client.is_configured():
+        raise SystemExit("GPT summary requires FALCON_GPT_BASE_URL, FALCON_GPT_ENDPOINT, and FALCON_GPT_API_KEY")
+    report = DailyReportBuilder(repo, summary_client=summary_client).build_markdown()
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(report, encoding="utf-8")
 
 
 if __name__ == "__main__":
