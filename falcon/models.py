@@ -15,6 +15,11 @@ class RawItem:
     title: str
     content: str
     url: str
+    parent_url: str = ""
+    author: str = ""
+    commenter: str = ""
+    like_count: str = ""
+    comment_rank: str = ""
     published_at: str = ""
     collected_at: str = field(default_factory=utc_now_iso)
     raw_id: Optional[int] = None

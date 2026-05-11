@@ -22,7 +22,13 @@ Falcon 支持英文或中文表头。
 | `title` | `title`、`标题`、`帖子标题` | 帖子标题 |
 | `content` | `content`、`正文`、`内容`、`评论`、`评论内容` | 正文或评论文本 |
 | `url` | `url`、`链接`、`来源链接` | 原始内容链接 |
+| `parent_url` | `parent_url`、`父链接`、`笔记链接` | 评论所属笔记链接，笔记行可留空 |
+| `author` | `author`、`作者` | 笔记作者 |
+| `commenter` | `commenter`、`评论者`、`评论用户` | 评论发布者 |
+| `like_count` | `like_count`、`点赞数`、`赞` | 点赞数，取不到可留空 |
+| `comment_rank` | `comment_rank`、`评论排名`、`评论序号` | 评论展示顺序，热评 Top 15 用 1-15 |
 | `published_at` | `published_at`、`发布时间`、`时间` | 可留空 |
+| `collected_at` | `collected_at`、`采集时间` | 采集时间，可留空 |
 
 ## 示例
 
@@ -33,7 +39,15 @@ xiaohongshu,小红书封面,comment,笔记没人点,小红书封面怎么做才�
 
 ## 影刀 xlsx 导出
 
-影刀“批量数据抓取”可以先导出两列表格，Falcon 支持直接导入这种 xlsx：
+影刀新版流程建议导出结构化 xlsx，一行一条笔记或评论：
+
+```csv
+platform,keyword,source_type,title,content,url,parent_url,author,commenter,like_count,comment_rank,collected_at
+xiaohongshu,生图小程序,post,生图工具测评,正文内容,https://example.com/note/1,,作者A,,,,2026-05-12T08:00:00+08:00
+xiaohongshu,生图小程序,comment,生图工具测评,求推荐更好用的生图工具,https://example.com/note/1?comment=1,https://example.com/note/1,,用户B,25,1,2026-05-12T08:01:00+08:00
+```
+
+旧版影刀“批量数据抓取”如果只能导出两列表格，Falcon 仍支持直接导入：
 
 | 影刀列 | 含义 | Falcon 映射 |
 | --- | --- | --- |

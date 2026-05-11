@@ -6,7 +6,7 @@ from contextlib import redirect_stdout
 from pathlib import Path
 
 from falcon.cli import main
-from falcon.keyword_pool import load_keyword_tasks, write_default_keyword_pool
+from falcon.keyword_pool import generate_program_keyword_tasks, load_keyword_tasks, write_default_keyword_pool
 
 
 class KeywordPoolTest(unittest.TestCase):
@@ -38,6 +38,16 @@ class KeywordPoolTest(unittest.TestCase):
             self.assertEqual(rows[0]["theme"], "生图小程序")
             self.assertEqual(rows[0]["keyword"], "小红书封面")
             self.assertEqual(rows[0]["daily_limit"], "20")
+
+    def test_generates_program_name_search_intent_keywords(self):
+        tasks = generate_program_keyword_tasks("生图小程序")
+        keywords = [task.keyword for task in tasks]
+
+        self.assertIn("生图小程序不好用", keywords)
+        self.assertIn("求推荐更好用的生图工具", keywords)
+        self.assertIn("有没有好用的生图小程序", keywords)
+        self.assertIn("生图小程序平替", keywords)
+        self.assertIn("小红书封面生图工具", keywords)
 
 
 if __name__ == "__main__":
