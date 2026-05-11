@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Optional
 
 from .adapters.xiaohongshu_csv import XiaohongshuCsvAdapter
+from .adapters.yingdao_xlsx import YingdaoXlsxAdapter
 from .analysis import HeuristicAnalyzer
 from .db import FalconRepository
 from .drafting import DraftingService
@@ -22,6 +23,12 @@ def main(argv: Optional[list] = None) -> int:
 
     import_parser = subparsers.add_parser("import-csv", help="Import Xiaohongshu RPA CSV")
     import_parser.add_argument("csv_path")
+
+    yingdao_parser = subparsers.add_parser("import-yingdao-xlsx", help="Import Yingdao/Xiaohongshu xlsx export")
+    yingdao_parser.add_argument("xlsx_path")
+    yingdao_parser.add_argument("--keyword", required=True, help="Keyword or theme used for this Yingdao sampling run")
+    yingdao_parser.add_argument("--platform", default="xiaohongshu")
+    yingdao_parser.add_argument("--source-type", default="post", choices=["post", "comment"])
 
     analyze_parser = subparsers.add_parser("analyze", help="Analyze unanalyzed samples and create outreach tasks")
     analyze_parser.add_argument("--limit", type=int, default=100)
@@ -50,6 +57,18 @@ def main(argv: Optional[list] = None) -> int:
         items = XiaohongshuCsvAdapter().load(Path(args.csv_path))
         ids = repo.upsert_raw_items(items)
         print(f"Imported {len(set(ids))} unique items from {args.csv_path}")
+        return 0
+
+    if args.command == "import-yingdao-xlsx":
+        repo.init_schema()
+        items = YingdaoXlsxAdapter().load(
+            Path(args.xlsx_path),
+            keyword=args.keyword,
+            platform=args.platform,
+            source_type=args.source_type,
+        )
+        ids = repo.upsert_raw_items(items)
+        print(f"Imported {len(set(ids))} unique items from {args.xlsx_path}")
         return 0
 
     if args.command == "analyze":

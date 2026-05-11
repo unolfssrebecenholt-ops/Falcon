@@ -6,7 +6,7 @@ Falcon 第一版是给 `AI出图助手` 用的本地 MVP：小红书优先的社
 
 ## 当前能力
 
-- 小红书 RPA/表格 CSV 导入。
+- 小红书 RPA/表格 CSV 导入，支持影刀两列 xlsx 导出。
 - SQLite 本地数据中枢。
 - 小红书封面主推，活动海报、微信头像、朋友圈背景、随便画画作为探针场景。
 - 启发式意图评分，可在未配置 GPT 时独立运行。
@@ -91,7 +91,7 @@ python3 -m falcon --db data/falcon.sqlite3 report --summary gpt --output reports
 
 ## RPA 接入方式
 
-第一版不内置直接抓取网站的代码。影刀或其他 RPA 只需要低频采集公开可见内容，并导出 CSV，字段见 [docs/rpa-xiaohongshu.md](docs/rpa-xiaohongshu.md)。
+第一版不内置直接抓取网站的代码。影刀或其他 RPA 只需要低频采集公开可见内容，并导出 CSV 或影刀两列 xlsx，字段和命令见 [docs/rpa-xiaohongshu.md](docs/rpa-xiaohongshu.md)。
 
 ## 目录
 

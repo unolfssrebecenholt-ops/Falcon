@@ -31,6 +31,31 @@ platform,keyword,source_type,title,content,url,published_at
 xiaohongshu,小红书封面,comment,笔记没人点,小红书封面怎么做才有人点？有没有自动生成标题图的工具,https://example.com/note/1,2026-05-11
 ```
 
+## 影刀 xlsx 导出
+
+影刀“批量数据抓取”可以先导出两列表格，Falcon 支持直接导入这种 xlsx：
+
+| 影刀列 | 含义 | Falcon 映射 |
+| --- | --- | --- |
+| A | 搜索结果标题或摘要 | `title` 和 `content` |
+| B | 搜索结果链接 | `url` |
+
+导入时必须显式传入本次采样关键词或主题，不在影刀流程或 Falcon 代码里写死：
+
+Windows PowerShell:
+
+```powershell
+py -3 -m falcon --db data\falcon.sqlite3 import-yingdao-xlsx data\xhs_raw_export.xlsx --keyword "生图小程序"
+```
+
+macOS:
+
+```bash
+python3 -m falcon --db data/falcon.sqlite3 import-yingdao-xlsx data/xhs_raw_export.xlsx --keyword "生图小程序"
+```
+
+默认映射为 `platform=xiaohongshu`、`source_type=post`、`published_at` 留空。如后续影刀改成采集评论，可追加 `--source-type comment`。
+
 ## 推荐关键词
 
 主线关键词：

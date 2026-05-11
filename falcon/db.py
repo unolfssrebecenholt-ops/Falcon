@@ -1,8 +1,9 @@
 import hashlib
 import json
 import sqlite3
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, Iterator, List, Optional
 
 from .analysis import AnalysisResult
 from .models import Draft, OutreachTask, RawItem, utc_now_iso
@@ -255,10 +256,15 @@ class FalconRepository:
                 (status, handled_at, task_id),
             )
 
-    def _connect(self) -> sqlite3.Connection:
+    @contextmanager
+    def _connect(self) -> Iterator[sqlite3.Connection]:
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
-        return conn
+        try:
+            with conn:
+                yield conn
+        finally:
+            conn.close()
 
     def _source_hash(self, item: RawItem) -> str:
         payload = "\n".join([item.platform, item.url, item.title, item.content])
