@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}Falcon 控制台{% endblock %}
+{% block content %}
+<header class="page-header">
+  <div>
+    <h1>Falcon 控制台</h1>
+    <p>小红书需求雷达、影刀导入、AI 分析和人工复核的本地工作台。</p>
+  </div>
+  <div class="action-row">
+    <form method="post" action="/init-db">
+      <button class="button" type="submit">初始化数据库</button>
+    </form>
+    <a class="button primary" href="/run">运行今日流程</a>
+  </div>
+</header>
+
+<section class="metrics">
+  <div class="metric"><span>样本总数</span><strong>{{ stats.raw_count }}</strong></div>
+  <div class="metric"><span>已分析</span><strong>{{ stats.analyzed_count }}</strong></div>
+  <div class="metric"><span>高意图</span><strong>{{ stats.high_intent_count }}</strong></div>
+  <div class="metric"><span>待处理任务</span><strong>{{ stats.pending_task_count }}</strong></div>
+</section>
+
+<section class="panel">
+  <h2>最近一次运行</h2>
+  {% if last_run %}
+    {% if last_run.error %}
+      <p class="alert">运行失败：{{ last_run.error }}</p>
+    {% elif last_run.message %}
+      <p class="notice">{{ last_run.message }}</p>
+    {% endif %}
+    <dl class="summary-list">
+      <div><dt>导入</dt><dd>{{ last_run.imported_count }} 条</dd></div>
+      <div><dt>分析</dt><dd>{{ last_run.analyzed_count }} 条</dd></div>
+      <div><dt>触达任务</dt><dd>{{ last_run.task_count }} 条</dd></div>
+      <div>
+        <dt>日报</dt>
+        <dd>
+          {% if last_run.report_path %}
+            <a href="/report?path={{ last_run.report_path }}">{{ last_run.report_path }}</a>
+          {% else %}
+            -
+          {% endif %}
+        </dd>
+      </div>
+    </dl>
+  {% else %}
+    <p class="muted">还没有通过页面运行今日流程。</p>
+  {% endif %}
+</section>
+{% endblock %}

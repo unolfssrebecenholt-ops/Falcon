@@ -13,8 +13,39 @@ Falcon 第一版是给 `AI出图助手` 用的本地 MVP：小红书优先的社
 - GPT-5.5 中转站草稿生成，配置后用于评论区回复、私信和轻建议草稿。
 - Markdown 日报输出。
 - 触达任务箱状态流转：`pending`、`copied`、`handled`、`skipped`、`invalid`。
+- 本地 Web 控制台：关键词池、影刀导入分析、人工复核和触达任务管理。
 
 ## 快速开始
+
+安装依赖：
+
+```bash
+python3 -m pip install -e .
+```
+
+Windows:
+
+```powershell
+py -3 -m pip install -e .
+```
+
+启动本地 Web 控制台：
+
+```powershell
+py -3 -m falcon --db data\falcon.sqlite3 web --host 127.0.0.1 --port 8765
+```
+
+也可以把数据库参数放在 `web` 子命令后面：
+
+```powershell
+py -3 -m falcon web --host 127.0.0.1 --port 8765 --db data\falcon.sqlite3
+```
+
+然后打开：
+
+```text
+http://127.0.0.1:8765
+```
 
 macOS:
 

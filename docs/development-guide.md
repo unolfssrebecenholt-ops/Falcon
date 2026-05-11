@@ -8,7 +8,7 @@
 - Git。
 - 可选：GPT-5.5 OpenAI 兼容中转站环境变量。
 
-当前项目不依赖第三方 Python 包，优先使用标准库，便于 Windows 和 macOS 同时运行。
+当前项目使用 Python + FastAPI + Jinja + SQLite。新增依赖必须同步写入 `pyproject.toml`，并保持 Windows 和 macOS 可安装。
 
 ## 获取代码
 
@@ -27,6 +27,20 @@ cd Falcon
 ```
 
 如果本机 GitHub SSH 没有配置，也可以使用 HTTPS，但需要提前配置 GitHub 凭据。
+
+## 安装依赖
+
+macOS:
+
+```bash
+python3 -m pip install -e .
+```
+
+Windows PowerShell:
+
+```powershell
+py -3 -m pip install -e .
+```
 
 ## 基线验证
 
@@ -85,6 +99,34 @@ python3 -m falcon --db /tmp/falcon-yingdao-smoke/falcon.sqlite3 run-yingdao-dail
 ```
 
 `data/xhs_raw_export.xlsx` 是本机影刀导出的运行数据，不提交到仓库。
+
+## 本地 Web 控制台
+
+macOS:
+
+```bash
+python3 -m falcon --db data/falcon.sqlite3 web --host 127.0.0.1 --port 8765
+```
+
+Windows PowerShell:
+
+```powershell
+py -3 -m falcon --db data\falcon.sqlite3 web --host 127.0.0.1 --port 8765
+```
+
+也支持：
+
+```powershell
+py -3 -m falcon web --host 127.0.0.1 --port 8765 --db data\falcon.sqlite3
+```
+
+浏览器打开：
+
+```text
+http://127.0.0.1:8765
+```
+
+第一版 Web 控制台只管理 Falcon 侧流程，不控制影刀客户端。
 
 ## GPT-5.5 中转站
 

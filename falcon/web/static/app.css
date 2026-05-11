@@ -1,0 +1,219 @@
+:root {
+  --bg: #f5f3ef;
+  --panel: #ffffff;
+  --ink: #1f2933;
+  --muted: #667085;
+  --line: #d8d3ca;
+  --accent: #0f766e;
+  --accent-dark: #115e59;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: 232px 1fr;
+  color: var(--ink);
+  background: var(--bg);
+  font-family: "Microsoft YaHei", "PingFang SC", "Segoe UI", sans-serif;
+}
+
+.sidebar {
+  background: #20262d;
+  color: #f8fafc;
+  padding: 24px 18px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 28px;
+}
+
+.brand-mark {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  background: var(--accent);
+  font-weight: 700;
+}
+
+.brand small {
+  display: block;
+  color: #cbd5e1;
+  margin-top: 2px;
+}
+
+nav { display: grid; gap: 6px; }
+
+nav a {
+  color: #dbe4ed;
+  text-decoration: none;
+  padding: 10px 12px;
+  border-radius: 6px;
+}
+
+nav a.active, nav a:hover { background: #2f3a45; color: #fff; }
+
+.main {
+  padding: 28px;
+  overflow: auto;
+}
+
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  align-items: flex-start;
+  margin-bottom: 22px;
+}
+
+h1 { margin: 0 0 6px; font-size: 28px; }
+h2 { margin: 0 0 16px; font-size: 18px; }
+p { line-height: 1.6; }
+.page-header p, .muted { color: var(--muted); }
+
+.action-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.alert {
+  color: #9f1239;
+  font-weight: 700;
+}
+
+.notice {
+  color: var(--accent-dark);
+  font-weight: 700;
+}
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(140px, 1fr));
+  gap: 14px;
+  margin-bottom: 18px;
+}
+
+.metric, .panel, .task-card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 1px 2px rgba(31, 41, 51, 0.04);
+}
+
+.metric { padding: 18px; }
+.metric span { display: block; color: var(--muted); margin-bottom: 8px; }
+.metric strong { font-size: 30px; }
+
+.panel { padding: 18px; margin-bottom: 18px; }
+.panel.narrow { max-width: 760px; }
+
+.button {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--ink);
+  padding: 9px 14px;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.button.primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+
+.button.primary:hover { background: var(--accent-dark); }
+.button.small { padding: 6px 10px; }
+
+.form-grid {
+  display: grid;
+  gap: 16px;
+}
+
+label { display: grid; gap: 7px; font-weight: 600; }
+input, select {
+  min-height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font: inherit;
+  background: #fff;
+}
+
+.inline-form, .row-form {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.row-form input { width: 140px; }
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+th, td {
+  border-bottom: 1px solid var(--line);
+  padding: 10px 8px;
+  text-align: left;
+  vertical-align: top;
+}
+
+th { color: var(--muted); font-weight: 600; }
+td a { color: var(--accent-dark); }
+
+.summary-list {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(120px, 1fr));
+  gap: 12px;
+}
+
+.summary-list div {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 12px;
+}
+
+.summary-list dt { color: var(--muted); }
+.summary-list dd { margin: 6px 0 0; font-weight: 700; }
+
+.task-list { display: grid; gap: 14px; }
+.task-card { padding: 18px; }
+.task-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.tag {
+  display: inline-block;
+  min-width: 112px;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.report-content {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font: 14px/1.7 "Microsoft YaHei", "PingFang SC", "Segoe UI", sans-serif;
+}
+
+@media (max-width: 980px) {
+  body { grid-template-columns: 1fr; }
+  .sidebar { position: static; }
+  .metrics, .summary-list { grid-template-columns: repeat(2, minmax(140px, 1fr)); }
+  .page-header { display: block; }
+}

@@ -7,7 +7,7 @@
 - 仓库已推送到 GitHub：`ssh://git@ssh.github.com:443/unolfssrebecenholt-ops/Falcon.git`
 - 当前分支：`codex/yingdao-landing`
 - 当前阶段：第一版本地 MVP 已建立。
-- 技术形态：Python 标准库 + SQLite + CSV 导入 + Markdown 日报。
+- 技术形态：Python + FastAPI + Jinja + SQLite + CSV/xlsx 导入 + Markdown 日报。
 - 项目必须保持 Windows 和 macOS 双端可运行。
 
 ## 已完成
@@ -38,19 +38,25 @@
 - 实现人工复核闭环：
   - 日报 Top 样本显示 `raw_id`。
   - `review-raw-item` 可记录 `优秀/有用/一般/无用/噪音`。
+- 实现本地 Web 控制台：
+  - 总览页展示样本、分析、高意图和待处理任务。
+  - 采集运行页一键执行影刀 xlsx 导入、分析和日报。
+  - 关键词池页生成和查看本地关键词池。
+  - 复核页记录 Top 20 样本反馈。
+  - 触达任务页更新任务状态。
 - 补充 `docs/yingdao-runbook.md` 作为影刀日常运行手册。
 - 补充示例 CSV。
 - 补充双机开发规则和 start-work protocol。
 
 ## 最近一次提交准备
 
-- 本次变更目标：把 Falcon × 影刀链路从单次导入推进到日常可运行、可复核、可交接的任务板。
+- 本次变更目标：新增 FastAPI + Jinja 本地 Web 控制台，减少日常维护对命令行的依赖。
 - 本次文档更新：
-  - `README.md`：说明 RPA 可导入 CSV 或影刀两列 xlsx。
+  - `README.md`：新增依赖安装和 Web 控制台启动命令。
   - `docs/rpa-xiaohongshu.md`：新增影刀 xlsx 两列映射和 Windows/macOS 导入命令。
-  - `docs/development-guide.md`：新增影刀 smoke workflow。
+  - `docs/development-guide.md`：新增依赖安装、影刀 smoke workflow 和 Web 控制台启动说明。
   - `docs/yingdao-runbook.md`：新增影刀参数、关键词池、每日采集、人工复核和 7 天运行记录。
-  - `docs/progress.md`：记录本次影刀落地进展和验证结果。
+  - `docs/progress.md`：记录本次 Web 控制台进展和验证结果。
 - 本次验证：
   - `py -3 -m unittest discover -s tests`
   - Windows 真实影刀 `run-yingdao-daily` smoke workflow
@@ -68,6 +74,8 @@
 - 已解决：Falcon 可生成本地 RPA 关键词池，不再靠手工记忆关键词。
 - 已解决：Falcon 可用一条命令运行影刀日常导入、分析和日报。
 - 已解决：日报 Top 样本可按 `raw_id` 做人工复核记录。
+- 已解决：CLI 业务逻辑抽为共享 workflow，Web 和 CLI 共用导入、分析、日报逻辑。
+- 已解决：本地 Web 控制台可访问总览、采集运行、关键词池、人工复核和触达任务页面。
 
 ## 方案进度
 
@@ -75,6 +83,7 @@
 - AI 触达任务箱：MVP 已完成，当前只生成草稿，不自动发送。
 - RPA 接入：已定义 CSV 契约，并接入影刀网页批量数据抓取 xlsx 导出格式；已用真实导出文件导入 25 条样本。
 - 日常运行：已具备关键词池生成、影刀每日一键分析命令、人工复核记录和运行手册。
+- 可视化：已接入本地 Web 控制台第一版；第一版不控制影刀客户端。
 - 多平台扩展：架构已预留 adapter，当前只实现小红书 CSV。
 - 小程序转化归因：尚未接入，等待 `Image-sp` 上线或埋点方案确定。
 
@@ -88,7 +97,7 @@ py -3 -m unittest discover -s tests
 
 结果：
 
-- 16 tests passed.
+- 26 tests passed.
 
 最近一次 smoke workflow：
 
@@ -102,11 +111,11 @@ py -3 -m unittest discover -s tests
 
 ## 下一步建议
 
-1. 在影刀界面按 `docs/yingdao-runbook.md` 把 `output_dir/output_filename/keyword/max_items/scroll_times` 设置为流程参数。
-2. 每天运行 `write-keyword-pool` 或维护 `data/rpa_keywords.csv`，按关键词逐个采样。
-3. 每天运行 `run-yingdao-daily` 输出日报，并用 `review-raw-item` 复核 Top 20。
+1. 启动 `py -3 -m falcon --db data\falcon.sqlite3 web --host 127.0.0.1 --port 8765`，从页面执行每日流程。
+2. 在影刀界面按 `docs/yingdao-runbook.md` 把 `output_dir/output_filename/keyword/max_items/scroll_times` 设置为流程参数。
+3. 每天通过 Web 复核 Top 20，并记录 `优秀/有用/一般/无用/噪音`。
 4. 连续 7 天记录采集条数、有效样本数、Top 20 有用比例和触达任务数。
-5. 复核数据稳定后，配置 GPT-5.5 中转站并运行 `analyze --drafts gpt`。
+5. 复核数据稳定后，配置 GPT-5.5 中转站并在页面或 CLI 切换到 GPT 草稿模式。
 
 ## Windows 接手提示
 

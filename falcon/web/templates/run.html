@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}采集运行 - Falcon{% endblock %}
+{% block content %}
+<header class="page-header">
+  <div>
+    <h1>采集运行</h1>
+    <p>选择影刀导出的 xlsx，一次完成导入、分析和日报输出。</p>
+  </div>
+</header>
+
+{% if last_run and last_run.error %}
+<section class="panel">
+  <p class="alert">运行失败：{{ last_run.error }}</p>
+</section>
+{% elif last_run and last_run.imported_count is defined %}
+<section class="panel">
+  <h2>运行结果</h2>
+  <dl class="summary-list">
+    <div><dt>导入</dt><dd>{{ last_run.imported_count }} 条</dd></div>
+    <div><dt>分析</dt><dd>{{ last_run.analyzed_count }} 条</dd></div>
+    <div><dt>触达任务</dt><dd>{{ last_run.task_count }} 条</dd></div>
+    <div><dt>日报</dt><dd><a href="/report?path={{ last_run.report_path }}">{{ last_run.report_path }}</a></dd></div>
+  </dl>
+</section>
+{% endif %}
+
+<section class="panel narrow">
+  <form method="post" action="/run" class="form-grid">
+    <label>
+      影刀 xlsx 路径
+      <input name="xlsx_path" value="{{ default_xlsx_path }}">
+    </label>
+    <label>
+      关键词/主题
+      <input name="keyword" value="{{ default_keyword }}">
+    </label>
+    <label>
+      分析模式
+      <select name="drafts">
+        <option value="template">template</option>
+        <option value="gpt">gpt</option>
+        <option value="off">off</option>
+      </select>
+    </label>
+    <label>
+      日报输出路径
+      <input name="report_output" value="{{ default_report_output }}">
+    </label>
+    <button class="button primary" type="submit">运行今日流程</button>
+  </form>
+</section>
+{% endblock %}

@@ -4,18 +4,15 @@ from typing import Optional
 
 from .adapters.xiaohongshu_csv import XiaohongshuCsvAdapter
 from .adapters.yingdao_xlsx import YingdaoXlsxAdapter
-from .analysis import HeuristicAnalyzer
 from .db import FalconRepository
-from .drafting import DraftingService
 from .keyword_pool import write_default_keyword_pool
-from .llm import GPT55Client
-from .reports import DailyReportBuilder
+from .workflows import analyze_unanalyzed, run_yingdao_daily, write_report
 
 
 DEFAULT_DB = Path("data/falcon.sqlite3")
 
 
-def main(argv: Optional[list] = None) -> int:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Falcon demand radar MVP")
     parser.add_argument("--db", default=str(DEFAULT_DB), help="SQLite database path")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -64,6 +61,16 @@ def main(argv: Optional[list] = None) -> int:
     raw_review_parser.add_argument("feedback", choices=["优秀", "有用", "一般", "无用", "噪音"])
     raw_review_parser.add_argument("--note", default="")
 
+    web_parser = subparsers.add_parser("web", help="Run local Falcon web console")
+    web_parser.add_argument("--host", default="127.0.0.1")
+    web_parser.add_argument("--port", type=int, default=8765)
+    web_parser.add_argument("--db", dest="web_db", help="SQLite database path")
+
+    return parser
+
+
+def main(argv: Optional[list] = None) -> int:
+    parser = build_parser()
     args = parser.parse_args(argv)
     repo = FalconRepository(Path(args.db))
 
@@ -98,31 +105,32 @@ def main(argv: Optional[list] = None) -> int:
 
     if args.command == "analyze":
         repo.init_schema()
-        analyzed, tasks = _analyze(repo, limit=args.limit, drafts_mode=args.drafts)
-        print(f"Analyzed {analyzed} items, created {tasks} outreach tasks")
+        result = analyze_unanalyzed(repo, limit=args.limit, drafts_mode=args.drafts)
+        print(f"Analyzed {result.analyzed_count} items, created {result.task_count} outreach tasks")
         return 0
 
     if args.command == "run-yingdao-daily":
         repo.init_schema()
-        items = YingdaoXlsxAdapter().load(
-            Path(args.xlsx_path),
+        result = run_yingdao_daily(
+            repo,
+            xlsx_path=Path(args.xlsx_path),
             keyword=args.keyword,
             platform=args.platform,
             source_type=args.source_type,
+            limit=args.limit,
+            drafts_mode=args.drafts,
+            report_output=Path(args.report_output) if args.report_output else Path("reports") / "daily-report.md",
+            summary_mode=args.summary,
         )
-        ids = repo.upsert_raw_items(items)
-        print(f"Imported {len(set(ids))} unique items from {args.xlsx_path}")
-        analyzed, tasks = _analyze(repo, limit=args.limit, drafts_mode=args.drafts)
-        print(f"Analyzed {analyzed} items, created {tasks} outreach tasks")
-        output = Path(args.report_output) if args.report_output else Path("reports") / "daily-report.md"
-        _write_report(repo, output=output, summary_mode=args.summary)
-        print(f"Wrote {output}")
+        print(f"Imported {result.imported_count} unique items from {args.xlsx_path}")
+        print(f"Analyzed {result.analyzed_count} items, created {result.task_count} outreach tasks")
+        print(f"Wrote {result.report_path}")
         return 0
 
     if args.command == "report":
         repo.init_schema()
         output = Path(args.output) if args.output else Path("reports") / "daily-report.md"
-        _write_report(repo, output=output, summary_mode=args.summary)
+        write_report(repo, output=output, summary_mode=args.summary)
         print(f"Wrote {output}")
         return 0
 
@@ -140,38 +148,17 @@ def main(argv: Optional[list] = None) -> int:
         print(f"Recorded raw item feedback {feedback_id} for raw_id {args.raw_id}")
         return 0
 
+    if args.command == "web":
+        import uvicorn
+
+        from .web.app import create_app
+
+        db_path = Path(args.web_db or args.db)
+        uvicorn.run(create_app(db_path), host=args.host, port=args.port)
+        return 0
+
     parser.print_help()
     return 1
-
-
-def _analyze(repo: FalconRepository, limit: int, drafts_mode: str) -> tuple:
-    client = GPT55Client.from_env() if drafts_mode == "gpt" else None
-    if drafts_mode == "gpt" and not client.is_configured():
-        raise SystemExit("GPT mode requires FALCON_GPT_BASE_URL, FALCON_GPT_ENDPOINT, and FALCON_GPT_API_KEY")
-
-    analyzer = HeuristicAnalyzer()
-    drafting = DraftingService(client=client if drafts_mode == "gpt" else None)
-    analyzed = 0
-    tasks = 0
-    for item in repo.list_raw_items(limit=limit, unanalyzed_only=True):
-        result = analyzer.analyze(item)
-        analysis_id = repo.save_analysis(item.raw_id or 0, result)
-        analyzed += 1
-        if result.outreach_type != "ignore" and drafts_mode != "off":
-            drafts, risk_note = drafting.generate(item, result)
-            if drafts:
-                repo.create_outreach_task(item.raw_id or 0, analysis_id, result, drafts, risk_note)
-                tasks += 1
-    return analyzed, tasks
-
-
-def _write_report(repo: FalconRepository, output: Path, summary_mode: str) -> None:
-    summary_client = GPT55Client.from_env() if summary_mode == "gpt" else None
-    if summary_mode == "gpt" and not summary_client.is_configured():
-        raise SystemExit("GPT summary requires FALCON_GPT_BASE_URL, FALCON_GPT_ENDPOINT, and FALCON_GPT_API_KEY")
-    report = DailyReportBuilder(repo, summary_client=summary_client).build_markdown()
-    output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(report, encoding="utf-8")
 
 
 if __name__ == "__main__":
