@@ -16,11 +16,22 @@ Falcon 第一版是给 `AI出图助手` 用的本地 MVP：小红书优先的社
 
 ## 快速开始
 
+macOS:
+
 ```bash
 python3 -m falcon --db data/falcon.sqlite3 init-db
 python3 -m falcon --db data/falcon.sqlite3 import-csv examples/xiaohongshu_samples.csv
 python3 -m falcon --db data/falcon.sqlite3 analyze --drafts template
 python3 -m falcon --db data/falcon.sqlite3 report --output reports/daily-report.md
+```
+
+Windows PowerShell:
+
+```powershell
+py -3 -m falcon --db data\falcon.sqlite3 init-db
+py -3 -m falcon --db data\falcon.sqlite3 import-csv examples\xiaohongshu_samples.csv
+py -3 -m falcon --db data\falcon.sqlite3 analyze --drafts template
+py -3 -m falcon --db data\falcon.sqlite3 report --output reports\daily-report.md
 ```
 
 查看日报：
@@ -34,6 +45,24 @@ sed -n '1,220p' reports/daily-report.md
 ```bash
 python3 -m unittest discover -s tests
 ```
+
+Windows:
+
+```powershell
+py -3 -m unittest discover -s tests
+```
+
+## 双机开发
+
+本项目支持 Windows 和 M1 Mac 双机开发。每次开始工作先 `git pull`，然后阅读：
+
+1. `AGENTS.md`
+2. `docs/progress.md`
+3. `docs/development-guide.md`
+4. `README.md`
+5. `project.md`
+
+用户后续可以只说“开始工作”，Codex 应按 `AGENTS.md` 里的 start-work protocol 自动接手。每次提交前必须更新 `docs/progress.md`，写清项目进度、当前问题解决进度、方案进度、验证结果和下一步。
 
 ## GPT-5.5 中转站配置
 

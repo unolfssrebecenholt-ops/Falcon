@@ -103,3 +103,11 @@ python3 -m falcon --db data/falcon.sqlite3 analyze --drafts gpt
 - 不以规避平台规则为目标。
 - 不改动 `Image-sp` 小程序代码。
 - 真实 API Key 只放本地环境变量或服务端环境变量，不写入仓库。
+
+## 7. 双机开发规则
+
+- Windows 和 M1 Mac 通过 GitHub 同步状态。
+- 每次开始工作先 `git pull`，再读 `AGENTS.md`、`docs/progress.md`、`docs/development-guide.md`、`README.md` 和本文。
+- 用户后续可以只说“开始工作”，Codex 应按 `AGENTS.md` 的 start-work protocol 自动接手。
+- 每次提交前必须更新 `docs/progress.md`，写清项目进度、当前问题解决进度、方案进度、验证结果和下一步。
+- 项目必须保持 Windows 和 macOS 双端可运行；新增依赖、命令或路径规则时，同步更新 `docs/development-guide.md`。
