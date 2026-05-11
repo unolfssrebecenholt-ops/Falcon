@@ -7,6 +7,7 @@ from .adapters.yingdao_xlsx import YingdaoXlsxAdapter
 from .analysis import HeuristicAnalyzer
 from .db import FalconRepository
 from .drafting import DraftingService
+from .keyword_pool import write_default_keyword_pool
 from .llm import GPT55Client
 from .reports import DailyReportBuilder
 
@@ -29,6 +30,10 @@ def main(argv: Optional[list] = None) -> int:
     yingdao_parser.add_argument("--keyword", required=True, help="Keyword or theme used for this Yingdao sampling run")
     yingdao_parser.add_argument("--platform", default="xiaohongshu")
     yingdao_parser.add_argument("--source-type", default="post", choices=["post", "comment"])
+
+    keyword_pool_parser = subparsers.add_parser("write-keyword-pool", help="Write default RPA keyword pool CSV")
+    keyword_pool_parser.add_argument("output_path")
+    keyword_pool_parser.add_argument("--theme", default="生图小程序")
 
     analyze_parser = subparsers.add_parser("analyze", help="Analyze unanalyzed samples and create outreach tasks")
     analyze_parser.add_argument("--limit", type=int, default=100)
@@ -69,6 +74,11 @@ def main(argv: Optional[list] = None) -> int:
         )
         ids = repo.upsert_raw_items(items)
         print(f"Imported {len(set(ids))} unique items from {args.xlsx_path}")
+        return 0
+
+    if args.command == "write-keyword-pool":
+        tasks = write_default_keyword_pool(Path(args.output_path), theme=args.theme)
+        print(f"Wrote {len(tasks)} keyword tasks to {args.output_path}")
         return 0
 
     if args.command == "analyze":
