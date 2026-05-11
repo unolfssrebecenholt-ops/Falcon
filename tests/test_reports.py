@@ -51,6 +51,7 @@ class DailyReportBuilderTest(unittest.TestCase):
             self.assertIn("小红书封面没人点？3 个标题图方法", report)
             self.assertIn("触达任务箱", report)
             self.assertIn("https://example.com/note/1", report)
+            self.assertIn(f"raw_id {raw_id}", report)
 
     def test_can_add_gpt55_summary_when_client_is_provided(self):
         class FakeSummaryClient:

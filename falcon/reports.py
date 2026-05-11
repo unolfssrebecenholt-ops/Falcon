@@ -37,7 +37,7 @@ class DailyReportBuilder:
                 if topic in seen_topics:
                     continue
                 seen_topics.add(topic)
-                lines.append(f"- 选题：{topic}（意图 {item['intent_score']}）")
+                lines.append(f"- raw_id {item['raw_id']} 选题：{topic}（意图 {item['intent_score']}）")
         else:
             lines.append("- 暂无高价值小红书封面样本。")
 
@@ -46,7 +46,7 @@ class DailyReportBuilder:
         if probes:
             for item in probes[:8]:
                 lines.append(
-                    f"- {item['scene_tag']}：{item['suggested_topic']}（意图 {item['intent_score']}，来源 {item['url']}）"
+                    f"- raw_id {item['raw_id']} {item['scene_tag']}：{item['suggested_topic']}（意图 {item['intent_score']}，来源 {item['url']}）"
                 )
         else:
             lines.append("- 今日未发现强探针信号。")

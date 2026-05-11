@@ -66,6 +66,26 @@ py -3 -m falcon --db $env:TEMP\falcon-smoke\falcon.sqlite3 analyze --drafts temp
 py -3 -m falcon --db $env:TEMP\falcon-smoke\falcon.sqlite3 report --output $env:TEMP\falcon-smoke\daily-report.md
 ```
 
+## 影刀 smoke workflow
+
+Windows PowerShell:
+
+```powershell
+Remove-Item -Recurse -Force $env:TEMP\falcon-yingdao-smoke -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Force $env:TEMP\falcon-yingdao-smoke | Out-Null
+py -3 -m falcon --db $env:TEMP\falcon-yingdao-smoke\falcon.sqlite3 run-yingdao-daily data\xhs_raw_export.xlsx --keyword "生图小程序" --report-output $env:TEMP\falcon-yingdao-smoke\daily-report.md
+```
+
+macOS:
+
+```bash
+rm -rf /tmp/falcon-yingdao-smoke
+mkdir -p /tmp/falcon-yingdao-smoke
+python3 -m falcon --db /tmp/falcon-yingdao-smoke/falcon.sqlite3 run-yingdao-daily data/xhs_raw_export.xlsx --keyword "生图小程序" --report-output /tmp/falcon-yingdao-smoke/daily-report.md
+```
+
+`data/xhs_raw_export.xlsx` 是本机影刀导出的运行数据，不提交到仓库。
+
 ## GPT-5.5 中转站
 
 环境变量名：

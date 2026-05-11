@@ -59,6 +59,11 @@ def main(argv: Optional[list] = None) -> int:
     review_parser.add_argument("--feedback", default="")
     review_parser.add_argument("--note", default="")
 
+    raw_review_parser = subparsers.add_parser("review-raw-item", help="Record human review feedback for a raw sample")
+    raw_review_parser.add_argument("raw_id", type=int)
+    raw_review_parser.add_argument("feedback", choices=["优秀", "有用", "一般", "无用", "噪音"])
+    raw_review_parser.add_argument("--note", default="")
+
     args = parser.parse_args(argv)
     repo = FalconRepository(Path(args.db))
 
@@ -127,6 +132,12 @@ def main(argv: Optional[list] = None) -> int:
         if args.feedback:
             repo.add_feedback(args.feedback, args.note, outreach_task_id=args.task_id)
         print(f"Updated task {args.task_id} -> {args.status}")
+        return 0
+
+    if args.command == "review-raw-item":
+        repo.init_schema()
+        feedback_id = repo.add_feedback(args.feedback, args.note, raw_item_id=args.raw_id)
+        print(f"Recorded raw item feedback {feedback_id} for raw_id {args.raw_id}")
         return 0
 
     parser.print_help()

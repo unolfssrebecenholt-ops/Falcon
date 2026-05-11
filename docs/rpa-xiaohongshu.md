@@ -56,6 +56,20 @@ python3 -m falcon --db data/falcon.sqlite3 import-yingdao-xlsx data/xhs_raw_expo
 
 默认映射为 `platform=xiaohongshu`、`source_type=post`、`published_at` 留空。如后续影刀改成采集评论，可追加 `--source-type comment`。
 
+日常导入、分析和日报可以合并为一条命令：
+
+```powershell
+py -3 -m falcon --db data\falcon.sqlite3 run-yingdao-daily data\xhs_raw_export.xlsx --keyword "生图小程序" --report-output reports\daily-report.md
+```
+
+关键词池可以由 Falcon 生成到本地 `data/` 目录：
+
+```powershell
+py -3 -m falcon write-keyword-pool data\rpa_keywords.csv --theme "生图小程序"
+```
+
+完整运行手册见 [yingdao-runbook.md](yingdao-runbook.md)。
+
 ## 推荐关键词
 
 主线关键词：

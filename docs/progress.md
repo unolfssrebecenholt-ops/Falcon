@@ -5,7 +5,7 @@
 ## 当前状态
 
 - 仓库已推送到 GitHub：`ssh://git@ssh.github.com:443/unolfssrebecenholt-ops/Falcon.git`
-- 当前分支：`main`
+- 当前分支：`codex/yingdao-landing`
 - 当前阶段：第一版本地 MVP 已建立。
 - 技术形态：Python 标准库 + SQLite + CSV 导入 + Markdown 日报。
 - 项目必须保持 Windows 和 macOS 双端可运行。
@@ -30,19 +30,30 @@
   - A 列映射为 `title/content`。
   - B 列映射为 `url`。
   - `keyword` 由导入命令参数传入，不在流程或代码里写死。
+- 实现 RPA 关键词池：
+  - `write-keyword-pool` 生成本地 `data/rpa_keywords.csv`。
+  - 字段为 `theme,keyword,scene,weight,daily_limit`。
+- 实现影刀日常工作流命令：
+  - `run-yingdao-daily` 一次完成导入、分析和日报输出。
+- 实现人工复核闭环：
+  - 日报 Top 样本显示 `raw_id`。
+  - `review-raw-item` 可记录 `优秀/有用/一般/无用/噪音`。
+- 补充 `docs/yingdao-runbook.md` 作为影刀日常运行手册。
 - 补充示例 CSV。
 - 补充双机开发规则和 start-work protocol。
 
 ## 最近一次提交准备
 
-- 本次变更目标：接入真实影刀网页采集导出的 xlsx，让 Falcon 可直接导入影刀批量数据抓取结果。
+- 本次变更目标：把 Falcon × 影刀链路从单次导入推进到日常可运行、可复核、可交接的任务板。
 - 本次文档更新：
   - `README.md`：说明 RPA 可导入 CSV 或影刀两列 xlsx。
   - `docs/rpa-xiaohongshu.md`：新增影刀 xlsx 两列映射和 Windows/macOS 导入命令。
-  - `docs/progress.md`：记录本次影刀接入进展和验证结果。
+  - `docs/development-guide.md`：新增影刀 smoke workflow。
+  - `docs/yingdao-runbook.md`：新增影刀参数、关键词池、每日采集、人工复核和 7 天运行记录。
+  - `docs/progress.md`：记录本次影刀落地进展和验证结果。
 - 本次验证：
   - `py -3 -m unittest discover -s tests`
-  - Windows 真实影刀 xlsx smoke workflow
+  - Windows 真实影刀 `run-yingdao-daily` smoke workflow
 
 ## 当前问题解决进度
 
@@ -54,12 +65,16 @@
 - 已验证：Windows 机器已实际运行基线测试和 smoke workflow。
 - 已解决：影刀当前版本未找到本地导出流程入口，改用“批量数据抓取 + 数据表格导出”生成 xlsx。
 - 已解决：Falcon 可直接导入影刀 A/B 两列 xlsx，关键词通过 `--keyword` 显式传入。
+- 已解决：Falcon 可生成本地 RPA 关键词池，不再靠手工记忆关键词。
+- 已解决：Falcon 可用一条命令运行影刀日常导入、分析和日报。
+- 已解决：日报 Top 样本可按 `raw_id` 做人工复核记录。
 
 ## 方案进度
 
 - 需求雷达：MVP 已完成。
 - AI 触达任务箱：MVP 已完成，当前只生成草稿，不自动发送。
 - RPA 接入：已定义 CSV 契约，并接入影刀网页批量数据抓取 xlsx 导出格式；已用真实导出文件导入 25 条样本。
+- 日常运行：已具备关键词池生成、影刀每日一键分析命令、人工复核记录和运行手册。
 - 多平台扩展：架构已预留 adapter，当前只实现小红书 CSV。
 - 小程序转化归因：尚未接入，等待 `Image-sp` 上线或埋点方案确定。
 
@@ -73,24 +88,25 @@ py -3 -m unittest discover -s tests
 
 结果：
 
-- 12 tests passed.
+- 16 tests passed.
 
 最近一次 smoke workflow：
 
-- Windows PowerShell，临时目录：`$env:TEMP\falcon-yingdao-smoke`。
+- Windows PowerShell，临时目录：`$env:TEMP\falcon-yingdao-daily`。
 - 初始化临时 SQLite。
-- 导入真实影刀导出 `data\xhs_raw_export.xlsx`，命令使用 `--keyword "生图小程序"`。
+- 执行 `run-yingdao-daily data\xhs_raw_export.xlsx --keyword "生图小程序"`。
+- 导入真实影刀导出 25 条样本。
 - 分析 25 条样本。
 - 创建 9 个触达任务。
 - 生成 Markdown 日报。
 
 ## 下一步建议
 
-1. 在影刀流程中把导出目录和文件名抽成流程参数，便于 Windows 本机和 PD 虚拟 Windows 切换。
-2. 设计 `data/rpa_keywords.csv` 或等价参数，让 Falcon 维护主题/关键词池，影刀按关键词循环采样。
-3. 运行 `analyze --drafts template` 复核真实影刀样本的 Top 20 质量。
-4. 配置 GPT-5.5 中转站环境变量后，运行 `analyze --drafts gpt`。
-5. 根据真实样本复核结果调整 `falcon/analysis.py` 的关键词和阈值。
+1. 在影刀界面按 `docs/yingdao-runbook.md` 把 `output_dir/output_filename/keyword/max_items/scroll_times` 设置为流程参数。
+2. 每天运行 `write-keyword-pool` 或维护 `data/rpa_keywords.csv`，按关键词逐个采样。
+3. 每天运行 `run-yingdao-daily` 输出日报，并用 `review-raw-item` 复核 Top 20。
+4. 连续 7 天记录采集条数、有效样本数、Top 20 有用比例和触达任务数。
+5. 复核数据稳定后，配置 GPT-5.5 中转站并运行 `analyze --drafts gpt`。
 
 ## Windows 接手提示
 
