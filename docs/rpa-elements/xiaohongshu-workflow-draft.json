@@ -1,0 +1,245 @@
+{
+  "schema_version": 1,
+  "name": "xiaohongshu_public_sample_to_falcon_csv",
+  "status": "draft_waiting_for_web_elements",
+  "rule": "Workflow steps use only Yingdao commands visible in the supplied screenshots. Webpage elements must be supplied by later element-library screenshots before parameter-level implementation.",
+  "csv_contract": [
+    "platform",
+    "keyword",
+    "source_type",
+    "title",
+    "content",
+    "url",
+    "published_at"
+  ],
+  "variables": [
+    {
+      "name": "keywords",
+      "type": "list",
+      "purpose": "Keyword list for low-frequency sampling."
+    },
+    {
+      "name": "current_keyword",
+      "type": "text",
+      "purpose": "Current keyword in ForEach loop."
+    },
+    {
+      "name": "xhs_page",
+      "type": "web_page_object",
+      "purpose": "Opened Xiaohongshu page object."
+    },
+    {
+      "name": "post_cards",
+      "type": "web_element_list",
+      "purpose": "Search result post card list."
+    },
+    {
+      "name": "current_card",
+      "type": "web_element",
+      "purpose": "Current post card in loop."
+    },
+    {
+      "name": "post_title",
+      "type": "text",
+      "purpose": "Post title."
+    },
+    {
+      "name": "post_summary",
+      "type": "text",
+      "purpose": "Post summary or visible body preview."
+    },
+    {
+      "name": "post_url",
+      "type": "text",
+      "purpose": "Original post URL."
+    },
+    {
+      "name": "post_time",
+      "type": "text",
+      "purpose": "Publish time; may be empty."
+    },
+    {
+      "name": "comment_text",
+      "type": "text",
+      "purpose": "Publicly visible comment text."
+    },
+    {
+      "name": "row_data",
+      "type": "list",
+      "purpose": "One Falcon CSV row."
+    }
+  ],
+  "steps": [
+    {
+      "id": "init_keywords",
+      "commands": [
+        "新建列表",
+        "列表插入一项"
+      ],
+      "outputs": [
+        "keywords"
+      ],
+      "web_elements_required": []
+    },
+    {
+      "id": "open_xiaohongshu",
+      "commands": [
+        "打开网页",
+        "等待"
+      ],
+      "outputs": [
+        "xhs_page"
+      ],
+      "web_elements_required": []
+    },
+    {
+      "id": "loop_keywords",
+      "commands": [
+        "ForEach列表循环"
+      ],
+      "outputs": [
+        "current_keyword"
+      ],
+      "web_elements_required": []
+    },
+    {
+      "id": "search_keyword",
+      "commands": [
+        "点击元素(web)",
+        "填写输入框(web)",
+        "键盘输入",
+        "等待",
+        "等待元素(web)"
+      ],
+      "outputs": [],
+      "web_elements_required": [
+        "search_input"
+      ]
+    },
+    {
+      "id": "get_post_cards",
+      "commands": [
+        "获取相似元素列表(web)"
+      ],
+      "outputs": [
+        "post_cards"
+      ],
+      "web_elements_required": [
+        "result_card"
+      ]
+    },
+    {
+      "id": "loop_post_cards",
+      "commands": [
+        "ForEach列表循环"
+      ],
+      "outputs": [
+        "current_card"
+      ],
+      "web_elements_required": []
+    },
+    {
+      "id": "extract_post_fields",
+      "commands": [
+        "获取关联元素(web)",
+        "获取元素信息(web)"
+      ],
+      "outputs": [
+        "post_title",
+        "post_summary",
+        "post_url",
+        "post_time"
+      ],
+      "web_elements_required": [
+        "post_title",
+        "post_summary",
+        "post_link",
+        "post_time"
+      ]
+    },
+    {
+      "id": "build_post_row",
+      "commands": [
+        "新建列表",
+        "列表插入一项"
+      ],
+      "outputs": [
+        "row_data"
+      ],
+      "row_values": [
+        "xiaohongshu",
+        "current_keyword",
+        "post",
+        "post_title",
+        "post_summary",
+        "post_url",
+        "post_time"
+      ],
+      "web_elements_required": []
+    },
+    {
+      "id": "write_post_row",
+      "commands": [
+        "写入内容至数据表格"
+      ],
+      "outputs": [],
+      "web_elements_required": []
+    },
+    {
+      "id": "optional_comment_extract",
+      "commands": [
+        "点击元素(web)",
+        "等待元素(web)",
+        "获取相似元素列表(web)",
+        "ForEach列表循环",
+        "获取元素信息(web)",
+        "新建列表",
+        "列表插入一项",
+        "写入内容至数据表格"
+      ],
+      "outputs": [
+        "comment_text",
+        "row_data"
+      ],
+      "row_values": [
+        "xiaohongshu",
+        "current_keyword",
+        "comment",
+        "post_title",
+        "comment_text",
+        "post_url",
+        "comment_time_or_empty"
+      ],
+      "web_elements_required": [
+        "result_card",
+        "comment_text",
+        "comment_time",
+        "detail_close"
+      ]
+    },
+    {
+      "id": "export_csv_via_data_table",
+      "commands": [
+        "数据表格导出"
+      ],
+      "outputs": [
+        "falcon_csv"
+      ],
+      "web_elements_required": []
+    },
+    {
+      "id": "alternative_direct_csv_write",
+      "commands": [
+        "数据写入CSV"
+      ],
+      "outputs": [
+        "falcon_csv"
+      ],
+      "web_elements_required": []
+    }
+  ],
+  "still_needed": [
+    "Xiaohongshu webpage element-library screenshots for search_input, result_card, post_title, post_summary, post_link, post_time, comment_text, comment_time, detail_close.",
+    "Optional parameter-panel screenshot for 获取元素信息(web) if href/text selection is not obvious in Yingdao UI."
+  ]
+}
