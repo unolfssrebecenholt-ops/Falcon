@@ -56,11 +56,14 @@ class HeuristicAnalyzer:
         "太难",
         "自动生成",
         "生成",
+        "平替",
+        "替代",
+        "更好用",
         "?",
         "？",
     ]
 
-    PAIN_SIGNALS = ["没人看", "没人点", "点击", "排版", "不好看", "不会做", "难", "救命", "求助"]
+    PAIN_SIGNALS = ["没人看", "没人点", "点击", "排版", "不好看", "不好用", "不会做", "难", "救命", "求助"]
     NOISE_SIGNALS = ["哈哈", "路过", "围观", "好可爱", "好看", "蹲", "收藏了"]
 
     def analyze(self, item: RawItem) -> AnalysisResult:
@@ -128,6 +131,8 @@ class HeuristicAnalyzer:
     def _recommended_action(self, item: RawItem, scene_tag: str, intent_score: int, content_value_score: int) -> str:
         if intent_score < 60:
             return "ignore"
+        if item.source_type == "comment" and intent_score >= 75:
+            return "comment_reply"
         if scene_tag == "xhs_cover" and intent_score >= 80:
             return "comment_reply" if item.source_type == "comment" else "topic_only"
         if content_value_score >= 75:

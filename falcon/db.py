@@ -1,8 +1,9 @@
 import hashlib
 import json
 import sqlite3
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, Iterator, List, Optional
 
 from .analysis import AnalysisResult
 from .models import Draft, OutreachTask, RawItem, utc_now_iso
@@ -26,6 +27,11 @@ class FalconRepository:
                     title TEXT NOT NULL,
                     content TEXT NOT NULL,
                     url TEXT NOT NULL,
+                    parent_url TEXT NOT NULL DEFAULT '',
+                    author TEXT NOT NULL DEFAULT '',
+                    commenter TEXT NOT NULL DEFAULT '',
+                    like_count TEXT NOT NULL DEFAULT '',
+                    comment_rank TEXT NOT NULL DEFAULT '',
                     published_at TEXT NOT NULL DEFAULT '',
                     collected_at TEXT NOT NULL
                 );
@@ -71,6 +77,11 @@ class FalconRepository:
                 );
                 """
             )
+            self._ensure_column(conn, "raw_items", "parent_url", "TEXT NOT NULL DEFAULT ''")
+            self._ensure_column(conn, "raw_items", "author", "TEXT NOT NULL DEFAULT ''")
+            self._ensure_column(conn, "raw_items", "commenter", "TEXT NOT NULL DEFAULT ''")
+            self._ensure_column(conn, "raw_items", "like_count", "TEXT NOT NULL DEFAULT ''")
+            self._ensure_column(conn, "raw_items", "comment_rank", "TEXT NOT NULL DEFAULT ''")
 
     def upsert_raw_item(self, item: RawItem) -> int:
         source_hash = self._source_hash(item)
@@ -78,8 +89,10 @@ class FalconRepository:
             conn.execute(
                 """
                 INSERT OR IGNORE INTO raw_items (
-                    source_hash, platform, keyword, source_type, title, content, url, published_at, collected_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    source_hash, platform, keyword, source_type, title, content, url,
+                    parent_url, author, commenter, like_count, comment_rank,
+                    published_at, collected_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     source_hash,
@@ -89,6 +102,11 @@ class FalconRepository:
                     item.title,
                     item.content,
                     item.url,
+                    item.parent_url,
+                    item.author,
+                    item.commenter,
+                    item.like_count,
+                    item.comment_rank,
                     item.published_at,
                     item.collected_at,
                 ),
@@ -205,6 +223,11 @@ class FalconRepository:
                 raw_items.title,
                 raw_items.content,
                 raw_items.url,
+                raw_items.parent_url,
+                raw_items.author,
+                raw_items.commenter,
+                raw_items.like_count,
+                raw_items.comment_rank,
                 ai_scores.*
             FROM ai_scores
             JOIN raw_items ON raw_items.id = ai_scores.raw_item_id
@@ -255,10 +278,15 @@ class FalconRepository:
                 (status, handled_at, task_id),
             )
 
-    def _connect(self) -> sqlite3.Connection:
+    @contextmanager
+    def _connect(self) -> Iterator[sqlite3.Connection]:
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
-        return conn
+        try:
+            with conn:
+                yield conn
+        finally:
+            conn.close()
 
     def _source_hash(self, item: RawItem) -> str:
         payload = "\n".join([item.platform, item.url, item.title, item.content])
@@ -273,6 +301,11 @@ class FalconRepository:
             title=row["title"],
             content=row["content"],
             url=row["url"],
+            parent_url=row["parent_url"],
+            author=row["author"],
+            commenter=row["commenter"],
+            like_count=row["like_count"],
+            comment_rank=row["comment_rank"],
             published_at=row["published_at"],
             collected_at=row["collected_at"],
         )
@@ -294,3 +327,8 @@ class FalconRepository:
             content=row["content"],
             handled_at=row["handled_at"],
         )
+
+    def _ensure_column(self, conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
+        columns = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+        if column not in columns:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")

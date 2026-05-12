@@ -58,6 +58,24 @@ class HeuristicAnalyzerTest(unittest.TestCase):
         self.assertEqual(result.scene_tag, "avatar")
         self.assertGreaterEqual(result.intent_score, 60)
 
+    def test_scores_tool_recommendation_comment_as_high_intent(self):
+        item = RawItem(
+            platform="xiaohongshu",
+            keyword="生图小程序",
+            source_type="comment",
+            title="生图工具测评",
+            content="现在这个生图工具不好用，求推荐更好用的生图工具，有没有平替？",
+            url="https://example.com/note/4?comment=1",
+            parent_url="https://example.com/note/4",
+        )
+
+        result = HeuristicAnalyzer().analyze(item)
+
+        self.assertGreaterEqual(result.intent_score, 80)
+        self.assertEqual(result.recommended_action, "comment_reply")
+        self.assertEqual(result.outreach_type, "comment_reply")
+        self.assertIn("工具", result.reason)
+
 
 if __name__ == "__main__":
     unittest.main()

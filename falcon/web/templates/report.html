@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}日报 - Falcon{% endblock %}
+{% block content %}
+<header class="page-header">
+  <div>
+    <h1>日报</h1>
+    <p>{{ report_path }}</p>
+  </div>
+  <a class="button" href="/">返回总览</a>
+</header>
+
+<section class="panel">
+  {% if content %}
+  <pre class="report-content">{{ content }}</pre>
+  {% else %}
+  <p class="muted">还没有找到日报文件。</p>
+  {% endif %}
+</section>
+{% endblock %}

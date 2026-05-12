@@ -51,6 +51,7 @@ class DailyReportBuilderTest(unittest.TestCase):
             self.assertIn("小红书封面没人点？3 个标题图方法", report)
             self.assertIn("触达任务箱", report)
             self.assertIn("https://example.com/note/1", report)
+            self.assertIn(f"raw_id {raw_id}", report)
 
     def test_can_add_gpt55_summary_when_client_is_provided(self):
         class FakeSummaryClient:
@@ -67,6 +68,70 @@ class DailyReportBuilderTest(unittest.TestCase):
 
             self.assertIn("GPT-5.5 总结", report)
             self.assertIn("今天优先围绕小红书封面点击率", report)
+
+    def test_report_includes_post_content_and_comment_pain_points(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = FalconRepository(Path(tmp) / "falcon.sqlite3")
+            repo.init_schema()
+            post_id = repo.upsert_raw_item(
+                RawItem(
+                    platform="xiaohongshu",
+                    keyword="生图小程序",
+                    source_type="post",
+                    title="生图工具测评",
+                    content="正文：适合做小红书封面、活动海报和标题图。",
+                    url="https://example.com/note/post1",
+                    author="作者A",
+                )
+            )
+            comment_id = repo.upsert_raw_item(
+                RawItem(
+                    platform="xiaohongshu",
+                    keyword="生图小程序",
+                    source_type="comment",
+                    title="生图工具测评",
+                    content="这个生图工具不好用，求推荐更好用的生图工具",
+                    url="https://example.com/note/post1?comment=1",
+                    parent_url="https://example.com/note/post1",
+                    commenter="用户B",
+                    comment_rank="1",
+                )
+            )
+            post_analysis = AnalysisResult(
+                scene_tag="xhs_cover",
+                intent_score=82,
+                content_value_score=88,
+                pain_point="封面内容生产需求",
+                suggested_topic="生图工具如何做小红书封面",
+                recommended_action="topic_only",
+                outreach_type="topic_only",
+                outreach_priority="medium",
+                reason="正文样本",
+            )
+            comment_analysis = AnalysisResult(
+                scene_tag="free",
+                intent_score=91,
+                content_value_score=89,
+                pain_point="当前生图工具不好用，正在求推荐替代工具",
+                suggested_topic="比现有生图工具更好用的替代方案",
+                recommended_action="comment_reply",
+                outreach_type="comment_reply",
+                outreach_priority="high",
+                reason="评论痛点",
+            )
+            repo.save_analysis(post_id, post_analysis)
+            repo.save_analysis(comment_id, comment_analysis)
+
+            report = DailyReportBuilder(repo).build_markdown()
+
+            self.assertIn("高价值笔记正文", report)
+            self.assertIn("正文：适合做小红书封面", report)
+            self.assertIn("评论痛点与求推荐信号", report)
+            self.assertIn("求推荐更好用的生图工具", report)
+            self.assertIn(
+                "评论：这个生图工具不好用，求推荐更好用的生图工具（意图 91，来源 https://example.com/note/post1）",
+                report,
+            )
 
 
 if __name__ == "__main__":

@@ -6,15 +6,46 @@ Falcon 第一版是给 `AI出图助手` 用的本地 MVP：小红书优先的社
 
 ## 当前能力
 
-- 小红书 RPA/表格 CSV 导入。
+- 小红书 RPA/表格 CSV 导入，支持影刀两列 xlsx 导出。
 - SQLite 本地数据中枢。
 - 小红书封面主推，活动海报、微信头像、朋友圈背景、随便画画作为探针场景。
 - 启发式意图评分，可在未配置 GPT 时独立运行。
 - GPT-5.5 中转站草稿生成，配置后用于评论区回复、私信和轻建议草稿。
 - Markdown 日报输出。
 - 触达任务箱状态流转：`pending`、`copied`、`handled`、`skipped`、`invalid`。
+- 本地 Web 控制台：关键词池、影刀导入分析、人工复核和触达任务管理。
 
 ## 快速开始
+
+安装依赖：
+
+```bash
+python3 -m pip install -e .
+```
+
+Windows:
+
+```powershell
+py -3 -m pip install -e .
+```
+
+启动本地 Web 控制台：
+
+```powershell
+py -3 -m falcon --db data\falcon.sqlite3 web --host 127.0.0.1 --port 8765
+```
+
+也可以把数据库参数放在 `web` 子命令后面：
+
+```powershell
+py -3 -m falcon web --host 127.0.0.1 --port 8765 --db data\falcon.sqlite3
+```
+
+然后打开：
+
+```text
+http://127.0.0.1:8765
+```
 
 macOS:
 
@@ -91,7 +122,7 @@ python3 -m falcon --db data/falcon.sqlite3 report --summary gpt --output reports
 
 ## RPA 接入方式
 
-第一版不内置直接抓取网站的代码。影刀或其他 RPA 只需要低频采集公开可见内容，并导出 CSV，字段见 [docs/rpa-xiaohongshu.md](docs/rpa-xiaohongshu.md)。
+第一版不内置直接抓取网站的代码。影刀或其他 RPA 只需要低频采集公开可见内容，并导出 CSV 或影刀两列 xlsx，字段和命令见 [docs/rpa-xiaohongshu.md](docs/rpa-xiaohongshu.md)。日常运行步骤见 [docs/yingdao-runbook.md](docs/yingdao-runbook.md)。
 
 ## 目录
 

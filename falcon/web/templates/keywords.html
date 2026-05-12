@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}关键词池 - Falcon{% endblock %}
+{% block content %}
+<header class="page-header">
+  <div>
+    <h1>关键词池</h1>
+    <p>维护影刀采样要用的主题、关键词、场景和每日采样量。</p>
+  </div>
+</header>
+
+<section class="panel">
+  <form method="post" action="/keywords/default" class="inline-form">
+    <input name="path" value="{{ keyword_path }}">
+    <input name="theme" value="生图小程序">
+    <button class="button" type="submit">生成默认关键词池</button>
+  </form>
+</section>
+
+<section class="panel">
+  <table>
+    <thead>
+      <tr><th>主题</th><th>关键词</th><th>场景</th><th>权重</th><th>每日上限</th></tr>
+    </thead>
+    <tbody>
+      {% for task in tasks %}
+      <tr>
+        <td>{{ task.theme }}</td>
+        <td>{{ task.keyword }}</td>
+        <td>{{ task.scene }}</td>
+        <td>{{ task.weight }}</td>
+        <td>{{ task.daily_limit }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5" class="muted">还没有关键词池。</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

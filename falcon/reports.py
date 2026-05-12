@@ -37,7 +37,7 @@ class DailyReportBuilder:
                 if topic in seen_topics:
                     continue
                 seen_topics.add(topic)
-                lines.append(f"- 选题：{topic}（意图 {item['intent_score']}）")
+                lines.append(f"- raw_id {item['raw_id']} 选题：{topic}（意图 {item['intent_score']}）")
         else:
             lines.append("- 暂无高价值小红书封面样本。")
 
@@ -46,10 +46,39 @@ class DailyReportBuilder:
         if probes:
             for item in probes[:8]:
                 lines.append(
-                    f"- {item['scene_tag']}：{item['suggested_topic']}（意图 {item['intent_score']}，来源 {item['url']}）"
+                    f"- raw_id {item['raw_id']} {item['scene_tag']}：{item['suggested_topic']}（意图 {item['intent_score']}，来源 {item['url']}）"
                 )
         else:
             lines.append("- 今日未发现强探针信号。")
+
+        lines.extend(["", "## 高价值笔记正文"])
+        post_items = [item for item in scored_items if item["source_type"] == "post"]
+        if post_items:
+            for item in post_items[:8]:
+                content = self._compact(item["content"])
+                lines.append(
+                    f"- raw_id {item['raw_id']} {item['title']}（意图 {item['intent_score']}，来源 {item['url']}）"
+                )
+                if content:
+                    lines.append(f"  - 正文摘录：{content}")
+        else:
+            lines.append("- 暂无可用笔记正文样本。")
+
+        lines.extend(["", "## 评论痛点与求推荐信号"])
+        comment_items = [item for item in scored_items if item["source_type"] == "comment"]
+        if comment_items:
+            for item in comment_items[:10]:
+                content = self._compact(item["content"])
+                source_url = item.get("parent_url") or item["url"]
+                lines.append(
+                    f"- raw_id {item['raw_id']} 评论：{content}（意图 {item['intent_score']}，来源 {source_url}）"
+                )
+                if item.get("pain_point"):
+                    lines.append(f"  - 痛点：{item['pain_point']}")
+                if item.get("suggested_topic"):
+                    lines.append(f"  - 可转选题：{item['suggested_topic']}")
+        else:
+            lines.append("- 暂无评论痛点样本。")
 
         summary = self._build_summary(keyword_stats, scored_items, tasks)
         if summary:
@@ -75,6 +104,12 @@ class DailyReportBuilder:
             ]
         )
         return "\n".join(lines) + "\n"
+
+    def _compact(self, value: object, limit: int = 120) -> str:
+        text = " ".join(str(value or "").split())
+        if len(text) <= limit:
+            return text
+        return text[: limit - 1] + "…"
 
     def _build_summary(self, keyword_stats, scored_items, tasks) -> str:
         if self.summary_client is None:

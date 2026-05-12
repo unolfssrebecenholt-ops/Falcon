@@ -6,8 +6,8 @@
 
 - 仓库已推送到 GitHub：`ssh://git@ssh.github.com:443/unolfssrebecenholt-ops/Falcon.git`
 - 当前分支：`main`
-- 当前阶段：第一版本地 MVP 已建立。
-- 技术形态：Python 标准库 + SQLite + CSV 导入 + Markdown 日报。
+- 当前阶段：第一版本地 MVP 已建立，影刀 RPA 资料交接和 Falcon 侧采集质量升级已合并到 `main`。
+- 技术形态：Python + FastAPI + Jinja + SQLite + CSV/xlsx 导入 + 结构化影刀导入 + Markdown 日报。
 - 项目必须保持 Windows 和 macOS 双端可运行。
 
 ## 已完成
@@ -26,24 +26,47 @@
 - 实现 GPT-5.5 OpenAI 兼容中转站客户端。
 - 实现 Markdown 日报。
 - 补充 RPA CSV 字段说明。
+- 实现影刀两列 xlsx 导出导入适配器：
+  - A 列映射为 `title/content`。
+  - B 列映射为 `url`。
+  - `keyword` 由导入命令参数传入，不在流程或代码里写死。
+- 实现新版影刀结构化 xlsx 导入适配器：
+  - 支持 `platform,keyword,source_type,title,content,url,parent_url,author,commenter,like_count,comment_rank,collected_at` 表头。
+  - 支持 `post/comment` 一行一条记录。
+  - 保留旧版 A/B 两列 xlsx 兼容。
+- 实现 RPA 关键词池：
+  - `write-keyword-pool` 生成本地 `data/rpa_keywords.csv`。
+  - 字段为 `theme,keyword,scene,weight,daily_limit`。
+  - 根据程序名生成求推荐、替代工具、不好用吐槽、教程需求和场景需求关键词。
+- 实现影刀日常工作流命令：
+  - `run-yingdao-daily` 一次完成导入、分析和日报输出。
+- 实现人工复核闭环：
+  - 日报 Top 样本显示 `raw_id`。
+  - `review-raw-item` 可记录 `优秀/有用/一般/无用/噪音`。
+- 实现本地 Web 控制台：
+  - 总览页展示样本、分析、高意图和待处理任务。
+  - 采集运行页一键执行影刀 xlsx 导入、分析和日报。
+  - 关键词池页生成和查看本地关键词池。
+  - 复核页记录 Top 20 样本反馈。
+  - 触达任务页更新任务状态。
+- 补充 `docs/yingdao-runbook.md` 作为影刀日常运行手册。
+- 补充影刀 RPA 交接资料：
+  - `ShadowBladeElement/` 保存用户提供的影刀指令分组截图和关键二/三层截图。
+  - `docs/rpa-elements/` 保存影刀指令目录、当前主流程、元素命名约定和工作流草稿。
+  - `prototype/xiaohongshu-rpa-sop.html` 保存可直接打开的影刀采集 SOP 教学原型。
 - 补充示例 CSV。
 - 补充双机开发规则和 start-work protocol。
 
 ## 最近一次提交准备
 
-- 本次变更目标：沉淀影刀 RPA 小红书公开样本采集教程、指令截图归档、当前主流程状态和排错记录，方便 Windows 机器继续搭建真实影刀流程。
-- 本次文档更新：
-  - `docs/rpa-elements/yingdao-command-catalog.md` / `.json`：按用户截图归档影刀指令分组、一层指令、二/三层关键指令。
-  - `docs/rpa-elements/xiaohongshu-workflow-draft.md` / `.json`：记录小红书公开样本采集的准流程和待补网页元素。
-  - `docs/rpa-elements/current-yingdao-mainflow.md` / `.json`：记录当前影刀主流程截图中已经配置的步骤、变量和元素。
-  - `docs/rpa-elements/xiaohongshu-elements.md` / `.json`：记录待归档的小红书网页元素和命名约定。
-  - `prototype/xiaohongshu-rpa-sop.html`：新增可直接打开的影刀采集 SOP 教学原型。
-  - `ShadowBladeElement/`：保存用户提供的影刀指令分组截图和关键二/三层截图，作为后续编排流程的证据源。
-  - 为 Windows 兼容性，截图文件名中的 `:` 已改为 `-`，例如 `Excel-WPS表格.png`、`流程-应用.png`。
-  - `docs/progress.md`：更新本次 RPA 交接状态、当前错误和 Windows 接手提示。
+- 本次变更目标：把 `codex/yingdao-landing` 功能分支和 `main` 的影刀 RPA 交接资料合并回 `main`，后续只保留 `main` 作为接手分支。
+- 本次合并内容：
+  - 保留 `main` 上的 `ShadowBladeElement/`、`docs/rpa-elements/` 和 `prototype/xiaohongshu-rpa-sop.html`。
+  - 合入功能分支上的结构化影刀 xlsx 导入、关键词池、日常工作流、人工复核、本地 Web 控制台和日报质量升级。
+  - 显式配置 `pyproject.toml` 只打包 `falcon` 包，避免本地忽略目录 `data/`、`reports/` 影响 `pip install -e .`。
 - 本次验证：
-  - `python3 -m unittest discover -s tests`
-  - `python3 -m json.tool` 校验 `docs/rpa-elements/*.json`
+  - `python -m unittest discover -s tests`
+  - `python -m pip install -e .`
 
 ## 当前问题解决进度
 
@@ -66,15 +89,28 @@
 - 已解决：列表下标越界排查：
   - 列表长度为 `list_len` 时，最大合法下标是 `list_len - 1`。
   - `For次数循环` 如果从 `0` 开始，结束值必须是 `list_len - 1`，不能直接到 `list_len`。
+- 已解决：Windows 基线测试曾因 SQLite 连接未关闭导致临时库文件被占用，已让仓储连接在提交/回滚后显式关闭。
+- 已验证：Windows 机器已实际运行基线测试和 smoke workflow。
+- 已解决：影刀当前版本未找到本地导出流程入口，改用“批量数据抓取 + 数据表格导出”生成 xlsx。
+- 已解决：Falcon 可直接导入影刀 A/B 两列 xlsx，关键词通过 `--keyword` 显式传入。
+- 已解决：Falcon 可直接导入新版影刀结构化 xlsx，包含笔记正文、评论、父链接、作者、评论者、点赞数和评论排名字段。
+- 已解决：Falcon 可根据程序名生成本地 RPA 关键词池，不再只靠固定场景词。
+- 已解决：Falcon 可用一条命令运行影刀日常导入、分析和日报。
+- 已解决：日报 Top 样本可按 `raw_id` 做人工复核记录。
+- 已解决：日报新增高价值笔记正文、评论痛点与求推荐信号区块。
+- 已解决：CLI 业务逻辑抽为共享 workflow，Web 和 CLI 共用导入、分析、日报逻辑。
+- 已解决：本地 Web 控制台可访问总览、采集运行、关键词池、人工复核和触达任务页面。
 - 待确认：真实 GPT-5.5 中转站环境变量尚未在本仓库验证，当前测试使用 fake client 和模板模式。
-- 待确认：Windows 机器尚未实际运行 smoke workflow，需要下次 Windows 接手时验证。
-- 待继续：小红书真实网页元素仍需继续归档，尤其是详情页 `detail_title`、`detail_content`、评论文本元素，以及最终 CSV 写入动作的成功验证。
+- 待继续：小红书真实网页元素仍需继续归档，尤其是详情页 `detail_title`、`detail_content`、评论文本元素，以及最终 CSV/xlsx 写入动作的成功验证。
 
 ## 方案进度
 
 - 需求雷达：MVP 已完成。
 - AI 触达任务箱：MVP 已完成，当前只生成草稿，不自动发送。
-- RPA 接入：CSV 契约已定义；影刀指令目录、教学 SOP、当前主流程和关键排错已归档；真实影刀流程已进入手工搭建/调试阶段，尚未完成可稳定导出的真实 CSV。
+- RPA 接入：CSV 契约已定义；已接入影刀旧版 A/B xlsx 和新版结构化 xlsx 导出格式；影刀指令目录、教学 SOP、当前主流程和关键排错已归档；已用真实旧版导出文件导入 25 条样本。
+- 日常运行：已具备关键词池生成、影刀每日一键分析命令、人工复核记录和运行手册。
+- 采集质量：Falcon 侧已支持影刀导出正文和评论；影刀侧下一步按 runbook 改造流程参数和详情页/评论区采集节点。
+- 可视化：已接入本地 Web 控制台第一版；第一版不控制影刀客户端。
 - 多平台扩展：架构已预留 adapter，当前只实现小红书 CSV。
 - 小程序转化归因：尚未接入，等待 `Image-sp` 上线或埋点方案确定。
 
@@ -82,13 +118,23 @@
 
 最近一次验证：
 
-```bash
-python3 -m unittest discover -s tests
+```powershell
+python -m unittest discover -s tests
 ```
 
 结果：
 
-- 10 tests passed.
+- 30 tests passed.
+
+本次 editable 安装验证：
+
+```powershell
+python -m pip install -e .
+```
+
+结果：
+
+- 安装成功。
 
 本次 JSON 文档验证：
 
@@ -105,48 +151,35 @@ python3 -m json.tool docs/rpa-elements/current-yingdao-mainflow.json >/dev/null
 
 最近一次 smoke workflow：
 
+- Windows PowerShell，临时目录：`$env:TEMP\falcon-quality-smoke`。
 - 初始化临时 SQLite。
-- 导入 `examples/xiaohongshu_samples.csv`。
-- 分析 5 条样本。
-- 创建 4 个触达任务。
-- 生成 Markdown 日报。
+- 执行 `run-yingdao-daily data\xhs_raw_export.xlsx --keyword "生图小程序"`。
+- 导入真实影刀旧版 A/B 导出 25 条样本。
+- 分析 25 条样本。
+- 创建 9 个触达任务。
+- 生成 Markdown 日报，包含“高价值笔记正文”和“评论痛点与求推荐信号”区块。
 
 ## 下一步建议
 
-1. 在 Windows 上 `git pull` 后先读 `docs/rpa-elements/current-yingdao-mainflow.md`，从当前影刀主流程继续。
-2. 在影刀中继续调试链接流程：
-   - `获取相似元素列表(web)` 得到 `post_link_list`。
-   - `ForEach列表循环` 或 `For次数循环` 处理链接。
-   - 跳转前先保存 `href_raw` 和完整 `post_url`。
-   - 如用下标循环，结束值使用 `list_len - 1`。
-3. 优先打开详情页提取 `detail_title` 和 `detail_content`，先只写 `source_type=post` 的 7 列 CSV。
-4. CSV 每行字段固定为：
-   - `platform` = `xiaohongshu`
-   - `keyword` = `current_keyword`
-   - `source_type` = `post`
-   - `title` = 详情页标题
-   - `content` = 详情页正文/摘要
-   - `url` = `post_url`
-   - `published_at` = 空字符串
-5. 导出或写入一份小样本 CSV 后，使用 `python3 -m falcon --db data/falcon.sqlite3 import-csv <CSV路径>` / Windows `py -3 -m falcon ...` 验证。
-6. 评论采集放到第二阶段：一篇笔记可对应一条 `post` 行和多条 `comment` 行，评论内容写入同一个 `content` 字段，用 `source_type=comment` 区分。
+1. 在影刀界面按 `docs/yingdao-runbook.md` 把 `output_dir/output_filename/keyword/max_search_items/search_scroll_times/detail_open_limit/comment_top_limit/comment_scroll_times` 设置为流程参数。
+2. 结合 `docs/rpa-elements/current-yingdao-mainflow.md` 继续改造影刀流程：搜索页滚动去重链接，打开详情页采集标题/正文/作者，评论区采集默认热度 Top 15。
+3. 跳转详情页前先保存完整 `post_url`；跳转后不要再访问 `link_item` 这种旧页面元素对象；如用下标循环，结束值使用 `list_len - 1`。
+4. 导出新版结构化 xlsx 后，用 Falcon 导入验证 `post/comment` 两类数据。
+5. 每天复核日报中的“高价值笔记正文”和“评论痛点与求推荐信号”，记录 `优秀/有用/一般/无用/噪音`。
+6. 稳定后再配置 Windows 任务计划，形成影刀采集和 Falcon 分析的分段调度。
 
 ## Windows 接手提示
 
 ```powershell
 git pull
-py -3 -m unittest discover -s tests
+python -m unittest discover -s tests
 ```
 
 然后：
 
 1. 打开 `docs\rpa-elements\current-yingdao-mainflow.md` 看当前影刀流程状态。
-2. 打开 `docs\rpa-elements\xiaohongshu-workflow-draft.md` 看下一步链条。
-3. 在影刀中继续修正当前报错：
-   - 循环下标不要到 `list_len`，要到 `list_len - 1`。
-   - 跳转详情页前先保存完整 `post_url`。
-   - 跳转后不要再访问 `link_item` 这种旧页面元素对象。
-4. 跑通真实 CSV 后再按 `docs/development-guide.md` 运行 Windows smoke workflow。
+2. 打开 `docs\rpa-elements\xiaohongshu-workflow-draft.md` 和 `docs\yingdao-runbook.md` 看下一步链条。
+3. 如需复核完整链路，再按 `docs/development-guide.md` 运行 Windows smoke workflow。
 
 ## Mac 接手提示
 
