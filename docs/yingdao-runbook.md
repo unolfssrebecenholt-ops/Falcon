@@ -2,6 +2,8 @@
 
 本手册用于把影刀网页采集结果稳定接入 Falcon。第一版只做低频公开样本采集、分析、日报和人工复核，不自动评论、不自动私信。
 
+配套架构资料见 [影刀 RPA 混合架构开发指南](rpa-elements/yingdao-hybrid-architecture-guide.md)。遇到动态选择器、SPA 弹窗、点击遮挡、非唯一匹配、Python 变量回写等问题时，先按该指南排查。
+
 ## 1. 影刀流程参数
 
 影刀流程里保留这些流程参数，换机器或换主题时只改参数：
@@ -30,16 +32,18 @@ PD 虚拟 Windows 或另一台 Windows 机器只需要改 `output_dir`。不要�
    - 连续 2 次滚动后没有新增笔记链接。
 3. 去重笔记链接，只保留小红书笔记详情链接。
 4. 按顺序打开前 `detail_open_limit` 篇笔记详情页。
-5. 在详情页采集：
+5. 优先通过“点击卡片 -> 等待弹窗渲染 -> 读取当前地址栏 URL”的方式进入详情，不批量直接跳转 URL。
+6. 在详情页采集：
    - 笔记标题。
    - 笔记正文。
    - 作者。
    - 当前笔记 URL。
-6. 打开或定位评论区，按页面默认顺序采集热度靠前评论：
+7. 打开或定位评论区，按页面默认顺序采集热度靠前评论：
    - 最多采集 `comment_top_limit` 条。
    - 最多滚动 `comment_scroll_times` 次。
    - 如果页面不暴露真实点赞数，`comment_rank` 记录展示顺序。
-7. 导出统一 xlsx，建议表头如下：
+8. 用 `{Esc}` 关闭 SPA 弹窗，回到搜索结果页继续处理下一张卡片。
+9. 导出统一 xlsx，建议表头如下：
 
 ```csv
 platform,keyword,source_type,title,content,url,parent_url,author,commenter,like_count,comment_rank,collected_at
@@ -51,6 +55,8 @@ platform,keyword,source_type,title,content,url,parent_url,author,commenter,like_
 - 评论行：`source_type=comment`，`content` 放评论文本，`parent_url` 放所属笔记链接，`commenter` 放评论用户，`comment_rank` 放热评顺序。
 - `platform` 固定为 `xiaohongshu`。
 - `keyword` 使用当前流程参数，不要写死在影刀节点里。
+
+流程内建议先用 `新建列表` 声明 `row_data_list`。循环中由可视化流程捕获元素和字段，Python 代码段负责清洗并 `row_data_list.append(row)`；循环结束后再一次性写入 xlsx/CSV。
 
 ## 3. 关键词池
 

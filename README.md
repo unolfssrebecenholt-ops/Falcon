@@ -122,7 +122,7 @@ python3 -m falcon --db data/falcon.sqlite3 report --summary gpt --output reports
 
 ## RPA 接入方式
 
-第一版不内置直接抓取网站的代码。影刀或其他 RPA 只需要低频采集公开可见内容，并导出 CSV 或影刀两列 xlsx，字段和命令见 [docs/rpa-xiaohongshu.md](docs/rpa-xiaohongshu.md)。日常运行步骤见 [docs/yingdao-runbook.md](docs/yingdao-runbook.md)。
+第一版不内置直接抓取网站的代码。影刀或其他 RPA 只需要低频采集公开可见内容，并导出 CSV 或影刀两列 xlsx，字段和命令见 [docs/rpa-xiaohongshu.md](docs/rpa-xiaohongshu.md)。日常运行步骤见 [docs/yingdao-runbook.md](docs/yingdao-runbook.md)，复杂网页的影刀混合架构和避坑原则见 [docs/rpa-elements/yingdao-hybrid-architecture-guide.md](docs/rpa-elements/yingdao-hybrid-architecture-guide.md)。
 
 ## 目录
 
