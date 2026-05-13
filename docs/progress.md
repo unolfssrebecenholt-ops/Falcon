@@ -54,18 +54,21 @@
   - `ShadowBladeElement/` 保存用户提供的影刀指令分组截图和关键二/三层截图。
   - `docs/rpa-elements/` 保存影刀指令目录、当前主流程、元素命名约定和工作流草稿。
   - `docs/rpa-elements/yingdao-hybrid-architecture-guide.md` 保存影刀“可视化 + Python”混合架构、SPA 弹窗、JS 点击、容错、动态选择器和反风控路径等避坑知识。
+  - `docs/rpa-elements/yingdao-component-handbook.md` 按组件对象记录影刀组件用途、输入输出、操作手册、已知坑和验证方式。
+  - `docs/rpa-elements/yingdao-assistant-rules.md` 固化后续 Codex 辅助影刀时的 DOM 取证要求、伪工作流回答格式和排查顺序。
   - `prototype/xiaohongshu-rpa-sop.html` 保存可直接打开的影刀采集 SOP 教学原型。
 - 补充示例 CSV。
 - 补充双机开发规则和 start-work protocol。
 
 ## 最近一次提交准备
 
-- 本次变更目标：把用户提供的《影刀 RPA 混合架构开发指南与避坑总结》沉淀为项目资产，供后续影刀流程搭建和 AI 辅助回答复用。
+- 本次变更目标：把 2026-05-14 Windows 影刀调试经验沉淀为项目规则和组件资料，方便 Mac 端继续接手小红书影刀流程搭建。
 - 本次整理内容：
-  - 新增 `docs/rpa-elements/yingdao-hybrid-architecture-guide.md`，系统记录动态选择器、严格模式、视觉遮挡、SPA 路由、错误码 129、全局列表 + Python append、低频点击详情路径等实践。
-  - 更新 `docs/yingdao-runbook.md`，把详情采集从“直接打开链接”明确调整为“点击卡片 -> 等待 SPA 弹窗 -> 读取地址栏 URL -> Esc 关闭”的稳健路径。
-  - 更新 `docs/rpa-elements/xiaohongshu-workflow-draft.md`，把 `row_data_list`、`current_card`、Python 清洗组装和 SPA 弹窗处理写进后续编排约束。
-  - 更新 `README.md` 的 RPA 接入段，增加混合架构指南入口。
+  - 新增 `docs/rpa-elements/yingdao-component-handbook.md`，按影刀组件对象记录用途、输入输出、操作手册、已知坑、推荐写法和验证方式。
+  - 新增 `docs/rpa-elements/yingdao-assistant-rules.md`，固化后续 Codex 辅助影刀时必须先读项目影刀资料、主动索取 DOM 证据、使用伪工作流格式、沿用用户行号和优先禁用节点的规则。
+  - 更新 `AGENTS.md`，把“任何影刀相关回答、设计、排查或修改前必须先读完本项目影刀资料”提升为项目规则。
+  - 更新 `docs/rpa-elements/yingdao-hybrid-architecture-guide.md`，加入组件手册和辅助规则入口，并修正小红书禁用 JS 点击时的默认建议。
+  - 更新 `docs/progress.md`，记录多关键词状态重置、瀑布流 DOM 快照、`current_card.get_attribute("href")`、`should_click_card`、一行一写 CSV、点击误入图片放大层、运行时不要移动鼠标/切换窗口等经验。
 - 本次验证：
   - `py -3 -m unittest discover -s tests`
 
@@ -102,6 +105,8 @@
 - 已解决：CLI 业务逻辑抽为共享 workflow，Web 和 CLI 共用导入、分析、日报逻辑。
 - 已解决：本地 Web 控制台可访问总览、采集运行、关键词池、人工复核和触达任务页面。
 - 已解决：影刀混合架构避坑知识已归档，后续回答影刀搭建问题时以“可视化交互 + Python 数据处理”为默认高价值方案。
+- 已归档：2026-05-14 影刀调试经验已按组件对象分类沉淀，包括多关键词状态重置、瀑布流 DOM 快照、`current_card.get_attribute("href")` 取链接、`should_click_card` 整数旗标、禁用节点保留行号、一行一写 CSV、点击误入图片放大层、小红书禁用 JS 点击、运行时不要移动鼠标或切换窗口等规则。
+- 已归档：项目规则已新增“任何影刀相关回答、设计、排查或修改前必须先读完本项目影刀资料”的要求，并同步到 `docs/rpa-elements/yingdao-assistant-rules.md`。
 - 待确认：真实 GPT-5.5 中转站环境变量尚未在本仓库验证，当前测试使用 fake client 和模板模式。
 - 待继续：小红书真实网页元素仍需继续归档，尤其是详情页 `detail_title`、`detail_content`、评论文本元素，以及最终 CSV/xlsx 写入动作的成功验证。
 
@@ -128,6 +133,7 @@ py -3 -m unittest discover -s tests
 
 - 30 tests passed.
 - 2026-05-13 Windows PowerShell 复跑通过：30 tests passed.
+- 2026-05-14 Windows PowerShell 复跑通过：30 tests passed.
 
 本次 editable 安装验证：
 
@@ -193,7 +199,7 @@ python3 -m unittest discover -s tests
 
 然后：
 
-1. 打开 `docs/rpa-elements/yingdao-hybrid-architecture-guide.md`，按混合架构原则继续设计影刀详情页和评论区节点。
-2. 打开 `docs/rpa-elements/current-yingdao-mainflow.md`，从“获取搜索结果帖子卡片相似元素”开始补流程。
-3. 打开 `docs/yingdao-runbook.md`，确认导出字段仍为结构化表头。
-4. 按 `docs/development-guide.md` 运行 macOS smoke workflow。
+1. 影刀相关问题先按 `AGENTS.md` 要求读完 `docs/rpa-elements/yingdao-assistant-rules.md`、`docs/rpa-elements/yingdao-component-handbook.md`、`docs/rpa-elements/yingdao-hybrid-architecture-guide.md`、`docs/yingdao-runbook.md`、`docs/rpa-elements/current-yingdao-mainflow.md` 和 `docs/rpa-elements/xiaohongshu-workflow-draft.md`。
+2. 继续排查当前小红书点击链路：XPath 获取 `post_link_list` 已能读到 `href_raw`，`should_click_card` 整数旗标可进入点击；当前风险是点击 `a.cover` 后可能误入图片放大层，需要结合详情弹窗 DOM 和交互截图调整点击目标或点击位置。
+3. 调试时保留用户影刀流程行号，改节点优先禁用而不是删除；回答用户时用伪工作流格式。
+4. 导出 CSV/xlsx 后，按 `docs/development-guide.md` 运行 macOS smoke workflow 或 Falcon `run-yingdao-daily` 验证导入、分析和日报。

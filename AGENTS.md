@@ -16,6 +16,17 @@
 - The project must remain runnable on both Windows and macOS. Prefer Python standard library code, cross-platform paths via `pathlib`, and commands that have Windows and macOS equivalents.
 - If adding dependencies later, document installation commands for both Windows and macOS in `docs/development-guide.md`.
 
+## Yingdao RPA rules
+
+- Before answering, designing, debugging, or modifying anything related to 影刀/Yingdao RPA, first read the project Yingdao materials:
+  - `docs/rpa-elements/yingdao-assistant-rules.md`
+  - `docs/rpa-elements/yingdao-component-handbook.md`
+  - `docs/rpa-elements/yingdao-hybrid-architecture-guide.md`
+  - `docs/yingdao-runbook.md`
+  - `docs/rpa-elements/current-yingdao-mainflow.md`
+  - `docs/rpa-elements/xiaohongshu-workflow-draft.md`
+- After reading them, answer Yingdao workflow questions in pseudo-workflow format, reuse the user's existing step names and variables, and prefer disabling nodes over deleting them when preserving line order matters.
+
 ## Start-work protocol
 
 When the user says "开始工作":
