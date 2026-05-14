@@ -6,7 +6,7 @@
 
 - 仓库已推送到 GitHub：`ssh://git@ssh.github.com:443/unolfssrebecenholt-ops/Falcon.git`
 - 当前分支：`main`
-- 当前阶段：第一版本地 MVP 已建立，影刀 RPA 资料交接和 Falcon 侧采集质量升级已合并到 `main`。
+- 当前阶段：第一版本地 MVP 已建立，影刀 RPA 资料交接、组件手册、Falcon 侧采集质量升级和 dashboard 方案原型已合并准备交接。
 - 技术形态：Python + FastAPI + Jinja + SQLite + CSV/xlsx 导入 + 结构化影刀导入 + Markdown 日报。
 - 项目必须保持 Windows 和 macOS 双端可运行。
 
@@ -57,20 +57,22 @@
   - `docs/rpa-elements/yingdao-component-handbook.md` 按组件对象记录影刀组件用途、输入输出、操作手册、已知坑和验证方式。
   - `docs/rpa-elements/yingdao-assistant-rules.md` 固化后续 Codex 辅助影刀时的 DOM 取证要求、伪工作流回答格式和排查顺序。
   - `prototype/xiaohongshu-rpa-sop.html` 保存可直接打开的影刀采集 SOP 教学原型。
+- 补充 `prototype/falcon-dashboard.html` 作为 Falcon 进度和方案 dashboard 高保真原型：
+  - 用于讨论后续正式 Web 控制台的信息架构、交接视图和方案进度展示。
+  - 当前是静态 HTML 原型，不接真实数据库，不替代已实现的 FastAPI Web 控制台。
 - 补充示例 CSV。
 - 补充双机开发规则和 start-work protocol。
 
 ## 最近一次提交准备
 
-- 本次变更目标：把 2026-05-14 Windows 影刀调试经验沉淀为项目规则和组件资料，方便 Mac 端继续接手小红书影刀流程搭建。
+- 本次变更目标：完成 2026-05-14 Mac 端拉代码、合并远端进度、验证项目状态，并把 Falcon dashboard 方案原型和交接进度推送到 GitHub，方便晚些时候 Windows 继续开发。
 - 本次整理内容：
-  - 新增 `docs/rpa-elements/yingdao-component-handbook.md`，按影刀组件对象记录用途、输入输出、操作手册、已知坑、推荐写法和验证方式。
-  - 新增 `docs/rpa-elements/yingdao-assistant-rules.md`，固化后续 Codex 辅助影刀时必须先读项目影刀资料、主动索取 DOM 证据、使用伪工作流格式、沿用用户行号和优先禁用节点的规则。
-  - 更新 `AGENTS.md`，把“任何影刀相关回答、设计、排查或修改前必须先读完本项目影刀资料”提升为项目规则。
-  - 更新 `docs/rpa-elements/yingdao-hybrid-architecture-guide.md`，加入组件手册和辅助规则入口，并修正小红书禁用 JS 点击时的默认建议。
-  - 更新 `docs/progress.md`，记录多关键词状态重置、瀑布流 DOM 快照、`current_card.get_attribute("href")`、`should_click_card`、一行一写 CSV、点击误入图片放大层、运行时不要移动鼠标/切换窗口等经验。
+  - 已执行 `git pull`，本地 `main` 从 `edb325f` 快进到远端 `c0780dc`，无冲突。
+  - 远端已带入 `docs/rpa-elements/yingdao-component-handbook.md`、`docs/rpa-elements/yingdao-assistant-rules.md` 和最新 `AGENTS.md` 影刀规则。
+  - 新增 `prototype/falcon-dashboard.html`，保存 Falcon 方案进度和交接状态 dashboard 静态原型。
+  - 更新 `docs/progress.md`，记录 Mac 端拉取、合并、依赖验证、测试结果和 Windows 接手提示。
 - 本次验证：
-  - `py -3 -m unittest discover -s tests`
+  - `python3 -m unittest discover -s tests`
 
 ## 当前问题解决进度
 
@@ -107,6 +109,9 @@
 - 已解决：影刀混合架构避坑知识已归档，后续回答影刀搭建问题时以“可视化交互 + Python 数据处理”为默认高价值方案。
 - 已归档：2026-05-14 影刀调试经验已按组件对象分类沉淀，包括多关键词状态重置、瀑布流 DOM 快照、`current_card.get_attribute("href")` 取链接、`should_click_card` 整数旗标、禁用节点保留行号、一行一写 CSV、点击误入图片放大层、小红书禁用 JS 点击、运行时不要移动鼠标或切换窗口等规则。
 - 已归档：项目规则已新增“任何影刀相关回答、设计、排查或修改前必须先读完本项目影刀资料”的要求，并同步到 `docs/rpa-elements/yingdao-assistant-rules.md`。
+- 已完成：2026-05-14 Mac 端已拉取并合并远端 `main` 最新影刀组件手册和辅助规则，无冲突。
+- 已完成：`prototype/falcon-dashboard.html` 已作为方案进度和交接 dashboard 静态原型纳入仓库，供后续正式 Web 控制台改造参考。
+- 已确认：Mac 系统自带 `pip 21.2.4` 对当前 `pyproject.toml` editable 安装支持不足，`python3 -m pip install -e .` 会失败；本机已改用直接安装依赖 `fastapi httpx jinja2 python-multipart uvicorn` 后完成测试。Windows 仍按 `py -3 -m pip install -e .`。
 - 待确认：真实 GPT-5.5 中转站环境变量尚未在本仓库验证，当前测试使用 fake client 和模板模式。
 - 待继续：小红书真实网页元素仍需继续归档，尤其是详情页 `detail_title`、`detail_content`、评论文本元素，以及最终 CSV/xlsx 写入动作的成功验证。
 
@@ -117,7 +122,7 @@
 - RPA 接入：CSV 契约已定义；已接入影刀旧版 A/B xlsx 和新版结构化 xlsx 导出格式；影刀指令目录、教学 SOP、当前主流程、关键排错和混合架构指南已归档；已用真实旧版导出文件导入 25 条样本。
 - 日常运行：已具备关键词池生成、影刀每日一键分析命令、人工复核记录和运行手册。
 - 采集质量：Falcon 侧已支持影刀导出正文和评论；影刀侧下一步按 runbook 改造流程参数和详情页/评论区采集节点。
-- 可视化：已接入本地 Web 控制台第一版；第一版不控制影刀客户端。
+- 可视化：已接入本地 Web 控制台第一版；第一版不控制影刀客户端；已补充 dashboard 高保真静态原型，后续可按原型抽取真实控制台页面。
 - 多平台扩展：架构已预留 adapter，当前只实现小红书 CSV。
 - 小程序转化归因：尚未接入，等待 `Image-sp` 上线或埋点方案确定。
 
@@ -134,6 +139,34 @@ py -3 -m unittest discover -s tests
 - 30 tests passed.
 - 2026-05-13 Windows PowerShell 复跑通过：30 tests passed.
 - 2026-05-14 Windows PowerShell 复跑通过：30 tests passed.
+- 2026-05-14 macOS `python3` 复跑通过：30 tests passed.
+
+本次 macOS 验证过程：
+
+```bash
+python3 -m unittest discover -s tests
+```
+
+第一次结果：
+
+- 22 tests started, `tests/test_web_app.py` 导入失败。
+- 根因：当前 Mac Python 环境缺少 `fastapi`。
+
+依赖补齐：
+
+```bash
+python3 -m pip install fastapi httpx jinja2 python-multipart uvicorn
+```
+
+补齐后再次运行：
+
+```bash
+python3 -m unittest discover -s tests
+```
+
+结果：
+
+- 30 tests passed.
 
 本次 editable 安装验证：
 
@@ -181,14 +214,15 @@ python3 -m json.tool docs/rpa-elements/current-yingdao-mainflow.json >/dev/null
 
 ```powershell
 git pull
-python -m unittest discover -s tests
+py -3 -m unittest discover -s tests
 ```
 
 然后：
 
 1. 打开 `docs\rpa-elements\current-yingdao-mainflow.md` 看当前影刀流程状态。
 2. 打开 `docs\rpa-elements\xiaohongshu-workflow-draft.md` 和 `docs\yingdao-runbook.md` 看下一步链条。
-3. 如需复核完整链路，再按 `docs/development-guide.md` 运行 Windows smoke workflow。
+3. 打开 `prototype\falcon-dashboard.html` 查看 Falcon 方案进度 dashboard 静态原型，后续如要做正式页面，应接入现有 FastAPI Web 控制台而不是另起应用。
+4. 如需复核完整链路，再按 `docs/development-guide.md` 运行 Windows smoke workflow。
 
 ## Mac 接手提示
 
@@ -202,4 +236,5 @@ python3 -m unittest discover -s tests
 1. 影刀相关问题先按 `AGENTS.md` 要求读完 `docs/rpa-elements/yingdao-assistant-rules.md`、`docs/rpa-elements/yingdao-component-handbook.md`、`docs/rpa-elements/yingdao-hybrid-architecture-guide.md`、`docs/yingdao-runbook.md`、`docs/rpa-elements/current-yingdao-mainflow.md` 和 `docs/rpa-elements/xiaohongshu-workflow-draft.md`。
 2. 继续排查当前小红书点击链路：XPath 获取 `post_link_list` 已能读到 `href_raw`，`should_click_card` 整数旗标可进入点击；当前风险是点击 `a.cover` 后可能误入图片放大层，需要结合详情弹窗 DOM 和交互截图调整点击目标或点击位置。
 3. 调试时保留用户影刀流程行号，改节点优先禁用而不是删除；回答用户时用伪工作流格式。
-4. 导出 CSV/xlsx 后，按 `docs/development-guide.md` 运行 macOS smoke workflow 或 Falcon `run-yingdao-daily` 验证导入、分析和日报。
+4. 如果 `python3 -m pip install -e .` 因系统 pip 过旧失败，先安装运行依赖 `python3 -m pip install fastapi httpx jinja2 python-multipart uvicorn`，再运行测试。
+5. 导出 CSV/xlsx 后，按 `docs/development-guide.md` 运行 macOS smoke workflow 或 Falcon `run-yingdao-daily` 验证导入、分析和日报。
