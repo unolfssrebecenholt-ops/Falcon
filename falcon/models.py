@@ -26,6 +26,88 @@ class RawItem:
 
 
 @dataclass
+class CollectionRun:
+    run_id: str
+    platform: str
+    keyword: str
+    profile: str
+    status: str = "queued"
+    progress: int = 0
+    current_step: str = ""
+    max_posts: int = 20
+    max_comments_per_post: int = 10
+    created_at: str = field(default_factory=utc_now_iso)
+    updated_at: str = field(default_factory=utc_now_iso)
+    completed_at: str = ""
+    failed_reason: str = ""
+
+
+@dataclass
+class CollectionEvent:
+    run_id: str
+    sequence: int
+    scope: str
+    event: str
+    message: str
+    level: str = "info"
+    payload_json: str = ""
+    created_at: str = field(default_factory=utc_now_iso)
+    event_id: Optional[int] = None
+
+
+@dataclass
+class CollectedPost:
+    run_id: str
+    platform: str
+    keyword: str
+    title: str
+    content: str
+    url: str
+    author: str = ""
+    published_at: str = ""
+    like_count: str = ""
+    comment_count: str = ""
+    detail_fingerprint: str = ""
+    collected_at: str = field(default_factory=utc_now_iso)
+    post_id: Optional[int] = None
+
+
+@dataclass
+class CollectedComment:
+    post_id: int
+    run_id: str
+    commenter: str
+    content: str
+    like_count: str = ""
+    comment_rank: str = ""
+    collected_at: str = field(default_factory=utc_now_iso)
+    comment_id: Optional[int] = None
+
+
+@dataclass
+class MediaAsset:
+    run_id: str
+    path: str
+    asset_type: str
+    post_id: Optional[int] = None
+    url: str = ""
+    sha256: str = ""
+    created_at: str = field(default_factory=utc_now_iso)
+    asset_id: Optional[int] = None
+
+
+@dataclass
+class Evidence:
+    run_id: str
+    evidence_type: str
+    path: str
+    scope: str = ""
+    payload_json: str = ""
+    created_at: str = field(default_factory=utc_now_iso)
+    evidence_id: Optional[int] = None
+
+
+@dataclass
 class Draft:
     kind: str
     text: str

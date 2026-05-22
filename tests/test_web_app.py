@@ -9,8 +9,24 @@ from fastapi.testclient import TestClient
 from falcon.analysis import AnalysisResult
 from falcon.cli import build_parser
 from falcon.db import FalconRepository
-from falcon.models import Draft, RawItem
+from falcon.models import (
+    CollectedPost,
+    CollectionEvent,
+    CollectionRun,
+    Draft,
+    Evidence,
+    MediaAsset,
+    RawItem,
+)
 from falcon.web.app import create_app
+
+
+LEGACY_COLLECTION_MARKERS = ("".join(chr(code) for code in (24433, 20992)), "R" + "PA")
+
+
+def assert_no_legacy_collection_markers(test_case: unittest.TestCase, content: str) -> None:
+    for marker in LEGACY_COLLECTION_MARKERS:
+        test_case.assertNotIn(marker, content)
 
 
 class WebAppTest(unittest.TestCase):
@@ -148,6 +164,298 @@ class WebAppTest(unittest.TestCase):
 
             self.assertEqual(response.status_code, 303)
             self.assertEqual(repo.list_outreach_tasks()[0].task_status, "handled")
+
+    def test_collector_overview_renders_current_information_architecture(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "falcon.sqlite3"
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="xhs-queued",
+                    platform="xiaohongshu",
+                    keyword="AI cover",
+                    profile="default",
+                )
+            )
+            client = TestClient(create_app(db_path))
+
+            response = client.get("/collector")
+
+            self.assertEqual(response.status_code, 200)
+            self.assertIn("采集总览", response.text)
+            self.assertIn("平台入口", response.text)
+            self.assertIn("三层流转", response.text)
+            self.assertIn("xhs-queued", response.text)
+            assert_no_legacy_collection_markers(self, response.text)
+
+    def test_collector_create_get_renders_task_form(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "falcon.sqlite3"
+            client = TestClient(create_app(db_path))
+
+            response = client.get("/collector/create")
+
+            self.assertEqual(response.status_code, 200)
+            self.assertIn("创建任务", response.text)
+            self.assertIn('name="keyword"', response.text)
+            self.assertIn('name="max_posts"', response.text)
+            assert_no_legacy_collection_markers(self, response.text)
+
+    def test_collector_create_post_queues_run_and_redirects_to_detail(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            db_path = tmp_path / "falcon.sqlite3"
+            client = TestClient(create_app(db_path))
+
+            response = client.post(
+                "/collector/create",
+                data={
+                    "platform": "xiaohongshu",
+                    "profile": "creator",
+                    "keyword": "AI cover",
+                    "max_posts": "7",
+                    "max_comments_per_post": "3",
+                },
+                follow_redirects=False,
+            )
+
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            runs = repo.list_collection_runs()
+            self.assertEqual(response.status_code, 303)
+            self.assertEqual(len(runs), 1)
+            self.assertEqual(runs[0].status, "queued")
+            self.assertEqual(runs[0].platform, "xiaohongshu")
+            self.assertEqual(runs[0].keyword, "AI cover")
+            self.assertEqual(runs[0].profile, "creator")
+            self.assertEqual(runs[0].max_posts, 7)
+            self.assertTrue(response.headers["location"].endswith(f"/collector/runs/{runs[0].run_id}"))
+            request_path = tmp_path / "runtime" / "collector" / runs[0].run_id / "request.json"
+            self.assertTrue(request_path.exists())
+            self.assertIn('"platform": "xiaohongshu"', request_path.read_text(encoding="utf-8"))
+
+    def test_collector_create_rejects_unknown_platform_and_path_profile(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            db_path = tmp_path / "falcon.sqlite3"
+            client = TestClient(create_app(db_path))
+
+            bad_platform = client.post(
+                "/collector/create",
+                data={
+                    "platform": "../outside",
+                    "profile": "default",
+                    "keyword": "AI cover",
+                    "max_posts": "5",
+                    "max_comments_per_post": "1",
+                },
+                follow_redirects=False,
+            )
+            bad_profile = client.post(
+                "/collector/create",
+                data={
+                    "platform": "xiaohongshu",
+                    "profile": "..\\outside",
+                    "keyword": "AI cover",
+                    "max_posts": "5",
+                    "max_comments_per_post": "1",
+                },
+                follow_redirects=False,
+            )
+
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            self.assertEqual(bad_platform.status_code, 400)
+            self.assertEqual(bad_profile.status_code, 400)
+            self.assertEqual(repo.list_collection_runs(), [])
+            self.assertFalse((tmp_path / "outside").exists())
+
+    def test_collector_run_detail_shows_event_chain_outputs_and_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "falcon.sqlite3"
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="xhs-detail",
+                    platform="xiaohongshu",
+                    keyword="AI cover",
+                    profile="default",
+                    status="running",
+                    progress=35,
+                    current_step="reading detail cards",
+                )
+            )
+            repo.append_collection_event(
+                CollectionEvent(
+                    run_id="xhs-detail",
+                    sequence=1,
+                    scope="search",
+                    event="open_search",
+                    message="Opened keyword search",
+                )
+            )
+            post_id = repo.save_collected_post(
+                CollectedPost(
+                    run_id="xhs-detail",
+                    platform="xiaohongshu",
+                    keyword="AI cover",
+                    title="Cover prompt ideas",
+                    content="Useful notes",
+                    url="https://example.test/post/1",
+                    author="creator",
+                    detail_fingerprint="fp-detail",
+                )
+            )
+            repo.save_media_asset(
+                MediaAsset(
+                    run_id="xhs-detail",
+                    post_id=post_id,
+                    path="runtime/collector/xhs-detail/assets/cover.jpg",
+                    asset_type="image",
+                    sha256="abc123",
+                )
+            )
+            repo.save_evidence(
+                Evidence(
+                    run_id="xhs-detail",
+                    evidence_type="screenshot",
+                    path="runtime/collector/xhs-detail/evidence/search.png",
+                    scope="search",
+                )
+            )
+            client = TestClient(create_app(db_path))
+
+            response = client.get("/collector/runs/xhs-detail")
+
+            self.assertEqual(response.status_code, 200)
+            self.assertIn("任务详情", response.text)
+            self.assertIn("reading detail cards", response.text)
+            self.assertIn("Opened keyword search", response.text)
+            self.assertIn("Cover prompt ideas", response.text)
+            self.assertIn("cover.jpg", response.text)
+            self.assertIn("search.png", response.text)
+            assert_no_legacy_collection_markers(self, response.text)
+
+    def test_analysis_overview_uses_existing_scored_items(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "falcon.sqlite3"
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            raw_id = repo.upsert_raw_item(
+                RawItem(
+                    platform="xiaohongshu",
+                    keyword="AI cover",
+                    source_type="post",
+                    title="Need better covers",
+                    content="How can I improve cover click-through?",
+                    url="https://example.test/post/analysis",
+                )
+            )
+            repo.save_analysis(
+                raw_id,
+                AnalysisResult(
+                    scene_tag="xhs_cover",
+                    intent_score=91,
+                    content_value_score=84,
+                    pain_point="cover click-through is low",
+                    suggested_topic="Cover upgrade checklist",
+                    recommended_action="write_topic",
+                    outreach_type="comment_reply",
+                    outreach_priority="high",
+                    reason="clear pain point",
+                ),
+            )
+            client = TestClient(create_app(db_path))
+
+            response = client.get("/analysis")
+
+            self.assertEqual(response.status_code, 200)
+            self.assertIn("分析总览", response.text)
+            self.assertIn('action="/analysis/promote"', response.text)
+            self.assertIn("Need better covers", response.text)
+            self.assertIn("Cover upgrade checklist", response.text)
+            assert_no_legacy_collection_markers(self, response.text)
+
+    def test_analysis_promote_collected_posts_creates_raw_items(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "falcon.sqlite3"
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="xhs-promote",
+                    platform="xiaohongshu",
+                    keyword="AI cover",
+                    profile="default",
+                    status="completed",
+                )
+            )
+            repo.save_collected_post(
+                CollectedPost(
+                    run_id="xhs-promote",
+                    platform="xiaohongshu",
+                    keyword="AI cover",
+                    title="Promote this sample",
+                    content="Need a reusable cover workflow.",
+                    url="local://collector/xhs-promote/post-1",
+                    author="creator",
+                    detail_fingerprint="promote-1",
+                )
+            )
+            client = TestClient(create_app(db_path))
+
+            response = client.post("/analysis/promote", follow_redirects=False)
+
+            self.assertEqual(response.status_code, 303)
+            raw_items = repo.list_raw_items()
+            self.assertEqual(len(raw_items), 1)
+            self.assertEqual(raw_items[0].title, "Promote this sample")
+
+    def test_execution_overview_uses_existing_outreach_tasks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "falcon.sqlite3"
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            raw_id = repo.upsert_raw_item(
+                RawItem(
+                    platform="xiaohongshu",
+                    keyword="AI cover",
+                    source_type="post",
+                    title="Execution candidate",
+                    content="Need a reply",
+                    url="https://example.test/post/execution",
+                )
+            )
+            analysis = AnalysisResult(
+                scene_tag="xhs_cover",
+                intent_score=88,
+                content_value_score=79,
+                pain_point="needs cover advice",
+                suggested_topic="reply draft",
+                recommended_action="comment_reply",
+                outreach_type="comment_reply",
+                outreach_priority="high",
+                reason="clear request",
+            )
+            analysis_id = repo.save_analysis(raw_id, analysis)
+            repo.create_outreach_task(
+                raw_id,
+                analysis_id,
+                analysis,
+                [Draft(kind="comment_reply", text="Try a shorter title and stronger contrast.")],
+                risk_note="human confirmation required",
+            )
+            client = TestClient(create_app(db_path))
+
+            response = client.get("/execution")
+
+            self.assertEqual(response.status_code, 200)
+            self.assertIn("执行总览", response.text)
+            self.assertIn("Execution candidate", response.text)
+            self.assertIn("Try a shorter title", response.text)
+            assert_no_legacy_collection_markers(self, response.text)
 
 
 if __name__ == "__main__":

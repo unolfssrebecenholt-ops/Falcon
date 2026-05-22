@@ -2,6 +2,7 @@ import argparse
 from pathlib import Path
 from typing import Optional
 
+from .collector import CollectorService
 from .db import FalconRepository
 from .image2 import FALCON_AGENT_ARCHITECTURE_PROMPT, Image2Client, load_env_file
 from .keyword_pool import write_default_keyword_pool
@@ -44,6 +45,34 @@ def build_parser() -> argparse.ArgumentParser:
     raw_review_parser.add_argument("raw_id", type=int)
     raw_review_parser.add_argument("feedback", choices=["优秀", "有用", "一般", "无用", "噪音"])
     raw_review_parser.add_argument("--note", default="")
+
+    collector_dry_run_parser = subparsers.add_parser("collector-dry-run", help="Run the Node collector sidecar in dry-run mode")
+    collector_dry_run_parser.add_argument("--platform", default="xiaohongshu")
+    collector_dry_run_parser.add_argument("--profile", default="default")
+    collector_dry_run_parser.add_argument("--keyword", required=True)
+    collector_dry_run_parser.add_argument("--run-id", default="")
+    collector_dry_run_parser.add_argument("--max-posts", type=int, default=20)
+    collector_dry_run_parser.add_argument("--max-comments-per-post", type=int, default=10)
+    collector_dry_run_parser.add_argument("--headed", action="store_true")
+    collector_dry_run_parser.add_argument("--runtime-root", default=str(Path("runtime") / "collector"))
+    collector_dry_run_parser.add_argument("--profile-root", default="browser-profiles")
+
+    collector_run_parser = subparsers.add_parser("collector-run", help="Run the Node collector sidecar in real browser mode")
+    collector_run_parser.add_argument("--platform", default="xiaohongshu")
+    collector_run_parser.add_argument("--profile", default="default")
+    collector_run_parser.add_argument("--keyword", required=True)
+    collector_run_parser.add_argument("--run-id", default="")
+    collector_run_parser.add_argument("--max-posts", type=int, default=20)
+    collector_run_parser.add_argument("--max-comments-per-post", type=int, default=10)
+    collector_run_parser.add_argument("--headless", dest="headed", action="store_false")
+    collector_run_parser.set_defaults(headed=True)
+    collector_run_parser.add_argument("--runtime-root", default=str(Path("runtime") / "collector"))
+    collector_run_parser.add_argument("--profile-root", default="browser-profiles")
+
+    collector_ingest_parser = subparsers.add_parser("collector-ingest", help="Ingest collector sidecar JSONL outputs")
+    collector_ingest_parser.add_argument("--run-id", required=True)
+    collector_ingest_parser.add_argument("--events", required=True)
+    collector_ingest_parser.add_argument("--records", required=True)
 
     web_parser = subparsers.add_parser("web", help="Run local Falcon web console")
     web_parser.add_argument("--host", default="127.0.0.1")
@@ -102,6 +131,52 @@ def main(argv: Optional[list] = None) -> int:
         repo.init_schema()
         feedback_id = repo.add_feedback(args.feedback, args.note, raw_item_id=args.raw_id)
         print(f"Recorded raw item feedback {feedback_id} for raw_id {args.raw_id}")
+        return 0
+
+    if args.command == "collector-dry-run":
+        repo.init_schema()
+        service = CollectorService(
+            repo,
+            runtime_root=Path(args.runtime_root),
+            profile_root=Path(args.profile_root),
+        )
+        run = service.run_dry_run(
+            platform=args.platform,
+            profile=args.profile,
+            keyword=args.keyword,
+            max_posts=args.max_posts,
+            max_comments_per_post=args.max_comments_per_post,
+            headed=args.headed,
+            run_id=args.run_id,
+        )
+        print(f"Collector dry-run {run.run_id} -> {run.status}")
+        return 0 if run.status == "completed" else 1
+
+    if args.command == "collector-run":
+        repo.init_schema()
+        service = CollectorService(
+            repo,
+            runtime_root=Path(args.runtime_root),
+            profile_root=Path(args.profile_root),
+        )
+        run = service.run_sidecar(
+            platform=args.platform,
+            profile=args.profile,
+            keyword=args.keyword,
+            max_posts=args.max_posts,
+            max_comments_per_post=args.max_comments_per_post,
+            headed=args.headed,
+            dry_run=False,
+            run_id=args.run_id,
+        )
+        print(f"Collector run {run.run_id} -> {run.status}")
+        return 0 if run.status == "completed" else 1
+
+    if args.command == "collector-ingest":
+        repo.init_schema()
+        service = CollectorService(repo)
+        service.ingest_outputs(args.run_id, Path(args.events), Path(args.records))
+        print(f"Ingested collector outputs for {args.run_id}")
         return 0
 
     if args.command == "web":

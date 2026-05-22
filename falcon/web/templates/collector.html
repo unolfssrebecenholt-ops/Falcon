@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}采集总览 - Falcon{% endblock %}
+{% block content %}
+<header class="page-header">
+  <div>
+    <h1>采集总览</h1>
+    <p>统一查看 Falcon 浏览器采集层的任务规模、平台入口、队列状态、Worker/Profile 摘要和三层流转。</p>
+  </div>
+  <div class="action-row">
+    <a class="button primary" href="/collector/create">创建任务</a>
+  </div>
+</header>
+
+<section class="metrics">
+  <div class="metric"><span>任务总数</span><strong>{{ stats.total_runs }}</strong></div>
+  <div class="metric"><span>运行中</span><strong>{{ stats.running_runs }}</strong></div>
+  <div class="metric"><span>等待人工</span><strong>{{ stats.waiting_manual_runs }}</strong></div>
+  <div class="metric"><span>采集样本</span><strong>{{ stats.total_posts }}</strong></div>
+</section>
+
+<section class="panel">
+  <div class="section-head">
+    <h2>平台入口</h2>
+    <span class="muted">第一阶段优先小红书，其余入口保留配置位置。</span>
+  </div>
+  <div class="card-grid">
+    {% for platform in platforms %}
+    <article class="mini-card">
+      <div class="card-title">
+        <strong>{{ platform.name }}</strong>
+        <span class="pill">{{ platform.status }}</span>
+      </div>
+      <dl class="compact-list">
+        <div><dt>任务</dt><dd>{{ platform.run_count }}</dd></div>
+        <div><dt>样本</dt><dd>{{ platform.post_count }}</dd></div>
+        <div><dt>最近状态</dt><dd>{{ platform.latest.status if platform.latest else "未开始" }}</dd></div>
+      </dl>
+    </article>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="panel">
+  <h2>三层流转</h2>
+  <ol class="flow-list">
+    <li><strong>采集层</strong><span>真实浏览器读取公开样本、事件链、媒体资产和证据包。</span></li>
+    <li><strong>分析层</strong><span>从样本中识别需求、痛点、选题和评论意向。</span></li>
+    <li><strong>执行层</strong><span>生成可预览草稿和素材，最后动作保持人工确认。</span></li>
+  </ol>
+</section>
+
+<section class="panel">
+  <div class="section-head">
+    <h2>任务队列</h2>
+    <a class="button small" href="/collector/create">新建</a>
+  </div>
+  <table>
+    <thead>
+      <tr><th>Run</th><th>平台</th><th>关键词</th><th>状态</th><th>进度</th><th>当前步骤</th></tr>
+    </thead>
+    <tbody>
+      {% for run in runs %}
+      <tr>
+        <td><a href="/collector/runs/{{ run.run_id }}">{{ run.run_id }}</a></td>
+        <td>{{ run.platform }}</td>
+        <td>{{ run.keyword }}</td>
+        <td>{{ run.status }}</td>
+        <td>{{ run.progress }}%</td>
+        <td>{{ run.current_step or "-" }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6" class="muted">还没有采集任务。</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="panel">
+  <h2>Worker/Profile 摘要</h2>
+  <table>
+    <thead>
+      <tr><th>平台</th><th>Profile</th><th>状态</th><th>任务数</th></tr>
+    </thead>
+    <tbody>
+      {% for item in profile_summary %}
+      <tr>
+        <td>{{ item.platform }}</td>
+        <td>{{ item.profile }}</td>
+        <td>{{ item.status }}</td>
+        <td>{{ item.count }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="4" class="muted">暂无 Profile 使用记录。</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

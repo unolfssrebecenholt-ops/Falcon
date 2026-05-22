@@ -55,6 +55,59 @@ Windows PowerShell:
 py -3 -m unittest discover -s tests
 ```
 
+## Node collector sidecar
+
+Install real-mode browser dependency:
+
+macOS:
+
+```bash
+cd sidecar/collector
+npm install
+npx playwright install chromium
+```
+
+Windows PowerShell:
+
+```powershell
+Set-Location sidecar\collector
+npm install
+npx playwright install chromium
+Set-Location ..\..
+```
+
+Dry-run sidecar contract test:
+
+macOS:
+
+```bash
+python3 -m unittest tests.test_sidecar_contract
+```
+
+Windows PowerShell:
+
+```powershell
+py -3 -m unittest tests.test_sidecar_contract
+```
+
+Command shape:
+
+```text
+node sidecar/collector/index.mjs --request runtime/collector/<run_id>/request.json --events runtime/collector/<run_id>/events.jsonl --output runtime/collector/<run_id>/records.jsonl --assets runtime/collector/<run_id>/assets --profile browser-profiles/<platform>/<profile>
+```
+
+Python CLI dry-run:
+
+```powershell
+py -3 -m falcon --db data\falcon.sqlite3 collector-dry-run --platform xiaohongshu --profile default --keyword "小红书封面" --max-posts 5
+```
+
+Python CLI real browser run:
+
+```powershell
+py -3 -m falcon --db data\falcon.sqlite3 collector-run --platform xiaohongshu --profile default --keyword "小红书封面" --max-posts 5
+```
+
 ## 本地 smoke workflow
 
 macOS:

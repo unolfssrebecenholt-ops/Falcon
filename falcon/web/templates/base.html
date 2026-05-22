@@ -15,11 +15,23 @@
         <small>Agent</small>
       </div>
     </div>
-    <nav>
-      <a class="{{ 'active' if active == 'dashboard' else '' }}" href="/">总览</a>
-      <a class="{{ 'active' if active == 'keywords' else '' }}" href="/keywords">关键词池</a>
-      <a class="{{ 'active' if active == 'review' else '' }}" href="/review">人工复核</a>
-      <a class="{{ 'active' if active == 'tasks' else '' }}" href="/tasks">触达任务</a>
+    <nav class="nav-groups">
+      <section class="nav-group">
+        <h2>采集</h2>
+        <a class="{{ 'active' if active == 'collector' else '' }}" href="/collector">采集总览</a>
+        <a class="{{ 'active' if active == 'collector_create' else '' }}" href="/collector/create">创建任务</a>
+        {% if current_run %}
+        <a class="{{ 'active' if active == 'collector_run' else '' }}" href="/collector/runs/{{ current_run.run_id }}">任务详情</a>
+        {% endif %}
+      </section>
+      <section class="nav-group">
+        <h2>分析</h2>
+        <a class="{{ 'active' if active == 'analysis' else '' }}" href="/analysis">分析总览</a>
+      </section>
+      <section class="nav-group">
+        <h2>执行</h2>
+        <a class="{{ 'active' if active == 'execution' else '' }}" href="/execution">执行总览</a>
+      </section>
     </nav>
   </aside>
   <main class="main">

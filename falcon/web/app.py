@@ -1,12 +1,18 @@
+from collections import Counter
+from datetime import datetime, timezone
 from pathlib import Path
+from uuid import uuid4
 
-from fastapi import FastAPI, Form, Request
+from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+from ..collector import CollectorService, safe_collector_identifier
 from ..db import FalconRepository
 from ..keyword_pool import load_keyword_tasks, write_default_keyword_pool
+from ..models import CollectionEvent, CollectionRun
+from ..workflows import promote_collected_posts
 
 
 WEB_DIR = Path(__file__).parent
@@ -17,12 +23,21 @@ def create_app(db_path: Path) -> FastAPI:
     app = FastAPI(title="Falcon 控制台")
     app.state.db_path = Path(db_path)
     app.state.last_run = None
+    app.state.runtime_root = Path(db_path).parent / "runtime" / "collector"
+    app.state.profile_root = Path("browser-profiles")
     app.mount("/static", StaticFiles(directory=str(WEB_DIR / "static")), name="static")
 
     def repo() -> FalconRepository:
         repository = FalconRepository(app.state.db_path)
         repository.init_schema()
         return repository
+
+    def collector_service(repository: FalconRepository) -> CollectorService:
+        return CollectorService(
+            repository,
+            runtime_root=app.state.runtime_root,
+            profile_root=app.state.profile_root,
+        )
 
     @app.get("/")
     def dashboard(request: Request):
@@ -81,6 +96,150 @@ def create_app(db_path: Path) -> FastAPI:
         write_default_keyword_pool(Path(path), theme=theme)
         return RedirectResponse(f"/keywords?path={path}", status_code=303)
 
+    @app.get("/collector")
+    def collector_page(request: Request):
+        repository = repo()
+        runs = repository.list_collection_runs(limit=20)
+        dashboard = repository.collector_dashboard()
+        posts = repository.list_collected_posts(limit=50)
+        queued_runs = [run for run in runs if run.status in {"queued", "running", "manual_action_required"}]
+        return templates.TemplateResponse(
+            request,
+            "collector.html",
+            {
+                "active": "collector",
+                "stats": dashboard,
+                "platforms": _platform_cards(runs, posts),
+                "runs": runs,
+                "queued_runs": queued_runs,
+                "profile_summary": _profile_summary(runs),
+            },
+        )
+
+    @app.get("/collector/create")
+    def collector_create_page(request: Request):
+        return templates.TemplateResponse(
+            request,
+            "collector_create.html",
+            {
+                "active": "collector_create",
+                "platforms": _collector_platforms(),
+                "defaults": {
+                    "platform": "xiaohongshu",
+                    "profile": "default",
+                    "max_posts": 20,
+                    "max_comments_per_post": 10,
+                },
+            },
+        )
+
+    @app.post("/collector/create")
+    def create_collection_run(
+        platform: str = Form(...),
+        profile: str = Form(...),
+        keyword: str = Form(...),
+        max_posts: int = Form(20),
+        max_comments_per_post: int = Form(10),
+    ):
+        clean_platform = platform.strip() or "xiaohongshu"
+        allowed_platforms = {item["key"] for item in _collector_platforms()}
+        if clean_platform not in allowed_platforms:
+            raise HTTPException(status_code=400, detail="Unsupported collector platform")
+        try:
+            safe_collector_identifier(clean_platform, "platform")
+            clean_profile = safe_collector_identifier(profile.strip() or "default", "profile")
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        repository = repo()
+        run = CollectionRun(
+            run_id=_new_run_id(clean_platform),
+            platform=clean_platform,
+            keyword=keyword.strip(),
+            profile=clean_profile,
+            status="queued",
+            progress=0,
+            current_step="queued for browser collector",
+            max_posts=max(1, max_posts),
+            max_comments_per_post=max(0, max_comments_per_post),
+        )
+        repository.create_collection_run(run)
+        collector_service(repository).prepare_run_request(run, headed=True, dry_run=False)
+        repository.append_collection_event(
+            CollectionEvent(
+                run_id=run.run_id,
+                sequence=1,
+                scope="core",
+                event="request_prepared",
+                message="Sidecar request prepared; waiting for manual start.",
+            )
+        )
+        return RedirectResponse(f"/collector/runs/{run.run_id}", status_code=303)
+
+    @app.get("/collector/runs/{run_id}")
+    def collector_run_detail(request: Request, run_id: str):
+        repository = repo()
+        run = repository.get_collection_run(run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="Collection run not found")
+        return templates.TemplateResponse(
+            request,
+            "collector_run.html",
+            {
+                "active": "collector_run",
+                "current_run": run,
+                "run": run,
+                "events": repository.list_collection_events(run_id),
+                "posts": repository.list_collected_posts(run_id=run_id),
+                "assets": repository.list_media_assets(run_id),
+                "evidences": repository.list_evidences(run_id),
+            },
+        )
+
+    @app.get("/analysis")
+    def analysis_page(request: Request):
+        scored_items = repo().list_scored_items(limit=100)
+        keyword_stats = _keyword_stats(scored_items)
+        high_intent = [item for item in scored_items if int(item.get("intent_score") or 0) >= 80]
+        return templates.TemplateResponse(
+            request,
+            "analysis.html",
+            {
+                "active": "analysis",
+                "items": scored_items,
+                "keyword_stats": keyword_stats,
+                "stats": {
+                    "scored_count": len(scored_items),
+                    "high_intent_count": len(high_intent),
+                    "keyword_count": len(keyword_stats),
+                },
+            },
+        )
+
+    @app.post("/analysis/promote")
+    def promote_collector_samples():
+        repository = repo()
+        promoted = promote_collected_posts(repository)
+        app.state.last_run = {"message": f"已送入分析队列 {promoted} 条采集样本", "report_path": ""}
+        return RedirectResponse("/analysis", status_code=303)
+
+    @app.get("/execution")
+    def execution_page(request: Request):
+        tasks = repo().list_outreach_tasks(status="pending", limit=100)
+        priority_counts = Counter(task.outreach_priority for task in tasks)
+        return templates.TemplateResponse(
+            request,
+            "execution.html",
+            {
+                "active": "execution",
+                "tasks": tasks,
+                "stats": {
+                    "pending_count": len(tasks),
+                    "high_count": priority_counts.get("high", 0),
+                    "medium_count": priority_counts.get("medium", 0),
+                },
+            },
+        )
+
     @app.get("/review")
     def review_page(request: Request):
         return templates.TemplateResponse(
@@ -108,3 +267,65 @@ def create_app(db_path: Path) -> FastAPI:
         return RedirectResponse("/tasks", status_code=303)
 
     return app
+
+
+def _new_run_id(platform: str) -> str:
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    return f"{platform}-{stamp}-{uuid4().hex[:6]}"
+
+
+def _collector_platforms():
+    return [
+        {"key": "xiaohongshu", "name": "小红书", "status": "第一阶段"},
+        {"key": "douyin", "name": "抖音", "status": "入口占位"},
+        {"key": "weibo", "name": "微博", "status": "入口占位"},
+        {"key": "xianyu", "name": "闲鱼", "status": "入口占位"},
+    ]
+
+
+def _platform_cards(runs, posts):
+    run_counts = Counter(run.platform for run in runs)
+    post_counts = Counter(post.platform for post in posts)
+    latest = {}
+    for run in runs:
+        latest.setdefault(run.platform, run)
+    cards = []
+    for platform in _collector_platforms():
+        key = platform["key"]
+        cards.append(
+            {
+                **platform,
+                "run_count": run_counts.get(key, 0),
+                "post_count": post_counts.get(key, 0),
+                "latest": latest.get(key),
+            }
+        )
+    return cards
+
+
+def _profile_summary(runs):
+    profile_counts = Counter((run.platform, run.profile, run.status) for run in runs)
+    return [
+        {
+            "platform": platform,
+            "profile": profile,
+            "status": status,
+            "count": count,
+        }
+        for (platform, profile, status), count in profile_counts.most_common()
+    ]
+
+
+def _keyword_stats(scored_items):
+    grouped = {}
+    for item in scored_items:
+        keyword = item.get("keyword") or "未标记"
+        stats = grouped.setdefault(keyword, {"keyword": keyword, "count": 0, "high_intent": 0, "total_intent": 0})
+        intent_score = int(item.get("intent_score") or 0)
+        stats["count"] += 1
+        stats["total_intent"] += intent_score
+        if intent_score >= 80:
+            stats["high_intent"] += 1
+    for stats in grouped.values():
+        stats["avg_intent"] = round(stats["total_intent"] / stats["count"]) if stats["count"] else 0
+    return sorted(grouped.values(), key=lambda value: (-value["high_intent"], -value["avg_intent"], value["keyword"]))

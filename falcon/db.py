@@ -6,7 +6,18 @@ from pathlib import Path
 from typing import Dict, Iterator, List, Optional
 
 from .analysis import AnalysisResult
-from .models import Draft, OutreachTask, RawItem, utc_now_iso
+from .models import (
+    CollectedComment,
+    CollectedPost,
+    CollectionEvent,
+    CollectionRun,
+    Draft,
+    Evidence,
+    MediaAsset,
+    OutreachTask,
+    RawItem,
+    utc_now_iso,
+)
 
 
 class FalconRepository:
@@ -75,6 +86,98 @@ class FalconRepository:
                     note TEXT NOT NULL DEFAULT '',
                     created_at TEXT NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS collection_runs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    run_id TEXT NOT NULL UNIQUE,
+                    platform TEXT NOT NULL,
+                    keyword TEXT NOT NULL,
+                    profile TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'queued',
+                    progress INTEGER NOT NULL DEFAULT 0,
+                    current_step TEXT NOT NULL DEFAULT '',
+                    max_posts INTEGER NOT NULL DEFAULT 20,
+                    max_comments_per_post INTEGER NOT NULL DEFAULT 10,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    completed_at TEXT NOT NULL DEFAULT '',
+                    failed_reason TEXT NOT NULL DEFAULT ''
+                );
+
+                CREATE TABLE IF NOT EXISTS collection_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    run_id TEXT NOT NULL,
+                    sequence INTEGER NOT NULL,
+                    scope TEXT NOT NULL,
+                    event TEXT NOT NULL,
+                    message TEXT NOT NULL,
+                    level TEXT NOT NULL DEFAULT 'info',
+                    payload_json TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL
+                );
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_collection_events_run_exact
+                    ON collection_events(run_id, sequence, event, message);
+
+                CREATE TABLE IF NOT EXISTS collected_posts (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    run_id TEXT NOT NULL,
+                    platform TEXT NOT NULL,
+                    keyword TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    url TEXT NOT NULL,
+                    author TEXT NOT NULL DEFAULT '',
+                    published_at TEXT NOT NULL DEFAULT '',
+                    like_count TEXT NOT NULL DEFAULT '',
+                    comment_count TEXT NOT NULL DEFAULT '',
+                    detail_fingerprint TEXT NOT NULL DEFAULT '',
+                    collected_at TEXT NOT NULL
+                );
+
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_collected_posts_run_fingerprint
+                    ON collected_posts(run_id, detail_fingerprint)
+                    WHERE detail_fingerprint <> '';
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_collected_posts_run_url_title
+                    ON collected_posts(run_id, url, title)
+                    WHERE detail_fingerprint = '';
+
+                CREATE TABLE IF NOT EXISTS collected_comments (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    post_id INTEGER NOT NULL,
+                    run_id TEXT NOT NULL,
+                    commenter TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    like_count TEXT NOT NULL DEFAULT '',
+                    comment_rank TEXT NOT NULL DEFAULT '',
+                    collected_at TEXT NOT NULL
+                );
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_collected_comments_run_post_content
+                    ON collected_comments(run_id, post_id, commenter, content);
+
+                CREATE TABLE IF NOT EXISTS media_assets (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    run_id TEXT NOT NULL,
+                    post_id INTEGER,
+                    path TEXT NOT NULL,
+                    asset_type TEXT NOT NULL,
+                    url TEXT NOT NULL DEFAULT '',
+                    sha256 TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL
+                );
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_media_assets_run_post_path
+                    ON media_assets(run_id, post_id, path, asset_type);
+
+                CREATE TABLE IF NOT EXISTS evidences (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    run_id TEXT NOT NULL,
+                    evidence_type TEXT NOT NULL,
+                    path TEXT NOT NULL,
+                    scope TEXT NOT NULL DEFAULT '',
+                    payload_json TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL
+                );
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_evidences_run_path_scope
+                    ON evidences(run_id, evidence_type, path, scope);
                 """
             )
             self._ensure_column(conn, "raw_items", "parent_url", "TEXT NOT NULL DEFAULT ''")
@@ -82,6 +185,319 @@ class FalconRepository:
             self._ensure_column(conn, "raw_items", "commenter", "TEXT NOT NULL DEFAULT ''")
             self._ensure_column(conn, "raw_items", "like_count", "TEXT NOT NULL DEFAULT ''")
             self._ensure_column(conn, "raw_items", "comment_rank", "TEXT NOT NULL DEFAULT ''")
+            self._ensure_column(conn, "collection_runs", "completed_at", "TEXT NOT NULL DEFAULT ''")
+            self._ensure_column(conn, "collection_runs", "failed_reason", "TEXT NOT NULL DEFAULT ''")
+            self._ensure_column(conn, "collected_posts", "comment_count", "TEXT NOT NULL DEFAULT ''")
+            self._ensure_column(conn, "collected_posts", "detail_fingerprint", "TEXT NOT NULL DEFAULT ''")
+
+    def create_collection_run(self, run: CollectionRun) -> str:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO collection_runs (
+                    run_id, platform, keyword, profile, status, progress, current_step,
+                    max_posts, max_comments_per_post, created_at, updated_at, completed_at, failed_reason
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    run.run_id,
+                    run.platform,
+                    run.keyword,
+                    run.profile,
+                    run.status,
+                    run.progress,
+                    run.current_step,
+                    run.max_posts,
+                    run.max_comments_per_post,
+                    run.created_at,
+                    run.updated_at,
+                    run.completed_at,
+                    run.failed_reason,
+                ),
+            )
+        return run.run_id
+
+    def update_collection_run(
+        self,
+        run_id: str,
+        status: Optional[str] = None,
+        progress: Optional[int] = None,
+        current_step: Optional[str] = None,
+        failed_reason: Optional[str] = None,
+        completed_at: Optional[str] = None,
+    ) -> None:
+        updates: List[str] = ["updated_at = ?"]
+        params: List[object] = [utc_now_iso()]
+        fields = {
+            "status": status,
+            "progress": progress,
+            "current_step": current_step,
+            "failed_reason": failed_reason,
+            "completed_at": completed_at,
+        }
+        for column, value in fields.items():
+            if value is not None:
+                updates.append(f"{column} = ?")
+                params.append(value)
+        params.append(run_id)
+        with self._connect() as conn:
+            conn.execute(
+                f"UPDATE collection_runs SET {', '.join(updates)} WHERE run_id = ?",
+                params,
+            )
+
+    def append_collection_event(self, event: CollectionEvent) -> int:
+        with self._connect() as conn:
+            cursor = conn.execute(
+                """
+                INSERT OR IGNORE INTO collection_events (
+                    run_id, sequence, scope, event, message, level, payload_json, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    event.run_id,
+                    event.sequence,
+                    event.scope,
+                    event.event,
+                    event.message,
+                    event.level,
+                    event.payload_json,
+                    event.created_at,
+                ),
+            )
+            if cursor.rowcount:
+                return int(cursor.lastrowid)
+            row = conn.execute(
+                """
+                SELECT id FROM collection_events
+                WHERE run_id = ? AND sequence = ? AND event = ? AND message = ?
+                """,
+                (event.run_id, event.sequence, event.event, event.message),
+            ).fetchone()
+            return int(row["id"])
+
+    def save_collected_post(self, post: CollectedPost) -> int:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO collected_posts (
+                    run_id, platform, keyword, title, content, url, author, published_at,
+                    like_count, comment_count, detail_fingerprint, collected_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    post.run_id,
+                    post.platform,
+                    post.keyword,
+                    post.title,
+                    post.content,
+                    post.url,
+                    post.author,
+                    post.published_at,
+                    post.like_count,
+                    post.comment_count,
+                    post.detail_fingerprint,
+                    post.collected_at,
+                ),
+            )
+            if post.detail_fingerprint:
+                row = conn.execute(
+                    """
+                    SELECT id FROM collected_posts
+                    WHERE run_id = ? AND detail_fingerprint = ?
+                    """,
+                    (post.run_id, post.detail_fingerprint),
+                ).fetchone()
+            else:
+                row = conn.execute(
+                    """
+                    SELECT id FROM collected_posts
+                    WHERE run_id = ? AND url = ? AND title = ? AND detail_fingerprint = ''
+                    """,
+                    (post.run_id, post.url, post.title),
+                ).fetchone()
+            return int(row["id"])
+
+    def save_collected_comment(self, comment: CollectedComment) -> int:
+        with self._connect() as conn:
+            cursor = conn.execute(
+                """
+                INSERT OR IGNORE INTO collected_comments (
+                    post_id, run_id, commenter, content, like_count, comment_rank, collected_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    comment.post_id,
+                    comment.run_id,
+                    comment.commenter,
+                    comment.content,
+                    comment.like_count,
+                    comment.comment_rank,
+                    comment.collected_at,
+                ),
+            )
+            if cursor.rowcount:
+                return int(cursor.lastrowid)
+            row = conn.execute(
+                """
+                SELECT id FROM collected_comments
+                WHERE post_id = ? AND run_id = ? AND commenter = ? AND content = ?
+                """,
+                (comment.post_id, comment.run_id, comment.commenter, comment.content),
+            ).fetchone()
+            return int(row["id"])
+
+    def save_media_asset(self, asset: MediaAsset) -> int:
+        with self._connect() as conn:
+            cursor = conn.execute(
+                """
+                INSERT OR IGNORE INTO media_assets (
+                    run_id, post_id, path, asset_type, url, sha256, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    asset.run_id,
+                    asset.post_id,
+                    asset.path,
+                    asset.asset_type,
+                    asset.url,
+                    asset.sha256,
+                    asset.created_at,
+                ),
+            )
+            if cursor.rowcount:
+                return int(cursor.lastrowid)
+            if asset.post_id is None:
+                row = conn.execute(
+                    """
+                    SELECT id FROM media_assets
+                    WHERE run_id = ? AND post_id IS NULL AND path = ? AND asset_type = ?
+                    """,
+                    (asset.run_id, asset.path, asset.asset_type),
+                ).fetchone()
+            else:
+                row = conn.execute(
+                    """
+                    SELECT id FROM media_assets
+                    WHERE run_id = ? AND post_id = ? AND path = ? AND asset_type = ?
+                    """,
+                    (asset.run_id, asset.post_id, asset.path, asset.asset_type),
+                ).fetchone()
+            return int(row["id"])
+
+    def save_evidence(self, evidence: Evidence) -> int:
+        with self._connect() as conn:
+            cursor = conn.execute(
+                """
+                INSERT OR IGNORE INTO evidences (
+                    run_id, evidence_type, path, scope, payload_json, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    evidence.run_id,
+                    evidence.evidence_type,
+                    evidence.path,
+                    evidence.scope,
+                    evidence.payload_json,
+                    evidence.created_at,
+                ),
+            )
+            if cursor.rowcount:
+                return int(cursor.lastrowid)
+            row = conn.execute(
+                """
+                SELECT id FROM evidences
+                WHERE run_id = ? AND evidence_type = ? AND path = ? AND scope = ?
+                """,
+                (evidence.run_id, evidence.evidence_type, evidence.path, evidence.scope),
+            ).fetchone()
+            return int(row["id"])
+
+    def list_collection_runs(self, limit: Optional[int] = None) -> List[CollectionRun]:
+        sql = "SELECT * FROM collection_runs ORDER BY id DESC"
+        params: List[object] = []
+        if limit:
+            sql += " LIMIT ?"
+            params.append(limit)
+        with self._connect() as conn:
+            rows = conn.execute(sql, params).fetchall()
+        return [self._row_to_collection_run(row) for row in rows]
+
+    def get_collection_run(self, run_id: str) -> Optional[CollectionRun]:
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM collection_runs WHERE run_id = ?", (run_id,)).fetchone()
+        if row is None:
+            return None
+        return self._row_to_collection_run(row)
+
+    def list_collection_events(self, run_id: str) -> List[CollectionEvent]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM collection_events
+                WHERE run_id = ?
+                ORDER BY sequence ASC, id ASC
+                """,
+                (run_id,),
+            ).fetchall()
+        return [self._row_to_collection_event(row) for row in rows]
+
+    def list_collected_posts(
+        self,
+        run_id: Optional[str] = None,
+        limit: Optional[int] = None,
+    ) -> List[CollectedPost]:
+        sql = "SELECT * FROM collected_posts"
+        params: List[object] = []
+        if run_id:
+            sql += " WHERE run_id = ?"
+            params.append(run_id)
+        sql += " ORDER BY id ASC"
+        if limit:
+            sql += " LIMIT ?"
+            params.append(limit)
+        with self._connect() as conn:
+            rows = conn.execute(sql, params).fetchall()
+        return [self._row_to_collected_post(row) for row in rows]
+
+    def list_media_assets(self, run_id: str) -> List[MediaAsset]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM media_assets WHERE run_id = ? ORDER BY id ASC",
+                (run_id,),
+            ).fetchall()
+        return [self._row_to_media_asset(row) for row in rows]
+
+    def list_evidences(self, run_id: str) -> List[Evidence]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM evidences WHERE run_id = ? ORDER BY id ASC",
+                (run_id,),
+            ).fetchall()
+        return [self._row_to_evidence(row) for row in rows]
+
+    def collector_dashboard(self) -> Dict[str, int]:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT
+                    COUNT(*) AS total_runs,
+                    SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END) AS running_runs,
+                    SUM(CASE WHEN status = 'manual_action_required' THEN 1 ELSE 0 END) AS waiting_manual_runs,
+                    SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed_runs,
+                    SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS completed_runs
+                FROM collection_runs
+                """
+            ).fetchone()
+            posts_row = conn.execute("SELECT COUNT(*) AS total_posts FROM collected_posts").fetchone()
+        return {
+            "total_runs": int(row["total_runs"] or 0),
+            "running_runs": int(row["running_runs"] or 0),
+            "waiting_manual_runs": int(row["waiting_manual_runs"] or 0),
+            "failed_runs": int(row["failed_runs"] or 0),
+            "completed_runs": int(row["completed_runs"] or 0),
+            "total_posts": int(posts_row["total_posts"] or 0),
+        }
 
     def upsert_raw_item(self, item: RawItem) -> int:
         source_hash = self._source_hash(item)
@@ -308,6 +724,76 @@ class FalconRepository:
             comment_rank=row["comment_rank"],
             published_at=row["published_at"],
             collected_at=row["collected_at"],
+        )
+
+    def _row_to_collection_run(self, row: sqlite3.Row) -> CollectionRun:
+        return CollectionRun(
+            run_id=row["run_id"],
+            platform=row["platform"],
+            keyword=row["keyword"],
+            profile=row["profile"],
+            status=row["status"],
+            progress=int(row["progress"]),
+            current_step=row["current_step"],
+            max_posts=int(row["max_posts"]),
+            max_comments_per_post=int(row["max_comments_per_post"]),
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+            completed_at=row["completed_at"],
+            failed_reason=row["failed_reason"],
+        )
+
+    def _row_to_collection_event(self, row: sqlite3.Row) -> CollectionEvent:
+        return CollectionEvent(
+            event_id=int(row["id"]),
+            run_id=row["run_id"],
+            sequence=int(row["sequence"]),
+            scope=row["scope"],
+            event=row["event"],
+            message=row["message"],
+            level=row["level"],
+            payload_json=row["payload_json"],
+            created_at=row["created_at"],
+        )
+
+    def _row_to_collected_post(self, row: sqlite3.Row) -> CollectedPost:
+        return CollectedPost(
+            post_id=int(row["id"]),
+            run_id=row["run_id"],
+            platform=row["platform"],
+            keyword=row["keyword"],
+            title=row["title"],
+            content=row["content"],
+            url=row["url"],
+            author=row["author"],
+            published_at=row["published_at"],
+            like_count=row["like_count"],
+            comment_count=row["comment_count"],
+            detail_fingerprint=row["detail_fingerprint"],
+            collected_at=row["collected_at"],
+        )
+
+    def _row_to_media_asset(self, row: sqlite3.Row) -> MediaAsset:
+        return MediaAsset(
+            asset_id=int(row["id"]),
+            run_id=row["run_id"],
+            post_id=row["post_id"],
+            path=row["path"],
+            asset_type=row["asset_type"],
+            url=row["url"],
+            sha256=row["sha256"],
+            created_at=row["created_at"],
+        )
+
+    def _row_to_evidence(self, row: sqlite3.Row) -> Evidence:
+        return Evidence(
+            evidence_id=int(row["id"]),
+            run_id=row["run_id"],
+            evidence_type=row["evidence_type"],
+            path=row["path"],
+            scope=row["scope"],
+            payload_json=row["payload_json"],
+            created_at=row["created_at"],
         )
 
     def _row_to_task(self, row: sqlite3.Row) -> OutreachTask:

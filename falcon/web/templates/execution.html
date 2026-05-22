@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}执行总览 - Falcon{% endblock %}
+{% block content %}
+<header class="page-header">
+  <div>
+    <h1>执行总览</h1>
+    <p>查看待处理草稿、素材预览和人工确认队列。这里不自动发布、评论或私信。</p>
+  </div>
+</header>
+
+<section class="metrics">
+  <div class="metric"><span>待确认</span><strong>{{ stats.pending_count }}</strong></div>
+  <div class="metric"><span>高优先级</span><strong>{{ stats.high_count }}</strong></div>
+  <div class="metric"><span>中优先级</span><strong>{{ stats.medium_count }}</strong></div>
+  <div class="metric"><span>最终动作</span><strong class="fit-text">人工确认</strong></div>
+</section>
+
+<section class="task-list">
+  {% for task in tasks %}
+  <article class="task-card">
+    <div class="task-head">
+      <div>
+        <strong>[{{ task.outreach_priority }}] {{ task.title }}</strong>
+        <p class="muted">{{ task.outreach_type }} · {{ task.url }}</p>
+      </div>
+      <span class="pill">{{ task.task_status }}</span>
+    </div>
+    {% for draft in task.drafts %}
+    <p><span class="tag">{{ draft.kind }}</span>{{ draft.text }}</p>
+    {% endfor %}
+    {% if task.risk_note %}
+    <p class="muted">确认提示：{{ task.risk_note }}</p>
+    {% endif %}
+  </article>
+  {% else %}
+  <section class="panel"><p class="muted">暂无待确认执行项。</p></section>
+  {% endfor %}
+</section>
+{% endblock %}

@@ -6,6 +6,7 @@ from .analysis import HeuristicAnalyzer
 from .db import FalconRepository
 from .drafting import DraftingService
 from .llm import GPT55Client
+from .models import RawItem
 from .reports import DailyReportBuilder
 
 
@@ -13,6 +14,26 @@ from .reports import DailyReportBuilder
 class AnalyzeResult:
     analyzed_count: int
     task_count: int
+
+
+def promote_collected_posts(repo: FalconRepository, run_id: Optional[str] = None, limit: Optional[int] = None) -> int:
+    promoted = 0
+    for post in repo.list_collected_posts(run_id=run_id, limit=limit):
+        repo.upsert_raw_item(
+            RawItem(
+                platform=post.platform,
+                keyword=post.keyword,
+                source_type="post",
+                title=post.title,
+                content=post.content,
+                url=post.url,
+                author=post.author,
+                like_count=post.like_count,
+                published_at=post.published_at,
+            )
+        )
+        promoted += 1
+    return promoted
 
 
 def analyze_unanalyzed(

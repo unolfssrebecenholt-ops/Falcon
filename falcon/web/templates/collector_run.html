@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block title %}任务详情 - Falcon{% endblock %}
+{% block content %}
+<header class="page-header">
+  <div>
+    <h1>任务详情</h1>
+    <p>{{ run.run_id }} · {{ run.platform }} · {{ run.keyword }}</p>
+  </div>
+  <a class="button" href="/collector">返回采集总览</a>
+</header>
+
+<section class="metrics">
+  <div class="metric"><span>状态</span><strong class="fit-text">{{ run.status }}</strong></div>
+  <div class="metric"><span>进度</span><strong>{{ run.progress }}%</strong></div>
+  <div class="metric"><span>帖子上限</span><strong>{{ run.max_posts }}</strong></div>
+  <div class="metric"><span>评论上限</span><strong>{{ run.max_comments_per_post }}</strong></div>
+</section>
+
+<section class="panel">
+  <h2>当前步骤</h2>
+  <p>{{ run.current_step or "等待调度" }}</p>
+  {% if run.failed_reason %}
+  <p class="alert">{{ run.failed_reason }}</p>
+  {% endif %}
+</section>
+
+<section class="panel">
+  <h2>事件链</h2>
+  <table>
+    <thead>
+      <tr><th>#</th><th>范围</th><th>事件</th><th>级别</th><th>消息</th><th>时间</th></tr>
+    </thead>
+    <tbody>
+      {% for event in events %}
+      <tr>
+        <td>{{ event.sequence }}</td>
+        <td>{{ event.scope }}</td>
+        <td>{{ event.event }}</td>
+        <td>{{ event.level }}</td>
+        <td>{{ event.message }}</td>
+        <td>{{ event.created_at }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6" class="muted">暂无事件。</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="panel">
+  <h2>采集样本</h2>
+  <table>
+    <thead>
+      <tr><th>标题</th><th>作者</th><th>互动</th><th>正文</th></tr>
+    </thead>
+    <tbody>
+      {% for post in posts %}
+      <tr>
+        <td><a href="{{ post.url }}" target="_blank">{{ post.title }}</a></td>
+        <td>{{ post.author or "-" }}</td>
+        <td>{{ post.like_count or "0" }} / {{ post.comment_count or "0" }}</td>
+        <td>{{ post.content }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="4" class="muted">暂无样本。</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="two-column">
+  <section class="panel">
+    <h2>媒体资产</h2>
+    <table>
+      <thead>
+        <tr><th>类型</th><th>路径</th><th>Hash</th></tr>
+      </thead>
+      <tbody>
+        {% for asset in assets %}
+        <tr><td>{{ asset.asset_type }}</td><td>{{ asset.path }}</td><td>{{ asset.sha256 or "-" }}</td></tr>
+        {% else %}
+        <tr><td colspan="3" class="muted">暂无资产。</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+  <section class="panel">
+    <h2>证据包</h2>
+    <table>
+      <thead>
+        <tr><th>类型</th><th>范围</th><th>路径</th></tr>
+      </thead>
+      <tbody>
+        {% for evidence in evidences %}
+        <tr><td>{{ evidence.evidence_type }}</td><td>{{ evidence.scope }}</td><td>{{ evidence.path }}</td></tr>
+        {% else %}
+        <tr><td colspan="3" class="muted">暂无证据。</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+</section>
+{% endblock %}

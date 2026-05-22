@@ -2,6 +2,42 @@
 
 本文件是 Windows 和 M1 Mac 双机开发的接手入口。每次提交前必须更新。
 
+## 2026-05-23 Falcon collector foundation
+
+- 本次完成第一阶段采集层基础闭环：
+  - 新增采集公共合同：`runtime/collector/<run_id>/`、`browser-profiles/<platform>/<profile>/`、`request.json`、`events.jsonl`、`records.jsonl`、`assets/`。
+  - 新增 SQLite 采集模型与 repository：collection run、event、post、comment、media asset、evidence，支持旧库增量初始化、事件排序、样本去重和看板统计。
+  - 新增 `CollectorService`：创建 run、写 sidecar request、启动 Node sidecar、读取 events/records、入库、状态同步、重复 ingest 幂等保护、路径逃逸防护。
+  - 新增 CLI：`collector-dry-run`、`collector-run`、`collector-ingest`。
+  - 新增 Node Playwright sidecar：dry-run 可写出合法事件和记录；真实模式提供小红书 adapter skeleton，支持持久 profile、搜索页、可见卡片快照、截图证据、人工处理事件、缺少 Playwright 的清晰失败。
+  - 新增 sidecar package 描述与安装说明，真实模式依赖 `playwright`，dry-run 不需要登录。
+  - Web 工作台落地当前 v3 信息架构：`/collector`、`/collector/create`、`/collector/runs/{run_id}`、`/analysis`、`/execution`，左侧按采集、分析、执行分组。
+  - Web 创建采集任务会入库并准备 sidecar request；任务详情展示事件链、样本、资产和证据；分析页可把采集样本送入现有分析队列；执行页只展示待人工确认草稿队列。
+  - `.gitignore` 新增 `runtime/`，继续忽略 browser profiles、报告、本地数据库和密钥。
+- 已解决的问题：
+  - Web/CLI 的采集路径参数已限制为安全标识，避免 run、platform、profile 写出预期 runtime/profile 根目录。
+  - `collector-ingest` 重复执行不会重复写入相同事件、评论、资产和证据。
+  - 自动生成 run id 已加入短随机后缀，避免同秒任务冲突。
+  - sidecar 人工处理事件不会再追加误导性的 completed 事件。
+- 验证结果：
+  - Windows PowerShell：`py -3 -m unittest discover -s tests`，55 tests passed。
+  - Windows PowerShell：`py -3 -m compileall falcon`，passed。
+  - 旧采集路径关键词静态扫描无匹配。
+- 已知问题：
+  - 真实小红书人工 smoke 未在本次无人值守收口中执行；需要先在 `sidecar/collector` 安装 npm 依赖和 Chromium，并准备本地 profile 登录态后再跑 `collector-run`。
+  - 小红书真实 adapter 仍是 MVP skeleton，首次 live evidence 回来后需要按页面 DOM 调整卡片、详情、评论和媒体字段提取。
+  - 当前 Web 创建任务只准备 request，不自动启动 sidecar；下一步需要加 worker 调度或手动启动入口。
+- 下一步：
+  - 在 Windows 或 Mac 安装 sidecar 依赖后执行：`py -3 -m falcon --db data/falcon.sqlite3 collector-run --platform xiaohongshu --profile default --keyword "小红书封面" --max-posts 5`。
+  - 用任务详情页核对事件链、截图证据和样本字段，再从 `/analysis` 手动送入分析队列。
+  - 根据 live evidence 补强详情页、热评、图片下载和失败截图的字段覆盖。
+  - 为 worker/profile 管理补后台调度与取消能力，但保持最终发布、评论、私信为人工确认。
+- Windows/Mac 接手提示：
+  - `git pull`
+  - Windows：`py -3 -m unittest discover -s tests`
+  - macOS：`python3 -m unittest discover -s tests`
+  - 如需真实采集，先按 `docs/development-guide.md` 安装 `sidecar/collector` 的 Node 依赖。
+
 ## 2026-05-23 Falcon Agent reboot branch
 
 - 新建分支：`codex/falcon-agent-reboot`。

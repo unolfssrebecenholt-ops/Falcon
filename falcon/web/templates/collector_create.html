@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}创建任务 - Falcon{% endblock %}
+{% block content %}
+<header class="page-header">
+  <div>
+    <h1>创建任务</h1>
+    <p>配置平台、Profile、关键词和采样范围。提交后只进入队列，不会启动 sidecar。</p>
+  </div>
+  <a class="button" href="/collector">返回采集总览</a>
+</header>
+
+<section class="panel narrow">
+  <form method="post" action="/collector/create" class="form-grid">
+    <label>
+      平台
+      <select name="platform">
+        {% for platform in platforms %}
+        <option value="{{ platform.key }}" {{ "selected" if platform.key == defaults.platform else "" }}>
+          {{ platform.name }} / {{ platform.status }}
+        </option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>
+      Profile
+      <input name="profile" value="{{ defaults.profile }}" required>
+    </label>
+    <label>
+      关键词
+      <input name="keyword" placeholder="例如：AI 封面生成" required>
+    </label>
+    <div class="split-grid">
+      <label>
+        最大帖子数
+        <input name="max_posts" type="number" min="1" max="200" value="{{ defaults.max_posts }}">
+      </label>
+      <label>
+        每帖评论数
+        <input name="max_comments_per_post" type="number" min="0" max="100" value="{{ defaults.max_comments_per_post }}">
+      </label>
+    </div>
+    <div class="action-row">
+      <button class="button primary" type="submit">加入队列</button>
+      <a class="button" href="/collector">取消</a>
+    </div>
+  </form>
+</section>
+{% endblock %}

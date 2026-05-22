@@ -1,0 +1,357 @@
+import json
+import re
+import subprocess
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Dict, Iterable, List, Optional
+from uuid import uuid4
+
+from .db import FalconRepository
+from .models import (
+    CollectedComment,
+    CollectedPost,
+    CollectionEvent,
+    CollectionRun,
+    Evidence,
+    MediaAsset,
+    utc_now_iso,
+)
+
+
+COLLECTOR_STATUSES = {
+    "queued",
+    "running",
+    "manual_action_required",
+    "failed",
+    "completed",
+    "cancelled",
+}
+COLLECTOR_IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
+
+
+def safe_collector_identifier(value: str, field_name: str) -> str:
+    candidate = str(value or "").strip()
+    if not COLLECTOR_IDENTIFIER_PATTERN.fullmatch(candidate):
+        raise ValueError(f"Invalid collector {field_name}: {value!r}")
+    return candidate
+
+
+@dataclass
+class CollectorPaths:
+    run_dir: Path
+    request_path: Path
+    events_path: Path
+    records_path: Path
+    assets_dir: Path
+    profile_dir: Path
+
+
+class CollectorService:
+    def __init__(
+        self,
+        repo: FalconRepository,
+        runtime_root: Path = Path("runtime") / "collector",
+        profile_root: Path = Path("browser-profiles"),
+        sidecar_script: Optional[Path] = None,
+        node_executable: str = "node",
+    ):
+        self.repo = repo
+        self.runtime_root = Path(runtime_root)
+        self.profile_root = Path(profile_root)
+        self.sidecar_script = Path(sidecar_script) if sidecar_script else self._project_root() / "sidecar" / "collector" / "index.mjs"
+        self.node_executable = node_executable
+
+    def run_dry_run(
+        self,
+        platform: str,
+        profile: str,
+        keyword: str,
+        max_posts: int = 20,
+        max_comments_per_post: int = 10,
+        headed: bool = False,
+        run_id: str = "",
+    ) -> CollectionRun:
+        return self.run_sidecar(
+            platform=platform,
+            profile=profile,
+            keyword=keyword,
+            max_posts=max_posts,
+            max_comments_per_post=max_comments_per_post,
+            headed=headed,
+            dry_run=True,
+            run_id=run_id,
+        )
+
+    def run_sidecar(
+        self,
+        platform: str,
+        profile: str,
+        keyword: str,
+        max_posts: int = 20,
+        max_comments_per_post: int = 10,
+        headed: bool = True,
+        dry_run: bool = False,
+        run_id: str = "",
+    ) -> CollectionRun:
+        platform = safe_collector_identifier(platform, "platform")
+        profile = safe_collector_identifier(profile, "profile")
+        run_id = safe_collector_identifier(run_id, "run_id") if run_id else self._new_run_id(platform)
+        run = CollectionRun(
+            run_id=run_id,
+            platform=platform,
+            keyword=keyword,
+            profile=profile,
+            status="queued",
+            max_posts=max_posts,
+            max_comments_per_post=max_comments_per_post,
+        )
+        self.repo.create_collection_run(run)
+        paths = self.prepare_run_request(run, headed=headed, dry_run=dry_run)
+        self.repo.update_collection_run(run_id, status="running", progress=5, current_step="sidecar started")
+
+        result = subprocess.run(
+            [
+                self.node_executable,
+                str(self.sidecar_script),
+                "--request",
+                str(paths.request_path),
+                "--events",
+                str(paths.events_path),
+                "--output",
+                str(paths.records_path),
+                "--assets",
+                str(paths.assets_dir),
+                "--profile",
+                str(paths.profile_dir),
+            ],
+            cwd=self._project_root(),
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.ingest_outputs(run_id, paths.events_path, paths.records_path)
+        events = self.repo.list_collection_events(run_id)
+        failed_event = next((event for event in reversed(events) if event.event == "run_failed"), None)
+        manual_event = next((event for event in reversed(events) if event.event == "manual_action_required"), None)
+
+        if manual_event:
+            self.repo.update_collection_run(
+                run_id,
+                status="manual_action_required",
+                progress=50,
+                current_step=manual_event.message,
+            )
+        elif result.returncode == 0 and not failed_event:
+            self.repo.update_collection_run(
+                run_id,
+                status="completed",
+                progress=100,
+                current_step="sidecar completed",
+                completed_at=utc_now_iso(),
+            )
+        else:
+            reason = failed_event.message if failed_event else (result.stderr.strip() or f"sidecar exited {result.returncode}")
+            self.repo.update_collection_run(
+                run_id,
+                status="failed",
+                current_step="sidecar failed",
+                failed_reason=reason,
+            )
+        current = self.repo.get_collection_run(run_id)
+        if current is None:
+            raise RuntimeError(f"Collector run disappeared: {run_id}")
+        return current
+
+    def prepare_run_request(self, run: CollectionRun, headed: bool, dry_run: bool) -> CollectorPaths:
+        paths = self.paths_for(run.run_id, run.platform, run.profile)
+        paths.run_dir.mkdir(parents=True, exist_ok=True)
+        paths.assets_dir.mkdir(parents=True, exist_ok=True)
+        request = {
+            "schema_version": 1,
+            "run_id": run.run_id,
+            "platform": run.platform,
+            "profile": run.profile,
+            "keyword": run.keyword,
+            "max_posts": run.max_posts,
+            "max_comments_per_post": run.max_comments_per_post,
+            "headed": headed,
+            "dry_run": dry_run,
+        }
+        paths.request_path.write_text(json.dumps(request, ensure_ascii=False, indent=2), encoding="utf-8")
+        return paths
+
+    def paths_for(self, run_id: str, platform: str, profile: str) -> CollectorPaths:
+        run_id = safe_collector_identifier(run_id, "run_id")
+        platform = safe_collector_identifier(platform, "platform")
+        profile = safe_collector_identifier(profile, "profile")
+        run_dir = self.runtime_root / run_id
+        profile_dir = self.profile_root / platform / profile
+        self._ensure_child_path(self.runtime_root, run_dir)
+        self._ensure_child_path(self.profile_root, profile_dir)
+        return CollectorPaths(
+            run_dir=run_dir,
+            request_path=run_dir / "request.json",
+            events_path=run_dir / "events.jsonl",
+            records_path=run_dir / "records.jsonl",
+            assets_dir=run_dir / "assets",
+            profile_dir=profile_dir,
+        )
+
+    def ingest_outputs(self, run_id: str, events_path: Path, records_path: Path) -> None:
+        for event in self._read_jsonl(events_path):
+            payload = event.get("payload", {})
+            self.repo.append_collection_event(
+                CollectionEvent(
+                    run_id=run_id,
+                    sequence=int(event["sequence"]),
+                    scope=str(event.get("scope", "")),
+                    event=str(event.get("event", "")),
+                    message=str(event.get("message", "")),
+                    level=str(event.get("level", "info")),
+                    payload_json=json.dumps(payload, ensure_ascii=False),
+                    created_at=str(event.get("time") or utc_now_iso()),
+                )
+            )
+
+        if records_path.exists():
+            self._ingest_records(run_id, self._read_jsonl(records_path))
+        self._sync_run_status_from_events(run_id)
+
+    def _ingest_records(self, run_id: str, records: Iterable[Dict[str, object]]) -> None:
+        post_ids: Dict[str, int] = {}
+        pending_comments: List[Dict[str, object]] = []
+        pending_assets: List[Dict[str, object]] = []
+
+        for record in records:
+            record_type = record.get("type")
+            if record_type == "post":
+                external_id = str(record.get("post_id") or record.get("id") or "")
+                metrics = record.get("metrics") if isinstance(record.get("metrics"), dict) else {}
+                author = record.get("author") if isinstance(record.get("author"), dict) else {}
+                post_id = self.repo.save_collected_post(
+                    CollectedPost(
+                        run_id=run_id,
+                        platform=str(record.get("platform", "")),
+                        keyword=str(record.get("keyword", "")),
+                        title=str(record.get("title", "")),
+                        content=str(record.get("content") or record.get("body") or ""),
+                        url=str(record.get("url") or f"local://collector/{run_id}/{external_id}"),
+                        author=str(author.get("display_name", "")),
+                        published_at=str(record.get("published_at", "")),
+                        like_count=str(metrics.get("likes", "")),
+                        comment_count=str(metrics.get("comments", "")),
+                        detail_fingerprint=str(record.get("detail_fingerprint") or external_id),
+                    )
+                )
+                if external_id:
+                    post_ids[external_id] = post_id
+            elif record_type == "comment":
+                pending_comments.append(record)
+            elif record_type == "media_asset":
+                pending_assets.append(record)
+            elif record_type == "evidence":
+                self.repo.save_evidence(
+                    Evidence(
+                        run_id=run_id,
+                        evidence_type=str(record.get("evidence_type") or record.get("scope") or "field_snapshot"),
+                        path=str(record.get("path") or f"runtime/collector/{run_id}/records.jsonl"),
+                        scope=str(record.get("scope", "")),
+                        payload_json=json.dumps(record.get("payload", {}), ensure_ascii=False),
+                    )
+                )
+
+        for record in pending_comments:
+            external_post_id = str(record.get("post_id") or "")
+            post_id = post_ids.get(external_post_id)
+            if post_id is None:
+                continue
+            author = record.get("author") if isinstance(record.get("author"), dict) else {}
+            self.repo.save_collected_comment(
+                CollectedComment(
+                    post_id=post_id,
+                    run_id=run_id,
+                    commenter=str(author.get("display_name", "")),
+                    content=str(record.get("content") or record.get("body") or ""),
+                    like_count=str(record.get("like_count", "")),
+                    comment_rank=str(record.get("comment_rank", "")),
+                )
+            )
+
+        for record in pending_assets:
+            external_post_id = str(record.get("post_id") or "")
+            self.repo.save_media_asset(
+                MediaAsset(
+                    run_id=run_id,
+                    post_id=post_ids.get(external_post_id),
+                    path=str(record.get("path", "")),
+                    asset_type=str(record.get("media_type") or record.get("asset_type") or "asset"),
+                    url=str(record.get("url", "")),
+                    sha256=str(record.get("sha256", "")),
+                )
+            )
+
+    def _read_jsonl(self, path: Path) -> List[Dict[str, object]]:
+        if not path.exists():
+            return []
+        return [
+            json.loads(line)
+            for line in path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+
+    def _sync_run_status_from_events(self, run_id: str) -> None:
+        run = self.repo.get_collection_run(run_id)
+        if run is None:
+            return
+        events = self.repo.list_collection_events(run_id)
+        if not events:
+            return
+
+        failed_event = next((event for event in reversed(events) if event.event == "run_failed"), None)
+        manual_event = next((event for event in reversed(events) if event.event == "manual_action_required"), None)
+        completed_event = next((event for event in reversed(events) if event.event == "run_completed"), None)
+        started_event = next((event for event in reversed(events) if event.event == "run_started"), None)
+
+        if failed_event:
+            self.repo.update_collection_run(
+                run_id,
+                status="failed",
+                current_step=failed_event.message,
+                failed_reason=failed_event.message,
+            )
+        elif manual_event:
+            self.repo.update_collection_run(
+                run_id,
+                status="manual_action_required",
+                progress=max(run.progress, 50),
+                current_step=manual_event.message,
+            )
+        elif completed_event:
+            self.repo.update_collection_run(
+                run_id,
+                status="completed",
+                progress=100,
+                current_step=completed_event.message or "sidecar completed",
+                completed_at=run.completed_at or utc_now_iso(),
+            )
+        elif started_event:
+            self.repo.update_collection_run(
+                run_id,
+                status="running",
+                progress=max(run.progress, 5),
+                current_step=started_event.message or "sidecar started",
+            )
+
+    def _new_run_id(self, platform: str) -> str:
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+        return f"{platform}-{stamp}-{uuid4().hex[:6]}"
+
+    def _project_root(self) -> Path:
+        return Path(__file__).resolve().parents[1]
+
+    def _ensure_child_path(self, root: Path, child: Path) -> None:
+        root_resolved = Path(root).resolve()
+        child_resolved = Path(child).resolve()
+        if child_resolved != root_resolved and root_resolved not in child_resolved.parents:
+            raise ValueError(f"Collector path escapes root: {child}")

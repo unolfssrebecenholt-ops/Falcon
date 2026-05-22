@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}分析总览 - Falcon{% endblock %}
+{% block content %}
+<header class="page-header">
+  <div>
+    <h1>分析总览</h1>
+    <p>承接采集样本，查看需求信号、关键词热度、高意图样本和可写选题。</p>
+  </div>
+  <form method="post" action="/analysis/promote" class="action-row">
+    <button class="button primary" type="submit">送入分析队列</button>
+  </form>
+</header>
+
+<section class="metrics">
+  <div class="metric"><span>已评分样本</span><strong>{{ stats.scored_count }}</strong></div>
+  <div class="metric"><span>高意图</span><strong>{{ stats.high_intent_count }}</strong></div>
+  <div class="metric"><span>关键词</span><strong>{{ stats.keyword_count }}</strong></div>
+  <div class="metric"><span>模型层</span><strong class="fit-text">GPT-5.5</strong></div>
+</section>
+
+<section class="panel">
+  <h2>关键词统计</h2>
+  <table>
+    <thead>
+      <tr><th>关键词</th><th>样本数</th><th>高意图</th><th>平均意图</th></tr>
+    </thead>
+    <tbody>
+      {% for item in keyword_stats %}
+      <tr>
+        <td>{{ item.keyword }}</td>
+        <td>{{ item.count }}</td>
+        <td>{{ item.high_intent }}</td>
+        <td>{{ item.avg_intent }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="4" class="muted">暂无关键词统计。</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="panel">
+  <h2>高价值样本</h2>
+  <table>
+    <thead>
+      <tr><th>标题</th><th>关键词</th><th>意图</th><th>价值</th><th>建议选题</th><th>痛点</th></tr>
+    </thead>
+    <tbody>
+      {% for item in items %}
+      <tr>
+        <td><a href="{{ item.url }}" target="_blank">{{ item.title }}</a></td>
+        <td>{{ item.keyword }}</td>
+        <td>{{ item.intent_score }}</td>
+        <td>{{ item.content_value_score }}</td>
+        <td>{{ item.suggested_topic }}</td>
+        <td>{{ item.pain_point }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6" class="muted">暂无分析结果。</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

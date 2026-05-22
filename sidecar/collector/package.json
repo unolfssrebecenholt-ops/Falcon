@@ -1,0 +1,14 @@
+{
+  "name": "@falcon/collector-sidecar",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Falcon browser collector sidecar for platform adapters.",
+  "scripts": {
+    "dry-run": "node index.mjs --request ../../runtime/collector/example/request.json --events ../../runtime/collector/example/events.jsonl --output ../../runtime/collector/example/records.jsonl --assets ../../runtime/collector/example/assets --profile ../../browser-profiles/xiaohongshu/default"
+  },
+  "dependencies": {
+    "playwright": "^1.52.0"
+  },
+  "devDependencies": {}
+}
