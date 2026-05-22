@@ -12,7 +12,7 @@ from falcon.keyword_pool import generate_program_keyword_tasks, load_keyword_tas
 class KeywordPoolTest(unittest.TestCase):
     def test_writes_default_keyword_pool_for_theme(self):
         with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "rpa_keywords.csv"
+            path = Path(tmp) / "collection_keywords.csv"
 
             write_default_keyword_pool(path, theme="生图小程序")
 
@@ -27,7 +27,7 @@ class KeywordPoolTest(unittest.TestCase):
 
     def test_cli_writes_keyword_pool_csv(self):
         with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "rpa_keywords.csv"
+            path = Path(tmp) / "collection_keywords.csv"
 
             with redirect_stdout(io.StringIO()):
                 exit_code = main(["write-keyword-pool", str(path), "--theme", "生图小程序"])

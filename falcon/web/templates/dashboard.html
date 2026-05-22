@@ -4,13 +4,13 @@
 <header class="page-header">
   <div>
     <h1>Falcon 控制台</h1>
-    <p>小红书需求雷达、影刀导入、AI 分析和人工复核的本地工作台。</p>
+    <p>面向 Falcon Agent 的本地工作台：采集计划、AI 分析、内容生成和人工确认。</p>
   </div>
   <div class="action-row">
     <form method="post" action="/init-db">
       <button class="button" type="submit">初始化数据库</button>
     </form>
-    <a class="button primary" href="/run">运行今日流程</a>
+    <a class="button primary" href="/keywords">整理采集计划</a>
   </div>
 </header>
 
@@ -45,7 +45,7 @@
       </div>
     </dl>
   {% else %}
-    <p class="muted">还没有通过页面运行今日流程。</p>
+    <p class="muted">采集执行器重构中；当前页面保留分析、复核和任务队列能力。</p>
   {% endif %}
 </section>
 {% endblock %}

@@ -2,50 +2,29 @@ import argparse
 from pathlib import Path
 from typing import Optional
 
-from .adapters.xiaohongshu_csv import XiaohongshuCsvAdapter
-from .adapters.yingdao_xlsx import YingdaoXlsxAdapter
 from .db import FalconRepository
 from .image2 import FALCON_AGENT_ARCHITECTURE_PROMPT, Image2Client, load_env_file
 from .keyword_pool import write_default_keyword_pool
-from .workflows import analyze_unanalyzed, run_yingdao_daily, write_report
+from .workflows import analyze_unanalyzed, write_report
 
 
 DEFAULT_DB = Path("data/falcon.sqlite3")
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Falcon demand radar MVP")
+    parser = argparse.ArgumentParser(description="Falcon Agent local workbench")
     parser.add_argument("--db", default=str(DEFAULT_DB), help="SQLite database path")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     subparsers.add_parser("init-db", help="Initialize SQLite schema")
 
-    import_parser = subparsers.add_parser("import-csv", help="Import Xiaohongshu RPA CSV")
-    import_parser.add_argument("csv_path")
-
-    yingdao_parser = subparsers.add_parser("import-yingdao-xlsx", help="Import Yingdao/Xiaohongshu xlsx export")
-    yingdao_parser.add_argument("xlsx_path")
-    yingdao_parser.add_argument("--keyword", required=True, help="Keyword or theme used for this Yingdao sampling run")
-    yingdao_parser.add_argument("--platform", default="xiaohongshu")
-    yingdao_parser.add_argument("--source-type", default="post", choices=["post", "comment"])
-
-    keyword_pool_parser = subparsers.add_parser("write-keyword-pool", help="Write default RPA keyword pool CSV")
+    keyword_pool_parser = subparsers.add_parser("write-keyword-pool", help="Write default collection keyword pool CSV")
     keyword_pool_parser.add_argument("output_path")
     keyword_pool_parser.add_argument("--theme", default="生图小程序")
 
     analyze_parser = subparsers.add_parser("analyze", help="Analyze unanalyzed samples and create outreach tasks")
     analyze_parser.add_argument("--limit", type=int, default=100)
     analyze_parser.add_argument("--drafts", choices=["template", "gpt", "off"], default="template")
-
-    daily_parser = subparsers.add_parser("run-yingdao-daily", help="Import Yingdao xlsx, analyze, and write report")
-    daily_parser.add_argument("xlsx_path")
-    daily_parser.add_argument("--keyword", required=True)
-    daily_parser.add_argument("--platform", default="xiaohongshu")
-    daily_parser.add_argument("--source-type", default="post", choices=["post", "comment"])
-    daily_parser.add_argument("--limit", type=int, default=100)
-    daily_parser.add_argument("--drafts", choices=["template", "gpt", "off"], default="template")
-    daily_parser.add_argument("--report-output", default="")
-    daily_parser.add_argument("--summary", choices=["off", "gpt"], default="off")
 
     report_parser = subparsers.add_parser("report", help="Write daily Markdown report")
     report_parser.add_argument("--output", default="")
@@ -85,25 +64,6 @@ def main(argv: Optional[list] = None) -> int:
         print(f"Initialized {args.db}")
         return 0
 
-    if args.command == "import-csv":
-        repo.init_schema()
-        items = XiaohongshuCsvAdapter().load(Path(args.csv_path))
-        ids = repo.upsert_raw_items(items)
-        print(f"Imported {len(set(ids))} unique items from {args.csv_path}")
-        return 0
-
-    if args.command == "import-yingdao-xlsx":
-        repo.init_schema()
-        items = YingdaoXlsxAdapter().load(
-            Path(args.xlsx_path),
-            keyword=args.keyword,
-            platform=args.platform,
-            source_type=args.source_type,
-        )
-        ids = repo.upsert_raw_items(items)
-        print(f"Imported {len(set(ids))} unique items from {args.xlsx_path}")
-        return 0
-
     if args.command == "write-keyword-pool":
         tasks = write_default_keyword_pool(Path(args.output_path), theme=args.theme)
         print(f"Wrote {len(tasks)} keyword tasks to {args.output_path}")
@@ -113,24 +73,6 @@ def main(argv: Optional[list] = None) -> int:
         repo.init_schema()
         result = analyze_unanalyzed(repo, limit=args.limit, drafts_mode=args.drafts)
         print(f"Analyzed {result.analyzed_count} items, created {result.task_count} outreach tasks")
-        return 0
-
-    if args.command == "run-yingdao-daily":
-        repo.init_schema()
-        result = run_yingdao_daily(
-            repo,
-            xlsx_path=Path(args.xlsx_path),
-            keyword=args.keyword,
-            platform=args.platform,
-            source_type=args.source_type,
-            limit=args.limit,
-            drafts_mode=args.drafts,
-            report_output=Path(args.report_output) if args.report_output else Path("reports") / "daily-report.md",
-            summary_mode=args.summary,
-        )
-        print(f"Imported {result.imported_count} unique items from {args.xlsx_path}")
-        print(f"Analyzed {result.analyzed_count} items, created {result.task_count} outreach tasks")
-        print(f"Wrote {result.report_path}")
         return 0
 
     if args.command == "report":

@@ -1,113 +1,82 @@
-# Falcon 第一版完整方案：需求雷达 + AI 触达任务箱
+# Falcon Agent 重构方案
 
 ## 1. 项目定位
 
-Falcon 第一版服务于 `AI出图助手`，定位为小红书优先的社媒需求雷达和内容截流辅助系统。
+Falcon Agent 服务于 `AI出图助手` 的内容运营增长。它不是导入工具，也不是外部自动化流程的包装层，而是一套本地智能体工作台。
 
-第一版不做低价产品的销售 CRM，不自动发送评论或私信。系统只负责低频采集公开可见样本、分析需求、生成日报和触达草稿，最终处理由人工确认。
+Falcon 负责采集公开平台信号、沉淀图片和文本资产、分析需求与爆款结构、生成文案和配图建议，并把可执行动作放入人工确认队列。
 
-## 2. 第一版范围
+## 2. 第一阶段范围
 
-- 平台：只接入小红书，代码结构预留其他平台适配器。
-- 主推场景：小红书封面，占主要采样和分析资源。
-- 探针场景：活动海报、微信头像、朋友圈背景、随便画画，做少量机会探测。
-- 数据中枢：SQLite。
-- 采集接口：RPA 或人工整理 CSV 导入。
-- AI 草稿：可接 GPT-5.5 OpenAI 兼容中转站；未配置时使用保守模板。
+- 平台：小红书优先。
+- 采集方式：Falcon 自有浏览器采集器。
+- 数据：帖子、评论、作者、发布时间、互动数、图片资产、采集证据和失败状态。
+- 分析：规则 + GPT-5.5。
+- 生成：GPT-5.5 文案，Image2 配图。
+- 执行：只做预览和填充准备，最终由人工确认。
 
-## 3. 模块
+## 3. 模块边界
 
-### RPA 采集层
+### Browser Collector
 
-影刀或其他 RPA 低频采集公开可见的小红书搜索结果、帖子和评论，导出 CSV 后由 Falcon 入库。
+启动或连接真实浏览器，按平台 adapter 执行搜索、滚动、点击、详情读取、关闭、暂停和恢复。
 
-### AI 分析层
+### Asset Store
 
-分析器输出：
+保存图片、视频封面、截图、原始字段快照和采集日志。运行产物只保存在本地 ignored 目录。
 
-- `scene_tag`
-- `intent_score`
-- `content_value_score`
-- `pain_point`
-- `suggested_topic`
-- `recommended_action`
-- `outreach_type`
-- `reason`
+### Normalizer
 
-### AI 触达任务箱
+把平台字段归一成 Falcon 内部模型，避免分析层依赖平台 DOM 或临时链接。
 
-高价值样本会进入任务箱。每条任务包含来源链接、原始内容、触达建议、风险提示和 1-3 条草稿。
+### Dedupe
 
-任务状态：
+点击前做弱过滤，减少重复点击；详情采集后用标题、正文、作者、发布时间和媒体 hash 做强去重。
 
-- `pending`
-- `copied`
-- `handled`
-- `skipped`
-- `invalid`
+### Analysis
 
-### 日报层
+识别爆款结构、需求类型、痛点、评论意向、可触达用户和可写选题。
 
-每日输出 Markdown 报告：
+### Generation
 
-- 今日关键词表现。
-- 小红书封面主报告。
-- 其他入口探针。
-- 触达任务箱。
-- 人工复核区。
+生成评论草稿、私信草稿、发帖标题、正文、选题说明、封面和配图提示。
 
-## 4. 运行方式
+### Workbench
 
-```bash
-python3 -m falcon --db data/falcon.sqlite3 init-db
-python3 -m falcon --db data/falcon.sqlite3 import-csv examples/xiaohongshu_samples.csv
-python3 -m falcon --db data/falcon.sqlite3 analyze --drafts template
-python3 -m falcon --db data/falcon.sqlite3 report --output reports/daily-report.md
-```
+展示采集状态、样本、洞察、草稿、图片、执行队列和人工反馈。
 
-如需 GPT-5.5 中转站生成草稿，配置：
+### Execution Preview
 
-```bash
-export FALCON_GPT_BASE_URL="https://your-gpt55-relay.example.com"
-export FALCON_GPT_ENDPOINT="/v1/chat/completions"
-export FALCON_GPT_API_KEY="..."
-export FALCON_GPT_MODEL="gpt-5.5"
-```
+打开平台页面，填入草稿和素材，等待用户修改或确认。不自动批量发布、评论或私信。
 
-然后运行：
-
-```bash
-python3 -m falcon --db data/falcon.sqlite3 analyze --drafts gpt
-```
-
-## 5. 成功标准
+## 4. 成功标准
 
 第一阶段：
 
-- 连续 7 天稳定采集小红书样本。
+- Falcon 能用自有浏览器采集器完成小红书低频公开样本采集。
+- 每个采集任务生成结构化记录、资产文件、步骤日志和失败状态。
+- Top 样本能进入分析和日报链路。
 - 每天产出 3-5 个可发布选题。
-- Top 20 高分样本中，人工判定“优秀/有用”比例达到 70% 以上。
-- 每天生成 5-15 条可人工处理的触达任务。
-- AI 草稿中至少 60% 经轻微修改即可使用。
+- 高意图样本中人工判定“优秀/有用”的比例达到 70% 以上。
 
 第二阶段：
 
-- Falcon 推荐选题能带来内容互动或小程序访问。
-- 人工处理过的评论/私信任务能带来有效反馈。
-- 小程序上线后，可追踪访问、生成、首购数据并反哺评分。
+- Falcon 支持内容生成和 Image2 配图。
+- 执行预览能减少人工复制粘贴成本。
+- 小程序上线后，访问、生成、转化数据可回流到评分。
 
-## 6. 边界
+## 5. 边界
 
 - 不自动发送评论或私信。
-- 不做批量触达。
-- 不以规避平台规则为目标。
-- 不改动 `Image-sp` 小程序代码。
-- 真实 API Key 只放本地环境变量或服务端环境变量，不写入仓库。
+- 不自动批量发布。
+- 不保存验证码、cookie、token 或真实 API key。
+- 不把临时平台 URL 当作稳定唯一 ID。
+- 不把 Codex 对话当作产品运行时。
+- 不恢复旧外部工作流构建器作为主线。
 
-## 7. 双机开发规则
+## 6. 双机开发规则
 
 - Windows 和 M1 Mac 通过 GitHub 同步状态。
 - 每次开始工作先 `git pull`，再读 `AGENTS.md`、`docs/progress.md`、`docs/development-guide.md`、`README.md` 和本文。
-- 用户后续可以只说“开始工作”，Codex 应按 `AGENTS.md` 的 start-work protocol 自动接手。
-- 每次提交前必须更新 `docs/progress.md`，写清项目进度、当前问题解决进度、方案进度、验证结果和下一步。
-- 项目必须保持 Windows 和 macOS 双端可运行；新增依赖、命令或路径规则时，同步更新 `docs/development-guide.md`。
+- 每次提交前必须更新 `docs/progress.md`。
+- 项目必须保持 Windows 和 macOS 双端可运行。

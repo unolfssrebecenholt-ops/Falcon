@@ -1,0 +1,767 @@
+<!doctype html>
+<!--
+Assumptions:
+- Falcon owns the runtime collection loop. Node Playwright sidecar is the browser executor.
+- The user's primary control surface is visual; CLI commands remain a lower-level escape hatch.
+- First slice is Xiaohongshu, one account, one keyword run, with manual pause states.
+Reasoning:
+- The screen should feel like an operations console, not a marketing dashboard.
+- The user needs confidence in status, account isolation, intervention prompts, and collected evidence.
+Placeholders:
+- Metrics, notes, and rows below are sample data for design review only.
+-->
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Falcon Collector Workbench</title>
+  <style>
+    :root {
+      --bg: #f6f7f4;
+      --paper: #ffffff;
+      --paper-2: #eef2ec;
+      --ink: #1d2422;
+      --muted: #66706c;
+      --line: #d7ddd6;
+      --green: #13795b;
+      --green-soft: #e2f2e9;
+      --blue: #2b68c8;
+      --blue-soft: #e6eefb;
+      --amber: #b76512;
+      --amber-soft: #faead7;
+      --red: #b6473f;
+      --red-soft: #f7dedb;
+      --shadow: 0 18px 50px rgba(31, 45, 39, 0.10);
+      --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      --sans: "Inter", "Segoe UI", "Microsoft YaHei", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--ink);
+      background:
+        linear-gradient(90deg, rgba(43, 104, 200, 0.05), transparent 38%),
+        linear-gradient(180deg, #fbfcfa 0%, var(--bg) 54%, #eef2ec 100%);
+      font-family: var(--sans);
+      letter-spacing: 0;
+    }
+
+    button, input, select {
+      font: inherit;
+    }
+
+    .shell {
+      display: grid;
+      grid-template-columns: 244px minmax(760px, 1fr) 338px;
+      min-height: 100vh;
+    }
+
+    .sidebar {
+      padding: 26px 18px;
+      border-right: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.72);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 30px;
+    }
+
+    .brand-mark {
+      display: grid;
+      width: 38px;
+      height: 38px;
+      place-items: center;
+      border: 1px solid #22302b;
+      border-radius: 8px;
+      background: var(--ink);
+      color: white;
+      font-weight: 760;
+    }
+
+    .brand strong {
+      display: block;
+      font-size: 17px;
+      line-height: 1.2;
+    }
+
+    .brand small {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .nav {
+      display: grid;
+      gap: 6px;
+    }
+
+    .nav a {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      height: 38px;
+      padding: 0 10px;
+      border-radius: 8px;
+      color: #3b4440;
+      text-decoration: none;
+      font-size: 14px;
+    }
+
+    .nav a.active {
+      background: var(--ink);
+      color: white;
+    }
+
+    .nav-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: currentColor;
+      opacity: 0.75;
+    }
+
+    .side-block {
+      margin-top: 34px;
+      padding-top: 18px;
+      border-top: 1px solid var(--line);
+    }
+
+    .side-title {
+      margin: 0 0 12px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    .account {
+      display: grid;
+      gap: 9px;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--paper);
+    }
+
+    .account-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      font-size: 13px;
+    }
+
+    .status {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 64px;
+      height: 24px;
+      padding: 0 8px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .status.green {
+      color: var(--green);
+      background: var(--green-soft);
+    }
+
+    .status.amber {
+      color: var(--amber);
+      background: var(--amber-soft);
+    }
+
+    .status.blue {
+      color: var(--blue);
+      background: var(--blue-soft);
+    }
+
+    .main {
+      padding: 24px;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 24px;
+      margin-bottom: 20px;
+    }
+
+    .title h1 {
+      margin: 0;
+      font-size: 30px;
+      line-height: 1.1;
+      font-weight: 760;
+    }
+
+    .title p {
+      margin: 8px 0 0;
+      max-width: 660px;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.6;
+    }
+
+    .actions {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      white-space: nowrap;
+    }
+
+    .btn {
+      height: 38px;
+      padding: 0 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--paper);
+      color: var(--ink);
+      cursor: default;
+      font-weight: 720;
+    }
+
+    .btn.primary {
+      border-color: var(--ink);
+      background: var(--ink);
+      color: white;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 1fr 320px;
+      gap: 18px;
+      align-items: start;
+    }
+
+    .panel {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.86);
+      box-shadow: var(--shadow);
+    }
+
+    .panel.flat {
+      box-shadow: none;
+    }
+
+    .panel-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      min-height: 54px;
+      padding: 16px 18px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .panel-head h2 {
+      margin: 0;
+      font-size: 15px;
+    }
+
+    .panel-body {
+      padding: 18px;
+    }
+
+    .builder {
+      display: grid;
+      grid-template-columns: 1fr 1fr 160px;
+      gap: 12px;
+    }
+
+    .field {
+      display: grid;
+      gap: 7px;
+    }
+
+    .field span {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .control {
+      width: 100%;
+      height: 40px;
+      padding: 0 11px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fbfcfa;
+      color: var(--ink);
+    }
+
+    .chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 16px;
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      padding: 0 10px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: var(--paper-2);
+      color: #40504a;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+      margin-top: 18px;
+    }
+
+    .metric {
+      min-height: 96px;
+      padding: 15px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--paper);
+    }
+
+    .metric span {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .metric strong {
+      display: block;
+      margin-top: 10px;
+      font-size: 28px;
+      line-height: 1;
+    }
+
+    .run-line {
+      position: relative;
+      display: grid;
+      grid-template-columns: 28px 1fr 96px;
+      gap: 12px;
+      align-items: start;
+      padding: 14px 0;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .run-line:last-child {
+      border-bottom: 0;
+      padding-bottom: 0;
+    }
+
+    .node {
+      display: grid;
+      width: 26px;
+      height: 26px;
+      place-items: center;
+      border-radius: 50%;
+      background: var(--blue-soft);
+      color: var(--blue);
+      font-family: var(--mono);
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .run-line.done .node {
+      background: var(--green-soft);
+      color: var(--green);
+    }
+
+    .run-line.wait .node {
+      background: var(--amber-soft);
+      color: var(--amber);
+    }
+
+    .run-main b {
+      display: block;
+      margin-bottom: 4px;
+      font-size: 14px;
+    }
+
+    .run-main p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .asset-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+    }
+
+    .asset {
+      min-height: 116px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background:
+        linear-gradient(135deg, rgba(19, 121, 91, 0.18), transparent 44%),
+        linear-gradient(315deg, rgba(43, 104, 200, 0.16), transparent 45%),
+        #f8faf7;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+
+    .asset small {
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 11px;
+    }
+
+    .asset b {
+      font-size: 13px;
+    }
+
+    .rightbar {
+      padding: 24px 18px;
+      border-left: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.64);
+    }
+
+    .intervention {
+      border: 1px solid #edc6bd;
+      border-radius: 8px;
+      background: var(--red-soft);
+      padding: 16px;
+      margin-bottom: 18px;
+    }
+
+    .intervention h2 {
+      margin: 0 0 8px;
+      color: #802e28;
+      font-size: 15px;
+    }
+
+    .intervention p {
+      margin: 0 0 14px;
+      color: #85453f;
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .signal-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .signal {
+      display: grid;
+      grid-template-columns: 10px 1fr;
+      gap: 10px;
+      padding: 12px 0;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .signal:last-child {
+      border-bottom: 0;
+    }
+
+    .signal-dot {
+      width: 10px;
+      height: 10px;
+      margin-top: 4px;
+      border-radius: 50%;
+      background: var(--green);
+    }
+
+    .signal:nth-child(2) .signal-dot {
+      background: var(--blue);
+    }
+
+    .signal:nth-child(3) .signal-dot {
+      background: var(--amber);
+    }
+
+    .signal b {
+      display: block;
+      margin-bottom: 4px;
+      font-size: 13px;
+    }
+
+    .signal span {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .log {
+      max-height: 186px;
+      overflow: hidden;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #17201d;
+      color: #d7efe2;
+      font-family: var(--mono);
+      font-size: 11px;
+      line-height: 1.6;
+    }
+
+    .log span {
+      color: #7ec8ff;
+    }
+
+    @media (max-width: 1180px) {
+      .shell {
+        grid-template-columns: 220px 1fr;
+      }
+
+      .rightbar {
+        display: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">F</div>
+        <div>
+          <strong>Falcon</strong>
+          <small>Browser Collector</small>
+        </div>
+      </div>
+      <nav class="nav" aria-label="Primary">
+        <a class="active" href="#"><span class="nav-dot"></span>采集中心</a>
+        <a href="#"><span class="nav-dot"></span>账号池</a>
+        <a href="#"><span class="nav-dot"></span>资产库</a>
+        <a href="#"><span class="nav-dot"></span>分析队列</a>
+        <a href="#"><span class="nav-dot"></span>执行预览</a>
+      </nav>
+
+      <div class="side-block">
+        <p class="side-title">账号状态</p>
+        <div class="account">
+          <div class="account-row"><b>小红书 default</b><span class="status green">已登录</span></div>
+          <div class="account-row"><span>profile</span><span>本机隔离</span></div>
+          <div class="account-row"><span>并发锁</span><span>空闲</span></div>
+        </div>
+      </div>
+
+      <div class="side-block">
+        <p class="side-title">任务节奏</p>
+        <div class="account">
+          <div class="account-row"><span>点击间隔</span><b>8-18 秒</b></div>
+          <div class="account-row"><span>滚动轮次</span><b>低频</b></div>
+          <div class="account-row"><span>详情打开</span><b>真实点击</b></div>
+        </div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div class="title">
+          <h1>小红书采集任务</h1>
+          <p>用 Falcon 管理任务和数据，由 Node Playwright sidecar 控制真实浏览器。页面只展示可确认状态，不暴露验证码、cookie 或临时链接。</p>
+        </div>
+        <div class="actions">
+          <button class="btn">保存草稿</button>
+          <button class="btn primary">开始采集</button>
+        </div>
+      </header>
+
+      <section class="layout">
+        <div>
+          <section class="panel">
+            <div class="panel-head">
+              <h2>创建采集任务</h2>
+              <span class="status blue">单账号串行</span>
+            </div>
+            <div class="panel-body">
+              <div class="builder">
+                <label class="field">
+                  <span>平台</span>
+                  <select class="control"><option>小红书</option></select>
+                </label>
+                <label class="field">
+                  <span>关键词</span>
+                  <input class="control" value="小红书封面 生图小程序">
+                </label>
+                <label class="field">
+                  <span>目标数量</span>
+                  <select class="control"><option>20 条</option></select>
+                </label>
+                <label class="field">
+                  <span>账号</span>
+                  <select class="control"><option>default</option></select>
+                </label>
+                <label class="field">
+                  <span>采集节奏</span>
+                  <select class="control"><option>谨慎低频</option></select>
+                </label>
+                <label class="field">
+                  <span>入队策略</span>
+                  <select class="control"><option>采集后进入分析</option></select>
+                </label>
+              </div>
+              <div class="chips">
+                <span class="chip">不保存临时链接</span>
+                <span class="chip">人工处理验证码</span>
+                <span class="chip">详情后强去重</span>
+                <span class="chip">图片落本地资产库</span>
+              </div>
+            </div>
+          </section>
+
+          <section class="metrics" aria-label="Run metrics">
+            <div class="metric"><span>已发现卡片</span><strong>43</strong></div>
+            <div class="metric"><span>已打开详情</span><strong>18</strong></div>
+            <div class="metric"><span>已保存样本</span><strong>12</strong></div>
+            <div class="metric"><span>重复过滤</span><strong>6</strong></div>
+          </section>
+
+          <section class="panel flat" style="margin-top: 18px;">
+            <div class="panel-head">
+              <h2>运行状态流</h2>
+              <span class="status amber">等待人工</span>
+            </div>
+            <div class="panel-body">
+              <div class="run-line done">
+                <div class="node">1</div>
+                <div class="run-main">
+                  <b>启动浏览器 profile</b>
+                  <p>browser-profiles/xiaohongshu/default，复用本机登录态。</p>
+                </div>
+                <span class="status green">完成</span>
+              </div>
+              <div class="run-line done">
+                <div class="node">2</div>
+                <div class="run-main">
+                  <b>搜索关键词并读取瀑布流快照</b>
+                  <p>当前快照只做弱过滤，不跨滚动保存 DOM 引用。</p>
+                </div>
+                <span class="status green">完成</span>
+              </div>
+              <div class="run-line done">
+                <div class="node">3</div>
+                <div class="run-main">
+                  <b>真实点击卡片并读取详情</b>
+                  <p>标题、正文、作者、时间、互动数和媒体资产完成结构化。</p>
+                </div>
+                <span class="status green">12 条</span>
+              </div>
+              <div class="run-line wait">
+                <div class="node">4</div>
+                <div class="run-main">
+                  <b>人工介入</b>
+                  <p>页面出现设备确认提示。完成确认后点击继续。</p>
+                </div>
+                <span class="status amber">暂停</span>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel flat" style="margin-top: 18px;">
+            <div class="panel-head">
+              <h2>最近保存的资产</h2>
+              <span class="status green">assets/12</span>
+            </div>
+            <div class="panel-body">
+              <div class="asset-grid">
+                <div class="asset"><small>cover_01.webp</small><b>封面排版样本</b></div>
+                <div class="asset"><small>cover_02.jpg</small><b>标题图结构</b></div>
+                <div class="asset"><small>detail_03.png</small><b>评论证据截图</b></div>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <section class="panel flat">
+          <div class="panel-head">
+            <h2>数据流</h2>
+          </div>
+          <div class="panel-body">
+            <div class="run-line done">
+              <div class="node">A</div>
+              <div class="run-main">
+                <b>Sidecar event</b>
+                <p>JSONL 事件写入 run 目录。</p>
+              </div>
+              <span class="status green">live</span>
+            </div>
+            <div class="run-line done">
+              <div class="node">B</div>
+              <div class="run-main">
+                <b>Normalize</b>
+                <p>平台字段转为 Falcon models。</p>
+              </div>
+              <span class="status green">ok</span>
+            </div>
+            <div class="run-line">
+              <div class="node">C</div>
+              <div class="run-main">
+                <b>Analyze queue</b>
+                <p>采集完成后进入 GPT-5.5 分析。</p>
+              </div>
+              <span class="status blue">next</span>
+            </div>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <aside class="rightbar">
+      <section class="intervention">
+        <h2>需要人工处理</h2>
+        <p>小红书 default 账号出现设备确认。Falcon 已暂停 sidecar，不会继续点击或滚动。</p>
+        <button class="btn primary" style="width: 100%;">我已处理，继续</button>
+      </section>
+
+      <section class="panel flat" style="margin-bottom: 18px;">
+        <div class="panel-head">
+          <h2>采集信号</h2>
+        </div>
+        <div class="panel-body">
+          <div class="signal-list">
+            <div class="signal">
+              <div class="signal-dot"></div>
+              <div><b>强去重命中</b><span>标题 + 正文 + 图片 hash 与已保存样本相似。</span></div>
+            </div>
+            <div class="signal">
+              <div class="signal-dot"></div>
+              <div><b>评论意向</b><span>评论区出现“求推荐工具”的高意图文本。</span></div>
+            </div>
+            <div class="signal">
+              <div class="signal-dot"></div>
+              <div><b>节奏降速</b><span>连续详情页打开失败，自动切换到更慢节奏。</span></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel flat">
+        <div class="panel-head">
+          <h2>Sidecar 日志</h2>
+        </div>
+        <div class="panel-body">
+          <div class="log">
+            <div><span>10:42:11</span> run_started xiaohongshu/default</div>
+            <div><span>10:43:02</span> search_submitted keyword=小红书封面</div>
+            <div><span>10:45:38</span> item_collected fingerprint=9f3a</div>
+            <div><span>10:47:16</span> asset_saved cover_02.jpg</div>
+            <div><span>10:48:04</span> manual_action_required device_check</div>
+          </div>
+        </div>
+      </section>
+    </aside>
+  </div>
+</body>
+</html>

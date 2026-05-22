@@ -11,7 +11,6 @@ from falcon.cli import build_parser
 from falcon.db import FalconRepository
 from falcon.models import Draft, RawItem
 from falcon.web.app import create_app
-from tests.test_yingdao_xlsx import write_minimal_xlsx
 
 
 class WebAppTest(unittest.TestCase):
@@ -43,33 +42,6 @@ class WebAppTest(unittest.TestCase):
             self.assertEqual(response.status_code, 200)
             self.assertIn("Falcon 控制台", response.text)
 
-    def test_run_daily_post_imports_analyzes_and_reports(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            tmp_path = Path(tmp)
-            db_path = tmp_path / "falcon.sqlite3"
-            xlsx_path = tmp_path / "xhs_raw_export.xlsx"
-            report_path = tmp_path / "daily-report.md"
-            write_minimal_xlsx(
-                xlsx_path,
-                [["小红书封面怎么做才有人点？", "https://www.xiaohongshu.com/search_result/1"]],
-            )
-            client = TestClient(create_app(db_path))
-
-            response = client.post(
-                "/run",
-                data={
-                    "xlsx_path": str(xlsx_path),
-                    "keyword": "生图小程序",
-                    "drafts": "template",
-                    "report_output": str(report_path),
-                },
-                follow_redirects=False,
-            )
-
-            self.assertEqual(response.status_code, 303)
-            self.assertTrue(report_path.exists())
-            self.assertEqual(len(FalconRepository(db_path).list_raw_items()), 1)
-
     def test_init_db_post_creates_database(self):
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "falcon.sqlite3"
@@ -94,25 +66,15 @@ class WebAppTest(unittest.TestCase):
             self.assertIn("Falcon 日报", response.text)
             self.assertIn("今日样本。", response.text)
 
-    def test_run_daily_post_records_error_for_missing_xlsx(self):
+    def test_keywords_page_renders_collection_language(self):
         with tempfile.TemporaryDirectory() as tmp:
-            tmp_path = Path(tmp)
-            db_path = tmp_path / "falcon.sqlite3"
+            db_path = Path(tmp) / "falcon.sqlite3"
             client = TestClient(create_app(db_path))
 
-            response = client.post(
-                "/run",
-                data={
-                    "xlsx_path": str(tmp_path / "missing.xlsx"),
-                    "keyword": "生图小程序",
-                    "drafts": "template",
-                    "report_output": str(tmp_path / "daily-report.md"),
-                },
-                follow_redirects=True,
-            )
+            response = client.get("/keywords")
 
             self.assertEqual(response.status_code, 200)
-            self.assertIn("运行失败", response.text)
+            self.assertIn("Falcon Agent 采集计划", response.text)
 
     def test_review_raw_item_post_records_feedback(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -7,7 +7,6 @@ from fastapi.templating import Jinja2Templates
 
 from ..db import FalconRepository
 from ..keyword_pool import load_keyword_tasks, write_default_keyword_pool
-from ..workflows import run_yingdao_daily
 
 
 WEB_DIR = Path(__file__).parent
@@ -53,51 +52,6 @@ def create_app(db_path: Path) -> FastAPI:
         app.state.last_run = {"message": "数据库已初始化", "report_path": ""}
         return RedirectResponse("/", status_code=303)
 
-    @app.get("/run")
-    def run_page(request: Request):
-        return templates.TemplateResponse(
-            request,
-            "run.html",
-            {
-                "active": "run",
-                "default_xlsx_path": "data/xhs_raw_export.xlsx",
-                "default_keyword": "生图小程序",
-                "default_report_output": "reports/daily-report.md",
-                "last_run": app.state.last_run,
-            },
-        )
-
-    @app.post("/run")
-    def run_daily(
-        xlsx_path: str = Form(...),
-        keyword: str = Form(...),
-        drafts: str = Form("template"),
-        report_output: str = Form("reports/daily-report.md"),
-    ):
-        repository = repo()
-        try:
-            result = run_yingdao_daily(
-                repository,
-                xlsx_path=Path(xlsx_path),
-                keyword=keyword,
-                report_output=Path(report_output),
-                drafts_mode=drafts,
-            )
-        except Exception as exc:
-            app.state.last_run = {
-                "error": f"{type(exc).__name__}: {exc}",
-                "report_path": report_output,
-            }
-            return RedirectResponse("/run", status_code=303)
-
-        app.state.last_run = {
-            "imported_count": result.imported_count,
-            "analyzed_count": result.analyzed_count,
-            "task_count": result.task_count,
-            "report_path": str(result.report_path),
-        }
-        return RedirectResponse("/run", status_code=303)
-
     @app.get("/report")
     def report_page(request: Request, path: str = "reports/daily-report.md"):
         report_path = Path(path)
@@ -113,7 +67,7 @@ def create_app(db_path: Path) -> FastAPI:
         )
 
     @app.get("/keywords")
-    def keywords_page(request: Request, path: str = "data/rpa_keywords.csv"):
+    def keywords_page(request: Request, path: str = "data/collection_keywords.csv"):
         keyword_path = Path(path)
         tasks = load_keyword_tasks(keyword_path) if keyword_path.exists() else []
         return templates.TemplateResponse(
@@ -123,7 +77,7 @@ def create_app(db_path: Path) -> FastAPI:
         )
 
     @app.post("/keywords/default")
-    def write_keywords(path: str = Form("data/rpa_keywords.csv"), theme: str = Form("生图小程序")):
+    def write_keywords(path: str = Form("data/collection_keywords.csv"), theme: str = Form("生图小程序")):
         write_default_keyword_pool(Path(path), theme=theme)
         return RedirectResponse(f"/keywords?path={path}", status_code=303)
 
