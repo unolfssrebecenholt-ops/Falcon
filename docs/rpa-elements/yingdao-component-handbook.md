@@ -192,6 +192,7 @@ processed_count / stop_current_keyword / no_new_scroll_rounds 用 Python 初始�
 - Python 代码段内临时变量要确认后续影刀节点能访问；不确定时用日志打印。
 - 影刀节点获取 href 可能失败，但 Python 里 current_card.get_attribute("href") 可用。
 - 小红书内容如果后续要投喂 AI，可按需要过滤 emoji 和特殊符号。
+- 给用户替换 Python 代码段时必须提供该节点的全量代码；如果当前代码版本不确定，先让用户贴对应行完整代码块做校准，再输出全量替换版。
 推荐写法：
 - `href_raw = current_card.get_attribute("href") or ""`
 - `should_click_card = 1`
@@ -552,11 +553,15 @@ row_data_list、seen_card_keys、processed_count、no_new_scroll_rounds、stop_c
 
 ```text
 规则：
-点击前先从 current_card 读取 href，生成 card_key。
-card_key 没见过，设置 should_click_card = 1。
+当前去重问题仍在讨论中，不能把 href、note_url 或卡片 text 单独当稳定唯一 ID。
+原因是小红书搜索结果是瀑布加载 + 虚拟 DOM，href 和详情 note_url 都可能是临时会话路径，卡片 text 也可能过长或为空。
+点击前只能做弱过滤，例如当前 DOM 快照里的弱文本指纹或临时 card_key，用来减少重复点击尝试。
+点击后再基于详情采集结果做强去重，候选内容指纹包括清洗后的标题、正文、作者和图片二进制 hash。
 影刀 IF 判断 should_click_card > 0。
 原因：
-避免重复点击，也避免影刀 IF 不识别 Python False。
+避免影刀 IF 不识别 Python False；同时避免把临时 URL 误判为真实唯一 ID。
+待办：
+继续验证“点击前弱过滤 + 详情后内容指纹强去重”，并确认滚动停止条件是否从 new_count_this_round 改成 unique_write_this_round。
 ```
 
 ### 瀑布流 DOM

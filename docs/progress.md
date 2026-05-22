@@ -6,7 +6,7 @@
 
 - 仓库已推送到 GitHub：`ssh://git@ssh.github.com:443/unolfssrebecenholt-ops/Falcon.git`
 - 当前分支：`main`
-- 当前阶段：第一版本地 MVP 已建立，影刀 RPA 资料交接、组件手册、Falcon 侧采集质量升级和 dashboard 方案原型已合并准备交接。
+- 当前阶段：第一版本地 MVP 已建立，影刀 RPA 资料交接、组件手册、Falcon 侧采集质量升级、dashboard 方案原型和小红书虚拟 DOM 去重规则已合并准备交接。
 - 技术形态：Python + FastAPI + Jinja + SQLite + CSV/xlsx 导入 + 结构化影刀导入 + Markdown 日报。
 - 项目必须保持 Windows 和 macOS 双端可运行。
 
@@ -65,14 +65,14 @@
 
 ## 最近一次提交准备
 
-- 本次变更目标：完成 2026-05-14 Mac 端拉代码、合并远端进度、验证项目状态，并把 Falcon dashboard 方案原型和交接进度推送到 GitHub，方便晚些时候 Windows 继续开发。
+- 本次变更目标：完成 2026-05-22 Mac 端提交前验证，并把影刀辅助规则、组件手册和小红书瀑布流/虚拟 DOM 去重交接记录推送到 GitHub，方便另一台机器继续开发。
 - 本次整理内容：
-  - 已执行 `git pull`，本地 `main` 从 `edb325f` 快进到远端 `c0780dc`，无冲突。
-  - 远端已带入 `docs/rpa-elements/yingdao-component-handbook.md`、`docs/rpa-elements/yingdao-assistant-rules.md` 和最新 `AGENTS.md` 影刀规则。
-  - 新增 `prototype/falcon-dashboard.html`，保存 Falcon 方案进度和交接状态 dashboard 静态原型。
-  - 更新 `docs/progress.md`，记录 Mac 端拉取、合并、依赖验证、测试结果和 Windows 接手提示。
+  - 已执行 `git pull --ff-only`，本地 `main` 与 `origin/main` 一致，无需合并。
+  - `docs/rpa-elements/yingdao-assistant-rules.md` 新增影刀 Python 代码交付规则：给用户替换代码时必须提供节点全量代码；当前代码版本不确定时先索取完整代码块校准。
+  - `docs/rpa-elements/yingdao-component-handbook.md` 补充 Python 代码段全量替换要求，并把小红书瀑布流 + 虚拟 DOM 去重从“URL 唯一 ID”调整为“点击前弱过滤 + 详情后内容指纹强去重”的待验证方向。
+  - 更新 `docs/progress.md`，记录本次交接重点、验证结果和下一步去重方案。
 - 本次验证：
-  - `python3 -m unittest discover -s tests`
+  - `python3 -m unittest discover -s tests`：30 tests passed.
 
 ## 当前问题解决进度
 
@@ -112,6 +112,12 @@
 - 已完成：2026-05-14 Mac 端已拉取并合并远端 `main` 最新影刀组件手册和辅助规则，无冲突。
 - 已完成：`prototype/falcon-dashboard.html` 已作为方案进度和交接 dashboard 静态原型纳入仓库，供后续正式 Web 控制台改造参考。
 - 已确认：Mac 系统自带 `pip 21.2.4` 对当前 `pyproject.toml` editable 安装支持不足，`python3 -m pip install -e .` 会失败；本机已改用直接安装依赖 `fastapi httpx jinja2 python-multipart uvicorn` 后完成测试。Windows 仍按 `py -3 -m pip install -e .`。
+- 待继续：小红书瀑布流 + 虚拟 DOM 去重策略需要继续讨论和验证：
+  - 用户已确认搜索结果卡片列表是瀑布加载和虚拟 DOM，滚动后 `post_link_list` 只代表当前 DOM 快照，重复和复用都可能出现。
+  - 用户已确认 `href` 和详情页 `note_url` 都可能是临时生成的会话路径，不能作为稳定唯一 ID，也不能通过 `note_url` 直接进入详情，否则容易触发风控拦截。
+  - 用户已确认卡片 `text` 不可靠：有的文章很长，有的无正文，因此不能单独作为唯一 ID。
+  - 当前候选方向是把去重拆成两层：点击前只做弱过滤，点击后基于采集到的稳定内容做强去重；强去重优先考虑清洗后的标题、正文、作者和图片二进制 hash 组合成内容指纹。
+  - 后续待定：是否能稳定取作者、图片二进制 hash 是否适合影刀运行成本、空标题/空正文/无图内容如何处理、滚动停止条件是否从 `new_count_this_round` 改成 `unique_write_this_round`。
 - 待确认：真实 GPT-5.5 中转站环境变量尚未在本仓库验证，当前测试使用 fake client 和模板模式。
 - 待继续：小红书真实网页元素仍需继续归档，尤其是详情页 `detail_title`、`detail_content`、评论文本元素，以及最终 CSV/xlsx 写入动作的成功验证。
 
@@ -136,12 +142,12 @@ py -3 -m unittest discover -s tests
 
 结果：
 
-- 30 tests passed.
+- 2026-05-22 macOS `python3` 复跑通过：30 tests passed.
 - 2026-05-13 Windows PowerShell 复跑通过：30 tests passed.
 - 2026-05-14 Windows PowerShell 复跑通过：30 tests passed.
 - 2026-05-14 macOS `python3` 复跑通过：30 tests passed.
 
-本次 macOS 验证过程：
+2026-05-14 macOS 依赖补齐验证过程：
 
 ```bash
 python3 -m unittest discover -s tests
@@ -168,7 +174,7 @@ python3 -m unittest discover -s tests
 
 - 30 tests passed.
 
-本次 editable 安装验证：
+2026-05-14 editable 安装验证：
 
 ```powershell
 python -m pip install -e .
@@ -178,7 +184,7 @@ python -m pip install -e .
 
 - 安装成功。
 
-本次 JSON 文档验证：
+2026-05-14 JSON 文档验证：
 
 ```bash
 python3 -m json.tool docs/rpa-elements/yingdao-command-catalog.json >/dev/null
@@ -205,10 +211,11 @@ python3 -m json.tool docs/rpa-elements/current-yingdao-mainflow.json >/dev/null
 
 1. 在影刀界面按 `docs/yingdao-runbook.md` 把 `output_dir/output_filename/keyword/max_search_items/search_scroll_times/detail_open_limit/comment_top_limit/comment_scroll_times` 设置为流程参数。
 2. 先读 `docs/rpa-elements/yingdao-hybrid-architecture-guide.md`，再结合 `docs/rpa-elements/current-yingdao-mainflow.md` 继续改造影刀流程：搜索页获取相似卡片列表，循环变量使用 `current_card`，点击卡片进入 SPA 弹窗，读取当前地址栏 URL。
-3. 详情页字段采集使用容错：非必需的标题、正文、作者、评论文本开启错误处理，失败后继续并赋空值；遇到遮挡点击优先试 JS 点击。
-4. 导出新版结构化 xlsx 后，用 Falcon 导入验证 `post/comment` 两类数据。
-5. 每天复核日报中的“高价值笔记正文”和“评论痛点与求推荐信号”，记录 `优秀/有用/一般/无用/噪音`。
-6. 稳定后再配置 Windows 任务计划，形成影刀采集和 Falcon 分析的分段调度。
+3. 继续讨论并验证小红书去重方案：不要把临时 `href`、临时 `note_url` 或卡片 `text` 单独当唯一 ID；优先设计“点击前弱过滤 + 详情采集后内容指纹强去重”的方案。
+4. 详情页字段采集使用容错：非必需的标题、正文、作者、评论文本开启错误处理，失败后继续并赋空值；遇到遮挡点击优先试 JS 点击。
+5. 导出新版结构化 xlsx 后，用 Falcon 导入验证 `post/comment` 两类数据。
+6. 每天复核日报中的“高价值笔记正文”和“评论痛点与求推荐信号”，记录 `优秀/有用/一般/无用/噪音`。
+7. 稳定后再配置 Windows 任务计划，形成影刀采集和 Falcon 分析的分段调度。
 
 ## Windows 接手提示
 
