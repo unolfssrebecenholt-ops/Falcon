@@ -5,6 +5,7 @@ from typing import Optional
 from .adapters.xiaohongshu_csv import XiaohongshuCsvAdapter
 from .adapters.yingdao_xlsx import YingdaoXlsxAdapter
 from .db import FalconRepository
+from .image2 import FALCON_AGENT_ARCHITECTURE_PROMPT, Image2Client, load_env_file
 from .keyword_pool import write_default_keyword_pool
 from .workflows import analyze_unanalyzed, run_yingdao_daily, write_report
 
@@ -50,6 +51,10 @@ def build_parser() -> argparse.ArgumentParser:
     report_parser.add_argument("--output", default="")
     report_parser.add_argument("--summary", choices=["off", "gpt"], default="off")
 
+    image_parser = subparsers.add_parser("generate-architecture-image", help="Generate Falcon Agent architecture image via Image2")
+    image_parser.add_argument("--output", default="reports/falcon-agent-architecture.png")
+    image_parser.add_argument("--prompt", default="")
+
     review_parser = subparsers.add_parser("review-task", help="Update outreach task status and optional feedback")
     review_parser.add_argument("task_id", type=int)
     review_parser.add_argument("status", choices=["pending", "copied", "handled", "skipped", "invalid"])
@@ -70,6 +75,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Optional[list] = None) -> int:
+    load_env_file()
     parser = build_parser()
     args = parser.parse_args(argv)
     repo = FalconRepository(Path(args.db))
@@ -132,6 +138,14 @@ def main(argv: Optional[list] = None) -> int:
         output = Path(args.output) if args.output else Path("reports") / "daily-report.md"
         write_report(repo, output=output, summary_mode=args.summary)
         print(f"Wrote {output}")
+        return 0
+
+    if args.command == "generate-architecture-image":
+        output = Path(args.output)
+        prompt = args.prompt or FALCON_AGENT_ARCHITECTURE_PROMPT
+        client = Image2Client.from_env()
+        result = client.save(prompt, output)
+        print(f"Wrote {output} via Image2 {result.provider_name}")
         return 0
 
     if args.command == "review-task":

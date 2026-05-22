@@ -2,6 +2,28 @@
 
 本文件是 Windows 和 M1 Mac 双机开发的接手入口。每次提交前必须更新。
 
+## 2026-05-22 Falcon Agent README and Image2 architecture asset
+
+- Rewrote `README.md` around the Falcon Agent target architecture: GPT-5.5 + Image2, multi-platform collection, analysis, report UI, content generation, and semi-automatic preview execution.
+- Added the generated architecture diagram to `docs/assets/falcon-agent-architecture.png` and referenced it from the README.
+- Implemented Image2 local configuration support with primary/fallback relays, `.env` loading, OpenAI-compatible `/v1/images/generations`, and the `generate-architecture-image` CLI command.
+- Updated `.env.example` with Image2 placeholder variables only; real Image2 keys remain local in ignored `.env`.
+- Added Image2 tests covering b64 response parsing, primary-to-fallback behavior, redirect handling, and `.env` loading behavior.
+- Validation: `python -m unittest discover -s tests` passed with 34 tests via the bundled Codex Python runtime; `compileall` also passed.
+- Handoff note: the system `py` launcher is unavailable in this environment, so validation used `C:\Users\zhanglongsheng\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe`.
+
+## 2026-05-22 Codex collection module v1 prep
+
+- Implemented the Codex multi-platform collection documentation layer for conversation-triggered collection.
+- Added `docs/codex-collection-guide.md` as the main runbook for one-line task entry, storage contract, CSV contract, failure handling, and semi-automatic login.
+- Added platform profiles under `docs/collection-platforms/`: `xiaohongshu.md` is the full v1 flow; `douyin.md`, `xianyu.md`, and `weibo.md` are probe-only placeholders until verified.
+- Updated `AGENTS.md` with the Codex data collection protocol, semi-automatic login protocol, default phone `17630962337`, and the rule that Yingdao stays legacy/fallback for now.
+- Added reusable helper modules under `scripts/collection/core/` for paths, CSV writing, asset UUID naming/download, summaries, text cleanup, dedupe, and login state helpers.
+- Added platform strategy modules under `scripts/collection/platforms/` for Xiaohongshu full support scaffolding and Douyin/Xianyu/Weibo probe profiles.
+- Added `datas/` to `.gitignore`; collection output remains local runtime data and should not be committed.
+- Current scope remains collection asset bundles only. No Falcon analysis, report generation, Web analysis, cookie persistence, token persistence, or SMS auto-reading was added.
+- Handoff note: Codex browser automation still performs the real platform interaction at runtime. These scripts are shared helper/profile modules, not a standalone CLI entry point.
+
 ## 当前状态
 
 - 仓库已推送到 GitHub：`ssh://git@ssh.github.com:443/unolfssrebecenholt-ops/Falcon.git`

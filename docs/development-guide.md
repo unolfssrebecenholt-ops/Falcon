@@ -140,6 +140,37 @@ http://127.0.0.1:8765
 
 不要提交真实 key。仓库只保留 `.env.example`。
 
+## Image2 生图中转站
+
+Image2 使用 OpenAI 兼容图片接口，真实 key 只放本地 `.env` 或环境变量，不提交到仓库。
+
+环境变量名：
+
+- `FALCON_IMAGE2_PRIMARY_BASE_URL`
+- `FALCON_IMAGE2_PRIMARY_API_KEY`
+- `FALCON_IMAGE2_FALLBACK_BASE_URL`
+- `FALCON_IMAGE2_FALLBACK_API_KEY`
+- `FALCON_IMAGE2_ENDPOINT`
+- `FALCON_IMAGE2_MODEL`
+- `FALCON_IMAGE2_TIMEOUT`
+- `FALCON_IMAGE2_SIZE`
+
+生成 Falcon Agent 架构图：
+
+macOS:
+
+```bash
+python3 -m falcon generate-architecture-image --output reports/falcon-agent-architecture.png
+```
+
+Windows PowerShell:
+
+```powershell
+py -3 -m falcon generate-architecture-image --output reports\falcon-agent-architecture.png
+```
+
+如果主中转站失败或超时，客户端会尝试备用中转站。日志和命令输出不得打印完整 API key。
+
 ## 提交流程
 
 1. `git pull`
@@ -162,3 +193,59 @@ http://127.0.0.1:8765
 - 文档命令同时给出 macOS 和 Windows PowerShell 版本。
 - 不依赖 shell-only 行为实现核心功能。
 - 不把生成的 SQLite、日报、缓存或 `.env` 提交到仓库。
+
+## Codex collection module
+
+V1 collection is triggered from a Codex conversation and uses the Codex in-app browser/manual browser session. It is not a standalone CLI or Web feature yet.
+
+Entry phrase:
+
+```text
+开始采集：平台=小红书；关键词=ai头像,小红书封面；每个关键词=30条
+```
+
+Before running a collection task, read:
+
+- `docs/codex-collection-guide.md`
+- `docs/collection-platforms/{platform}.md`
+
+The reusable helper modules live in:
+
+```text
+scripts/collection/core/
+scripts/collection/platforms/
+```
+
+No new npm dependency is required. Validate JavaScript syntax with:
+
+macOS:
+
+```bash
+find scripts/collection -name '*.mjs' -print0 | xargs -0 -n1 node --check
+```
+
+Windows PowerShell:
+
+```powershell
+Get-ChildItem scripts\collection -Recurse -Filter *.mjs | ForEach-Object { node --check $_.FullName }
+```
+
+Runtime output is local-only and ignored by Git:
+
+```text
+datas/{platform_slug}/{keyword}_{yyyyMMddHHmm}/
+  {keyword}_{yyyyMMddHHmm}.csv
+  assets/
+  collection_steps.md
+  extra.jsonl
+datas/{platform_slug}/run_summary_{yyyyMMddHHmm}.json
+```
+
+Security notes:
+
+- Use real browser interaction: simulated click, keyboard input, and human-like scrolling.
+- Do not use JavaScript click to open content cards.
+- Do not navigate directly to transient detail links.
+- Do not save platform links.
+- Verification codes are transient conversation input only and must never be written to files.
+- Yingdao remains legacy/fallback for now and should not be deleted.
