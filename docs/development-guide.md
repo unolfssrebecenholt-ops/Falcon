@@ -163,6 +163,32 @@ Python CLI real browser run:
 py -3 -m falcon --db data\falcon.sqlite3 collector-run --platform xiaohongshu --profile default --keyword "小红书封面" --max-posts 5
 ```
 
+Profile login from the Web workbench:
+
+1. Open `/collector`.
+2. In `平台账号 / Profile`, choose platform and profile name.
+3. Click `打开登录窗口`.
+4. Finish login in the opened browser window, then close that window.
+
+The profile is stored under `browser-profiles/<platform>/<profile>/` and is ignored by Git. Use a different profile name for each account, for example `default`, `creator`, or `backup`. Same-platform same-profile tasks should be treated as serial work; different profiles can be scheduled independently later.
+
+Manual sidecar profile login:
+
+macOS:
+
+```bash
+cd sidecar/collector
+npm run profile-login
+```
+
+Windows PowerShell:
+
+```powershell
+Set-Location sidecar\collector
+npm run profile-login
+Set-Location ..\..
+```
+
 ## 本地 smoke workflow
 
 macOS:

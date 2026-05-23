@@ -121,22 +121,54 @@
   </table>
 </section>
 
-<section class="panel">
-  <h2>Worker/Profile 摘要</h2>
+<section class="panel profile-panel">
+  <div class="section-head">
+    <div>
+      <h2>平台账号 / Profile</h2>
+      <p class="muted">以 platform/profile 管理登录态。同一 profile 后续按串行任务锁执行，不同平台或不同 profile 可并行调度。</p>
+    </div>
+  </div>
+  {% if profile_notice %}
+  <p class="notice">{{ profile_notice }}</p>
+  {% endif %}
+  <form class="row-form profile-login-form" action="/collector/profiles/open-login" method="post">
+    <label>平台
+      <select name="platform">
+        {% for platform in platforms %}
+        <option value="{{ platform.key }}">{{ platform.name }} / {{ platform.key }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Profile
+      <input name="profile" value="default" required>
+    </label>
+    <button class="button primary" type="submit">打开登录窗口</button>
+  </form>
   <table>
     <thead>
-      <tr><th>平台</th><th>Profile</th><th>状态</th><th>任务数</th></tr>
+      <tr><th>账号键</th><th>本地目录</th><th>状态</th><th>任务锁</th><th>操作</th></tr>
     </thead>
     <tbody>
-      {% for item in profile_summary %}
+      {% for item in profile_entries %}
       <tr>
-        <td>{{ item.platform }}</td>
-        <td>{{ item.profile }}</td>
-        <td>{{ item.status }}</td>
-        <td>{{ item.count }}</td>
+        <td data-label="账号键"><strong>{{ item.key }}</strong></td>
+        <td data-label="本地目录"><code>{{ item.display_path }}</code></td>
+        <td data-label="状态">{{ item.status_label }}</td>
+        <td data-label="任务锁">{{ item.queue_label }}</td>
+        <td data-label="操作">
+          {% if item.login_supported %}
+          <form class="inline-form" action="/collector/profiles/open-login" method="post">
+            <input type="hidden" name="platform" value="{{ item.platform }}">
+            <input type="hidden" name="profile" value="{{ item.profile }}">
+            <button class="button small" type="submit">登录/检查</button>
+          </form>
+          {% else %}
+          <button class="button small" type="button" disabled>待接入</button>
+          {% endif %}
+        </td>
       </tr>
       {% else %}
-      <tr><td colspan="4" class="muted">暂无 Profile 使用记录。</td></tr>
+      <tr><td colspan="5" class="muted">暂无 Profile 记录。</td></tr>
       {% endfor %}
     </tbody>
   </table>

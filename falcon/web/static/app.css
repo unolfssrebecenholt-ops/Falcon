@@ -156,6 +156,11 @@ p { line-height: 1.6; }
 
 .button.primary:hover { background: var(--accent-dark); }
 .button.small { padding: 6px 10px; }
+.button:disabled {
+  cursor: not-allowed;
+  color: #98a2b3;
+  background: #f4f4f2;
+}
 
 .form-grid {
   display: grid;
@@ -439,6 +444,27 @@ input, select {
   color: var(--muted);
 }
 
+.profile-panel .section-head {
+  align-items: flex-start;
+}
+
+.profile-login-form {
+  margin: 0 0 14px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfaf7;
+}
+
+.profile-login-form label {
+  min-width: 190px;
+}
+
+.profile-panel code {
+  overflow-wrap: anywhere;
+  font: 12px/1.5 "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
+}
+
 .inline-form, .row-form {
   display: flex;
   gap: 8px;
@@ -563,4 +589,34 @@ td a { color: var(--accent-dark); }
   .environment-row.warning .env-state::after { background: #e9a21a; }
   .environment-row.missing .env-state::after,
   .environment-row.failed .env-state::after { background: #cf3f5b; }
+  .profile-panel table,
+  .profile-panel tbody,
+  .profile-panel tr,
+  .profile-panel td {
+    display: block;
+    width: 100%;
+  }
+  .profile-panel thead { display: none; }
+  .profile-panel tr {
+    padding: 12px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .profile-panel td {
+    display: grid;
+    grid-template-columns: 88px minmax(0, 1fr);
+    gap: 10px;
+    padding: 6px 0;
+    border-bottom: 0;
+  }
+  .profile-panel td::before {
+    content: attr(data-label);
+    color: var(--muted);
+    font-weight: 600;
+  }
+  .profile-panel .inline-form {
+    align-items: stretch;
+  }
+  .profile-panel .inline-form .button {
+    width: 100%;
+  }
 }

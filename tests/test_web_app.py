@@ -244,6 +244,103 @@ class WebAppTest(unittest.TestCase):
             self.assertNotIn('<details class="panel environment-panel" open>', response.text)
             self.assertIn("2/2 项就绪", response.text)
 
+    def test_collector_overview_shows_profile_workspace_by_platform_account(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            db_path = tmp_path / "falcon.sqlite3"
+            profile_root = tmp_path / "browser-profiles"
+            (profile_root / "xiaohongshu" / "backup").mkdir(parents=True)
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="xhs-running",
+                    platform="xiaohongshu",
+                    keyword="AI cover",
+                    profile="default",
+                    status="running",
+                )
+            )
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="dy-queued",
+                    platform="douyin",
+                    keyword="AI cover",
+                    profile="creator",
+                    status="queued",
+                )
+            )
+            client = TestClient(create_app(db_path, profile_root=profile_root))
+
+            response = client.get("/collector")
+
+            self.assertEqual(response.status_code, 200)
+            self.assertIn('action="/collector/profiles/open-login"', response.text)
+            self.assertIn("platform/profile", response.text)
+            self.assertIn("xiaohongshu/default", response.text)
+            self.assertIn("xiaohongshu/backup", response.text)
+            self.assertIn("douyin/creator", response.text)
+            self.assertIn("browser-profiles", response.text)
+
+    def test_collector_profile_login_launches_supported_platform_profile(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            db_path = tmp_path / "falcon.sqlite3"
+            profile_root = tmp_path / "browser-profiles"
+            launches = []
+
+            def fake_launcher(**kwargs):
+                launches.append(kwargs)
+                return {"pid": 4321}
+
+            client = TestClient(
+                create_app(db_path, profile_root=profile_root, profile_login_launcher=fake_launcher)
+            )
+
+            response = client.post(
+                "/collector/profiles/open-login",
+                data={"platform": "xiaohongshu", "profile": "creator"},
+                follow_redirects=False,
+            )
+
+            self.assertEqual(response.status_code, 303)
+            self.assertTrue(response.headers["location"].startswith("/collector?profile_action=opened"))
+            self.assertEqual(len(launches), 1)
+            self.assertEqual(launches[0]["platform"], "xiaohongshu")
+            self.assertEqual(launches[0]["profile"], "creator")
+            self.assertEqual(launches[0]["profile_path"], profile_root / "xiaohongshu" / "creator")
+
+    def test_collector_profile_login_rejects_unsupported_or_unsafe_profile(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            db_path = tmp_path / "falcon.sqlite3"
+            profile_root = tmp_path / "browser-profiles"
+            launches = []
+
+            def fake_launcher(**kwargs):
+                launches.append(kwargs)
+                return {"pid": 4321}
+
+            client = TestClient(
+                create_app(db_path, profile_root=profile_root, profile_login_launcher=fake_launcher)
+            )
+
+            unsupported = client.post(
+                "/collector/profiles/open-login",
+                data={"platform": "douyin", "profile": "default"},
+                follow_redirects=False,
+            )
+            unsafe = client.post(
+                "/collector/profiles/open-login",
+                data={"platform": "xiaohongshu", "profile": "..\\outside"},
+                follow_redirects=False,
+            )
+
+            self.assertEqual(unsupported.status_code, 400)
+            self.assertEqual(unsafe.status_code, 400)
+            self.assertEqual(launches, [])
+            self.assertFalse((tmp_path / "outside").exists())
+
     def test_collector_create_get_renders_task_form(self):
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "falcon.sqlite3"

@@ -13,6 +13,7 @@ from ..db import FalconRepository
 from ..doctor import build_doctor_report, checks_for_web
 from ..keyword_pool import load_keyword_tasks, write_default_keyword_pool
 from ..models import CollectionEvent, CollectionRun
+from ..profiles import SUPPORTED_PROFILE_LOGIN_PLATFORMS, launch_profile_login, list_profile_entries
 from ..workflows import promote_collected_posts
 
 
@@ -20,14 +21,15 @@ WEB_DIR = Path(__file__).parent
 templates = Jinja2Templates(directory=str(WEB_DIR / "templates"))
 
 
-def create_app(db_path: Path, doctor_report_builder=None) -> FastAPI:
+def create_app(db_path: Path, doctor_report_builder=None, profile_root=None, profile_login_launcher=None) -> FastAPI:
     app = FastAPI(title="Falcon 控制台")
     app.state.db_path = Path(db_path)
     app.state.last_run = None
     app.state.runtime_root = Path(db_path).parent / "runtime" / "collector"
-    app.state.profile_root = Path("browser-profiles")
+    app.state.profile_root = Path(profile_root) if profile_root is not None else Path("browser-profiles")
     app.state.project_root = Path(__file__).resolve().parents[2]
     app.state.doctor_report_builder = doctor_report_builder or build_doctor_report
+    app.state.profile_login_launcher = profile_login_launcher or launch_profile_login
     app.mount("/static", StaticFiles(directory=str(WEB_DIR / "static")), name="static")
 
     def repo() -> FalconRepository:
@@ -100,7 +102,12 @@ def create_app(db_path: Path, doctor_report_builder=None) -> FastAPI:
         return RedirectResponse(f"/keywords?path={path}", status_code=303)
 
     @app.get("/collector")
-    def collector_page(request: Request):
+    def collector_page(
+        request: Request,
+        profile_action: str = "",
+        profile_platform: str = "",
+        profile_name: str = "",
+    ):
         repository = repo()
         runs = repository.list_collection_runs(limit=20)
         dashboard = repository.collector_dashboard()
@@ -118,10 +125,50 @@ def create_app(db_path: Path, doctor_report_builder=None) -> FastAPI:
                 "runs": runs,
                 "queued_runs": queued_runs,
                 "profile_summary": _profile_summary(runs),
+                "profile_entries": list_profile_entries(
+                    app.state.profile_root,
+                    runs,
+                    [item["key"] for item in _collector_platforms()],
+                ),
+                "profile_notice": _profile_notice(profile_action, profile_platform, profile_name),
+                "profile_login_supported_platforms": SUPPORTED_PROFILE_LOGIN_PLATFORMS,
                 "environment_checks": environment_checks,
                 "environment_ready": doctor_report.required_ok,
                 "environment_summary": _environment_summary(environment_checks),
             },
+        )
+
+    @app.post("/collector/profiles/open-login")
+    def open_collector_profile_login(platform: str = Form(...), profile: str = Form(...)):
+        clean_platform = platform.strip() or "xiaohongshu"
+        clean_profile = profile.strip() or "default"
+        allowed_platforms = {item["key"] for item in _collector_platforms()}
+        if clean_platform not in allowed_platforms:
+            raise HTTPException(status_code=400, detail="Unsupported collector platform")
+        try:
+            safe_collector_identifier(clean_platform, "platform")
+            clean_profile = safe_collector_identifier(clean_profile, "profile")
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if clean_platform not in SUPPORTED_PROFILE_LOGIN_PLATFORMS:
+            raise HTTPException(status_code=400, detail="Profile login is not supported for this platform yet")
+
+        profile_path = app.state.profile_root / clean_platform / clean_profile
+        try:
+            app.state.profile_login_launcher(
+                platform=clean_platform,
+                profile=clean_profile,
+                profile_root=app.state.profile_root,
+                profile_path=profile_path,
+                project_root=app.state.project_root,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except OSError as exc:
+            raise HTTPException(status_code=500, detail=f"Could not open profile login window: {exc}") from exc
+        return RedirectResponse(
+            f"/collector?profile_action=opened&profile_platform={clean_platform}&profile_name={clean_profile}",
+            status_code=303,
         )
 
     @app.get("/collector/create")
@@ -350,3 +397,9 @@ def _environment_summary(checks):
         "required_issues": required_issues,
         "optional_warnings": optional_warnings,
     }
+
+
+def _profile_notice(action: str, platform: str, profile: str) -> str:
+    if action == "opened" and platform and profile:
+        return f"已打开 {platform}/{profile} 登录窗口。请在弹出的浏览器里完成登录，完成后关闭窗口。"
+    return ""

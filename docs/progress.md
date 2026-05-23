@@ -2,6 +2,23 @@
 
 本文件是 Windows 和 M1 Mac 双机开发的接手入口。每次提交前必须更新。
 
+## 2026-05-23 Profile login workspace
+
+- 本次新增采集层 Profile 登录工作区：
+  - `/collector` 增加 `平台账号 / Profile` 面板，按 `platform/profile` 展示账号键、本地目录、状态、任务锁和操作入口。
+  - 支持从 Web 直接打开小红书 profile 登录窗口，登录态保存到 `browser-profiles/xiaohongshu/<profile>/`，不进入 Git。
+  - Profile 管理按多账号、多平台、多任务设计：同一 `platform/profile` 后续作为串行任务锁粒度，不同 profile 可作为未来并行调度粒度。
+  - 其他平台保留入口但暂不允许启动登录窗口，避免把未实现 adapter 误认为可运行。
+  - 新增 `sidecar/collector/profile-login.mjs`，只负责打开持久化 Playwright profile 浏览器窗口，不采集、不读取验证码、不保存账号密码。
+- 验证结果：
+  - 新增 Web 单测覆盖 Profile 面板展示、支持平台启动、未接入平台和非法 profile 拒绝。
+  - `py -3 -m unittest discover -s tests`：72 tests passed。
+  - `py -3 -m compileall falcon`：passed。
+  - `node --check sidecar\collector\profile-login.mjs`：passed。
+  - 浏览器检查 `/collector` 窄窗口无横向溢出，Profile 表格已转为字段式展示。
+- 下一步：
+  - 用户在 `/collector` 里点击 `打开登录窗口`，完成 `xiaohongshu/default` 登录后，跑一次 `collector-run --max-posts 5` 人工 smoke。
+
 ## 2026-05-23 Cross-platform startup and environment doctor
 
 - 本次完成跨平台启动与环境自检第一版：
