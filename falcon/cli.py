@@ -4,6 +4,7 @@ from typing import Optional
 
 from .collector import CollectorService
 from .db import FalconRepository
+from .doctor import build_doctor_report, ensure_project_directories, format_doctor_report, project_root_from_package
 from .image2 import FALCON_AGENT_ARCHITECTURE_PROMPT, Image2Client, load_env_file
 from .keyword_pool import write_default_keyword_pool
 from .workflows import analyze_unanalyzed, write_report
@@ -18,6 +19,10 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     subparsers.add_parser("init-db", help="Initialize SQLite schema")
+
+    doctor_parser = subparsers.add_parser("doctor", help="Check local Falcon runtime dependencies")
+    doctor_parser.add_argument("--project-root", default=str(project_root_from_package()))
+    doctor_parser.add_argument("--ensure-dirs", action="store_true", help="Create local data/runtime/profile folders")
 
     keyword_pool_parser = subparsers.add_parser("write-keyword-pool", help="Write default collection keyword pool CSV")
     keyword_pool_parser.add_argument("output_path")
@@ -92,6 +97,14 @@ def main(argv: Optional[list] = None) -> int:
         repo.init_schema()
         print(f"Initialized {args.db}")
         return 0
+
+    if args.command == "doctor":
+        project_root = Path(args.project_root)
+        if args.ensure_dirs:
+            ensure_project_directories(project_root)
+        report = build_doctor_report(project_root)
+        print(format_doctor_report(report))
+        return 0 if report.required_ok else 1
 
     if args.command == "write-keyword-pool":
         tasks = write_default_keyword_pool(Path(args.output_path), theme=args.theme)

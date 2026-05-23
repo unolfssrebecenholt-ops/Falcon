@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from falcon.analysis import AnalysisResult
 from falcon.cli import build_parser
 from falcon.db import FalconRepository
+from falcon.doctor import DoctorCheck, DoctorReport
 from falcon.models import (
     CollectedPost,
     CollectionEvent,
@@ -188,6 +189,33 @@ class WebAppTest(unittest.TestCase):
             self.assertIn("三层流转", response.text)
             self.assertIn("xhs-queued", response.text)
             assert_no_legacy_collection_markers(self, response.text)
+
+    def test_collector_overview_shows_environment_doctor_panel(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "falcon.sqlite3"
+            report = DoctorReport(
+                [
+                    DoctorCheck("python", "Python", "ok", "3.11", True),
+                    DoctorCheck("node", "Node.js", "missing", "not found", True, "node --version"),
+                    DoctorCheck(
+                        "playwright_chromium",
+                        "Playwright Chromium",
+                        "warning",
+                        "install needed",
+                        True,
+                        "npx playwright install chromium",
+                    ),
+                ]
+            )
+            client = TestClient(create_app(db_path, doctor_report_builder=lambda _root: report))
+
+            response = client.get("/collector")
+
+            self.assertEqual(response.status_code, 200)
+            self.assertIn("Environment doctor", response.text)
+            self.assertIn("Node.js", response.text)
+            self.assertIn("Playwright Chromium", response.text)
+            self.assertIn("node --version", response.text)
 
     def test_collector_create_get_renders_task_form(self):
         with tempfile.TemporaryDirectory() as tmp:

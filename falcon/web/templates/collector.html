@@ -20,6 +20,25 @@
 
 <section class="panel">
   <div class="section-head">
+    <h2>Environment doctor</h2>
+    <span class="pill {{ 'ready' if environment_ready else 'blocked' }}">{{ 'ready' if environment_ready else 'action needed' }}</span>
+  </div>
+  <div class="status-grid">
+    {% for check in environment_checks %}
+    <article class="status-item {{ check.status }}">
+      <div class="card-title">
+        <strong>{{ check.label }}</strong>
+        <span class="status-badge">{{ check.status }}</span>
+      </div>
+      <p>{{ check.message }}</p>
+      {% if check.command %}<code>{{ check.command }}</code>{% endif %}
+    </article>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="panel">
+  <div class="section-head">
     <h2>平台入口</h2>
     <span class="muted">第一阶段优先小红书，其余入口保留配置位置。</span>
   </div>

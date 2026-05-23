@@ -10,6 +10,7 @@ from fastapi.templating import Jinja2Templates
 
 from ..collector import CollectorService, safe_collector_identifier
 from ..db import FalconRepository
+from ..doctor import build_doctor_report, checks_for_web
 from ..keyword_pool import load_keyword_tasks, write_default_keyword_pool
 from ..models import CollectionEvent, CollectionRun
 from ..workflows import promote_collected_posts
@@ -19,12 +20,14 @@ WEB_DIR = Path(__file__).parent
 templates = Jinja2Templates(directory=str(WEB_DIR / "templates"))
 
 
-def create_app(db_path: Path) -> FastAPI:
+def create_app(db_path: Path, doctor_report_builder=None) -> FastAPI:
     app = FastAPI(title="Falcon 控制台")
     app.state.db_path = Path(db_path)
     app.state.last_run = None
     app.state.runtime_root = Path(db_path).parent / "runtime" / "collector"
     app.state.profile_root = Path("browser-profiles")
+    app.state.project_root = Path(__file__).resolve().parents[2]
+    app.state.doctor_report_builder = doctor_report_builder or build_doctor_report
     app.mount("/static", StaticFiles(directory=str(WEB_DIR / "static")), name="static")
 
     def repo() -> FalconRepository:
@@ -103,6 +106,7 @@ def create_app(db_path: Path) -> FastAPI:
         dashboard = repository.collector_dashboard()
         posts = repository.list_collected_posts(limit=50)
         queued_runs = [run for run in runs if run.status in {"queued", "running", "manual_action_required"}]
+        doctor_report = app.state.doctor_report_builder(app.state.project_root)
         return templates.TemplateResponse(
             request,
             "collector.html",
@@ -113,6 +117,8 @@ def create_app(db_path: Path) -> FastAPI:
                 "runs": runs,
                 "queued_runs": queued_runs,
                 "profile_summary": _profile_summary(runs),
+                "environment_checks": checks_for_web(doctor_report),
+                "environment_ready": doctor_report.required_ok,
             },
         )
 

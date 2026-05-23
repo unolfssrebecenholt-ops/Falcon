@@ -29,6 +29,59 @@ cd Falcon
 
 ## 安装依赖
 
+Recommended one-command startup:
+
+macOS:
+
+```bash
+chmod +x scripts/start.sh
+./scripts/start.sh
+```
+
+Windows PowerShell:
+
+```powershell
+.\scripts\start.ps1
+```
+
+The startup script runs these steps in order:
+
+1. `python -m pip install -e .`
+2. `npm install` in `sidecar/collector`
+3. `npx playwright install chromium` in `sidecar/collector`
+4. create local `data/`, `runtime/collector/`, and `browser-profiles/`
+5. initialize `data/falcon.sqlite3`
+6. run `falcon doctor`
+7. open and start the local Web workbench at `http://127.0.0.1:8765`
+
+For fast restarts after dependencies are already installed:
+
+macOS:
+
+```bash
+./scripts/start.sh --skip-install
+```
+
+Windows PowerShell:
+
+```powershell
+.\scripts\start.ps1 --skip-install
+```
+
+Doctor-only checks:
+
+macOS:
+
+```bash
+python3 -m falcon doctor --ensure-dirs
+```
+
+Windows PowerShell:
+
+```powershell
+py -3 -m falcon doctor --ensure-dirs
+```
+
 macOS:
 
 ```bash

@@ -2,6 +2,29 @@
 
 本文件是 Windows 和 M1 Mac 双机开发的接手入口。每次提交前必须更新。
 
+## 2026-05-23 Cross-platform startup and environment doctor
+
+- 本次完成跨平台启动与环境自检第一版：
+  - 新增 `falcon doctor`，统一检查 Python、Node.js、npm、collector sidecar package、Node Playwright package、Playwright Chromium、本地 `data/`、`runtime/collector/`、`browser-profiles/` 目录，以及 GPT-5.5/Image2 relay 配置。
+  - 新增 `scripts/falcon_bootstrap.py` 作为 Windows/macOS 共用启动核心。
+  - 新增 `scripts/start.ps1` 与 `scripts/start.sh`，用户启动项目时只需要运行平台对应脚本。
+  - 启动流程会安装 Python editable package、安装 sidecar npm 依赖、安装 Playwright Chromium、创建本地目录、初始化 SQLite、运行 doctor、打开并启动 Web 工作台。
+  - `/collector` 总览新增 Environment doctor 面板，能在可视化页面看到依赖和本地目录状态。
+  - Windows 下 `npm.cmd`/`npx.cmd` 解析已处理，避免 subprocess 找不到 `.cmd` launcher。
+- 验证结果：
+  - `py -3 -m unittest tests.test_doctor tests.test_bootstrap_scripts tests.test_web_app`：27 tests passed。
+  - `py -3 scripts\falcon_bootstrap.py --dry-run`：启动命令链可正确输出。
+  - `py -3 -m falcon doctor --project-root . --ensure-dirs`：命令可运行；当前机器 Node.js/npm 可用，sidecar Node Playwright package 与 Chromium 尚未安装，首次执行 `.\scripts\start.ps1` 会进入自动安装步骤。
+- 已知问题：
+  - 本次没有真实执行 `npm install` 和 Playwright Chromium 下载，避免在当前开发回合制造较大的本地依赖目录；首次启动脚本会完成安装。
+  - Web 环境面板是同步检查，若某台机器 Node/Playwright 状态异常，打开 `/collector` 时可能比普通页面稍慢。
+- 下一步：
+  - 用户在 Windows 运行 `.\scripts\start.ps1`，在 macOS 运行 `./scripts/start.sh`，确认首次安装和 Web 自动打开体验。
+  - sidecar 依赖安装完成后，再进入小红书真实 profile 登录与 `collector-run` 人工 smoke。
+- Windows/Mac 接手说明：
+  - Windows：`git pull` 后运行 `.\scripts\start.ps1`；若依赖已装好，可运行 `.\scripts\start.ps1 --skip-install`。
+  - macOS：`git pull` 后运行 `chmod +x scripts/start.sh`，再运行 `./scripts/start.sh`；若依赖已装好，可运行 `./scripts/start.sh --skip-install`。
+
 ## 2026-05-23 Falcon collector foundation
 
 - 本次完成第一阶段采集层基础闭环：
