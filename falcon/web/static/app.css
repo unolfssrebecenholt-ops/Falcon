@@ -473,6 +473,31 @@ input, select {
 
 .row-form input { width: 140px; }
 
+.run-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.run-actions .inline-form {
+  margin: 0;
+}
+
+.preview-body {
+  margin-top: 18px;
+}
+
+.preview-body h3 {
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+
+.collector-url {
+  display: block;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;

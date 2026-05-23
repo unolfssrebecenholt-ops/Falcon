@@ -11,14 +11,34 @@
 
 <section class="metrics">
   <div class="metric"><span>状态</span><strong class="fit-text">{{ run.status|collector_status }}</strong></div>
-  <div class="metric"><span>进度</span><strong>{{ run.progress }}%</strong></div>
-  <div class="metric"><span>帖子上限</span><strong>{{ run.max_posts }}</strong></div>
-  <div class="metric"><span>评论上限</span><strong>{{ run.max_comments_per_post }}</strong></div>
+  <div class="metric"><span>阶段</span><strong>{{ run|run_progress_stage }}</strong></div>
+  <div class="metric"><span>开启时间</span><strong class="fit-text">{{ run.created_at|readable_time }}</strong></div>
+  <div class="metric"><span>运行时长</span><strong>{{ run|run_duration }}</strong></div>
 </section>
 
 <section class="panel">
-  <h2>当前步骤</h2>
-  <p>{{ run.current_step|collector_step }}</p>
+  <div class="section-head">
+    <div>
+      <h2>当前步骤</h2>
+      <p>{{ run.current_step|collector_step }}</p>
+      <p class="muted">资源占用：{{ run|run_resource }} · 帖子上限 {{ run.max_posts }} · 评论上限 {{ run.max_comments_per_post }}</p>
+    </div>
+    <div class="run-actions">
+      <form class="inline-form" action="/collector/runs/{{ run.run_id }}/rerun" method="post">
+        <button class="button small" type="submit">重新运行</button>
+      </form>
+      {% if run.status == "manual_action_required" %}
+      <form class="inline-form" action="/collector/runs/{{ run.run_id }}/mark-failed" method="post">
+        <button class="button small" type="submit">标记失败</button>
+      </form>
+      {% endif %}
+      {% if run.status != "cancelled" %}
+      <form class="inline-form" action="/collector/runs/{{ run.run_id }}/archive" method="post">
+        <button class="button small" type="submit">归档</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
   {% if run.failed_reason %}
   <p class="alert">{{ run.failed_reason }}</p>
   {% endif %}
@@ -38,7 +58,7 @@
         <td>{{ event.event|collector_event }}</td>
         <td>{{ event.level|collector_level }}</td>
         <td>{{ event.message|collector_message(event.event) }}</td>
-        <td>{{ event.created_at }}</td>
+        <td>{{ event.created_at|readable_time }}</td>
       </tr>
       {% else %}
       <tr><td colspan="6" class="muted">暂无事件。</td></tr>
@@ -56,7 +76,7 @@
     <tbody>
       {% for post in posts %}
       <tr>
-        <td><a href="{{ post.url }}" target="_blank">{{ post.title }}</a></td>
+        <td><a href="/collector/runs/{{ run.run_id }}/posts/{{ post.post_id }}">{{ post.title }}</a></td>
         <td>{{ post.author or "-" }}</td>
         <td>{{ post.like_count or "0" }} / {{ post.comment_count or "0" }}</td>
         <td>{{ post.content }}</td>

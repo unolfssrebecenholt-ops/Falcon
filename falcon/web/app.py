@@ -1,6 +1,7 @@
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Optional
 from uuid import uuid4
 
 from fastapi import FastAPI, Form, HTTPException, Request
@@ -21,12 +22,12 @@ WEB_DIR = Path(__file__).parent
 templates = Jinja2Templates(directory=str(WEB_DIR / "templates"))
 
 COLLECTOR_STATUS_LABELS = {
-    "queued": "排队中",
+    "queued": "待启动",
     "running": "运行中",
-    "manual_action_required": "等待人工",
+    "manual_action_required": "需人工处理",
     "failed": "失败",
     "completed": "已完成",
-    "cancelled": "已取消",
+    "cancelled": "已归档",
 }
 COLLECTOR_LEVEL_LABELS = {
     "info": "信息",
@@ -52,6 +53,9 @@ COLLECTOR_EVENT_LABELS = {
     "manual_action_required": "等待人工处理",
     "run_completed": "任务完成",
     "run_failed": "任务失败",
+    "rerun_created": "已创建重跑",
+    "run_marked_failed": "人工标记失败",
+    "run_archived": "任务归档",
 }
 COLLECTOR_MESSAGE_LABELS = {
     "Collector run started": "采集任务已启动",
@@ -142,6 +146,88 @@ templates.env.filters["collector_step"] = collector_step_label
 templates.env.filters["platform_label"] = platform_label
 templates.env.filters["asset_type"] = asset_type_label
 templates.env.filters["evidence_scope"] = evidence_scope_label
+SHANGHAI_TZ = timezone(timedelta(hours=8))
+
+
+def readable_time(value: str) -> str:
+    parsed = _parse_time(value)
+    if parsed is None:
+        return "-"
+    return parsed.astimezone(SHANGHAI_TZ).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def run_duration_label(run: CollectionRun) -> str:
+    start = _parse_time(run.created_at)
+    if start is None:
+        return "-"
+    end = None
+    if run.status == "running":
+        end = datetime.now(timezone.utc)
+    elif run.completed_at:
+        end = _parse_time(run.completed_at)
+    else:
+        end = _parse_time(run.updated_at)
+    if end is None:
+        return "-"
+    seconds = max(0, int((end - start).total_seconds()))
+    return _duration_label(seconds)
+
+
+def run_progress_stage(run: CollectionRun) -> str:
+    if run.status == "manual_action_required":
+        return "已暂停"
+    if run.status == "failed":
+        return "已停止"
+    if run.status == "cancelled":
+        return "已归档"
+    if run.status == "queued":
+        return "待启动"
+    if run.status == "completed":
+        return "100%"
+    return f"{run.progress}%"
+
+
+def run_resource_label(run: CollectionRun) -> str:
+    if run.status == "running":
+        return "采集中"
+    return "无占用"
+
+
+def _parse_time(value: str) -> Optional[datetime]:
+    if not value:
+        return None
+    text = str(value).strip()
+    if text.endswith("Z"):
+        text = f"{text[:-1]}+00:00"
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def _duration_label(seconds: int) -> str:
+    days, remainder = divmod(seconds, 86400)
+    hours, remainder = divmod(remainder, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    parts = []
+    if days:
+        parts.append(f"{days} 天")
+    if hours:
+        parts.append(f"{hours} 小时")
+    if minutes:
+        parts.append(f"{minutes} 分")
+    if seconds or not parts:
+        parts.append(f"{seconds} 秒")
+    return " ".join(parts)
+
+
+templates.env.filters["readable_time"] = readable_time
+templates.env.filters["run_duration"] = run_duration_label
+templates.env.filters["run_progress_stage"] = run_progress_stage
+templates.env.filters["run_resource"] = run_resource_label
 
 
 def create_app(db_path: Path, doctor_report_builder=None, profile_root=None, profile_login_launcher=None) -> FastAPI:
@@ -165,6 +251,27 @@ def create_app(db_path: Path, doctor_report_builder=None, profile_root=None, pro
             repository,
             runtime_root=app.state.runtime_root,
             profile_root=app.state.profile_root,
+        )
+
+    def append_run_event(
+        repository: FalconRepository,
+        run_id: str,
+        event: str,
+        message: str,
+        level: str = "info",
+        scope: str = "core",
+    ) -> None:
+        events = repository.list_collection_events(run_id)
+        sequence = (events[-1].sequence if events else 0) + 1
+        repository.append_collection_event(
+            CollectionEvent(
+                run_id=run_id,
+                sequence=sequence,
+                scope=scope,
+                event=event,
+                message=message,
+                level=level,
+            )
         )
 
     @app.get("/")
@@ -370,6 +477,105 @@ def create_app(db_path: Path, doctor_report_builder=None, profile_root=None, pro
                 "posts": repository.list_collected_posts(run_id=run_id),
                 "assets": repository.list_media_assets(run_id),
                 "evidences": repository.list_evidences(run_id),
+            },
+        )
+
+    @app.post("/collector/runs/{run_id}/rerun")
+    def rerun_collection_run(run_id: str):
+        repository = repo()
+        source = repository.get_collection_run(run_id)
+        if source is None:
+            raise HTTPException(status_code=404, detail="Collection run not found")
+        new_run = CollectionRun(
+            run_id=_new_run_id(source.platform),
+            platform=source.platform,
+            keyword=source.keyword,
+            profile=source.profile,
+            status="queued",
+            progress=0,
+            current_step="等待浏览器采集调度",
+            max_posts=source.max_posts,
+            max_comments_per_post=source.max_comments_per_post,
+        )
+        repository.create_collection_run(new_run)
+        collector_service(repository).prepare_run_request(new_run, headed=True, dry_run=False)
+        append_run_event(
+            repository,
+            new_run.run_id,
+            event="request_prepared",
+            message=f"从 {source.run_id} 重新创建采集任务，等待启动。",
+        )
+        append_run_event(
+            repository,
+            source.run_id,
+            event="rerun_created",
+            message=f"已创建重跑任务 {new_run.run_id}。",
+        )
+        return RedirectResponse(f"/collector/runs/{new_run.run_id}", status_code=303)
+
+    @app.post("/collector/runs/{run_id}/mark-failed")
+    def mark_collection_run_failed(run_id: str):
+        repository = repo()
+        run = repository.get_collection_run(run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="Collection run not found")
+        repository.update_collection_run(
+            run_id,
+            status="failed",
+            progress=100,
+            current_step="已人工标记失败",
+            failed_reason="人工标记为失败",
+        )
+        append_run_event(
+            repository,
+            run_id,
+            event="run_marked_failed",
+            message="已人工标记失败，不占用采集资源。",
+            level="warning",
+        )
+        return RedirectResponse(f"/collector/runs/{run_id}", status_code=303)
+
+    @app.post("/collector/runs/{run_id}/archive")
+    def archive_collection_run(run_id: str):
+        repository = repo()
+        run = repository.get_collection_run(run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="Collection run not found")
+        repository.update_collection_run(
+            run_id,
+            status="cancelled",
+            current_step="已归档",
+        )
+        append_run_event(
+            repository,
+            run_id,
+            event="run_archived",
+            message="任务已归档，不占用采集资源。",
+        )
+        return RedirectResponse(f"/collector/runs/{run_id}", status_code=303)
+
+    @app.get("/collector/runs/{run_id}/posts/{post_id}")
+    def collector_post_preview(request: Request, run_id: str, post_id: int):
+        repository = repo()
+        run = repository.get_collection_run(run_id)
+        post = repository.get_collected_post(post_id)
+        if run is None or post is None or post.run_id != run_id:
+            raise HTTPException(status_code=404, detail="Collected post not found")
+        assets = [
+            asset
+            for asset in repository.list_media_assets(run_id)
+            if asset.post_id == post.post_id
+        ]
+        return templates.TemplateResponse(
+            request,
+            "collector_post.html",
+            {
+                "active": "collector_run",
+                "current_run": run,
+                "run": run,
+                "post": post,
+                "comments": repository.list_collected_comments(run_id=run_id, post_id=post.post_id),
+                "assets": assets,
             },
         )
 

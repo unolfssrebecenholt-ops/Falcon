@@ -2,6 +2,27 @@
 
 本文件是 Windows 和 M1 Mac 双机开发的接手入口。每次提交前必须更新。
 
+## 2026-05-23 Collector task lifecycle and local sample preview
+
+- 本次优化采集任务生命周期展示：
+  - `/collector` 任务队列新增开启时间、运行时长、资源占用和操作列。
+  - `manual_action_required` 在页面上显示为“需人工处理”，阶段显示“已暂停”，资源占用显示“无占用”，避免误解为仍在运行或占用浏览器资源。
+  - 新增任务操作：重新运行、标记失败、归档。重新运行会基于原任务创建新的 queued run 并准备 request；标记失败和归档会写回状态并追加事件链记录。
+  - `/collector/runs/{run_id}` 详情页同步显示阶段、开启时间、运行时长、资源占用和同样的任务操作。
+- 本次优化时间和样本查看：
+  - 任务详情事件链时间改为可读上海时间，例如 `2026-05-23 16:14:07`。
+  - 采集样本标题不再直接链接小红书 URL，改为进入 Falcon 本地样本预览页 `/collector/runs/{run_id}/posts/{post_id}`。
+  - 本地预览页展示标题、作者、正文、互动数、原始平台地址文本、热评和媒体资产；原始小红书 URL 只作为文本展示，避免点击外链触发平台风控。
+- 验证结果：
+  - `py -3 -m unittest discover -s tests`：79 tests passed。
+  - `py -3 -m compileall falcon`：passed。
+  - 旧关键词扫描无命中。
+  - 浏览器检查 `http://127.0.0.1:8765/collector` 和任务详情/样本预览：无横向溢出；本地样本链接正常；详情页不包含小红书外链锚点。
+- 已知问题：
+  - 归档当前复用内部状态 `cancelled` 存储，Web 显示为“已归档”。后续如果需要更细的审计状态，可以在 schema 中新增独立 archived 状态。
+- 下一步：
+  - 为“需人工处理”任务增加更明确的恢复流程，例如扫码后点击“继续采集”而不是只能“重新运行”。
+
 ## 2026-05-23 Xiaohongshu adapter hardening and Chinese collector UI
 
 - 本次加固小红书采集 adapter：

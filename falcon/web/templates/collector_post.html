@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}样本预览 - Falcon{% endblock %}
+{% block content %}
+<header class="page-header">
+  <div>
+    <h1>样本预览</h1>
+    <p>{{ run.run_id }} · {{ run.platform|platform_label }} · {{ run.keyword }}</p>
+  </div>
+  <a class="button" href="/collector/runs/{{ run.run_id }}">返回任务详情</a>
+</header>
+
+<section class="panel">
+  <div class="section-head">
+    <div>
+      <h2>{{ post.title or "未命名样本" }}</h2>
+      <p class="muted">作者：{{ post.author or "-" }} · 点赞 {{ post.like_count or "0" }} · 评论 {{ post.comment_count or "0" }}</p>
+    </div>
+    <span class="pill">{{ post.platform|platform_label }}</span>
+  </div>
+  <dl class="summary-list">
+    <div><dt>采集时间</dt><dd>{{ post.collected_at|readable_time }}</dd></div>
+    <div><dt>发布时间</dt><dd>{{ post.published_at or "-" }}</dd></div>
+    <div><dt>关键词</dt><dd>{{ post.keyword }}</dd></div>
+    <div><dt>本地样本 ID</dt><dd>{{ post.post_id }}</dd></div>
+  </dl>
+  <div class="preview-body">
+    <h3>正文</h3>
+    <p>{{ post.content or "暂无正文。" }}</p>
+  </div>
+  <div class="preview-body">
+    <h3>原始平台地址</h3>
+    <code class="collector-url">{{ post.url or "-" }}</code>
+  </div>
+</section>
+
+<section class="two-column">
+  <section class="panel">
+    <h2>热评</h2>
+    <table>
+      <thead>
+        <tr><th>序号</th><th>用户</th><th>点赞</th><th>内容</th></tr>
+      </thead>
+      <tbody>
+        {% for comment in comments %}
+        <tr>
+          <td>{{ comment.comment_rank or loop.index }}</td>
+          <td>{{ comment.commenter or "-" }}</td>
+          <td>{{ comment.like_count or "0" }}</td>
+          <td>{{ comment.content }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4" class="muted">暂无热评。</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+
+  <section class="panel">
+    <h2>媒体资产</h2>
+    <table>
+      <thead>
+        <tr><th>类型</th><th>路径</th><th>Hash</th></tr>
+      </thead>
+      <tbody>
+        {% for asset in assets %}
+        <tr>
+          <td>{{ asset.asset_type|asset_type }}</td>
+          <td>{{ asset.path }}</td>
+          <td>{{ asset.sha256 or "-" }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="3" class="muted">暂无媒体资产。</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+</section>
+{% endblock %}

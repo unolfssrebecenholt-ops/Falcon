@@ -102,7 +102,18 @@
   </div>
   <table>
     <thead>
-      <tr><th>Run</th><th>平台</th><th>关键词</th><th>状态</th><th>进度</th><th>当前步骤</th></tr>
+      <tr>
+        <th>Run</th>
+        <th>平台</th>
+        <th>关键词</th>
+        <th>状态</th>
+        <th>阶段</th>
+        <th>开启时间</th>
+        <th>运行时长</th>
+        <th>资源占用</th>
+        <th>当前步骤</th>
+        <th>操作</th>
+      </tr>
     </thead>
     <tbody>
       {% for run in runs %}
@@ -111,11 +122,31 @@
         <td>{{ run.platform|platform_label }}</td>
         <td>{{ run.keyword }}</td>
         <td>{{ run.status|collector_status }}</td>
-        <td>{{ run.progress }}%</td>
+        <td>{{ run|run_progress_stage }}</td>
+        <td>{{ run.created_at|readable_time }}</td>
+        <td>{{ run|run_duration }}</td>
+        <td>{{ run|run_resource }}</td>
         <td>{{ run.current_step|collector_step }}</td>
+        <td>
+          <div class="run-actions">
+            <form class="inline-form" action="/collector/runs/{{ run.run_id }}/rerun" method="post">
+              <button class="button small" type="submit">重新运行</button>
+            </form>
+            {% if run.status == "manual_action_required" %}
+            <form class="inline-form" action="/collector/runs/{{ run.run_id }}/mark-failed" method="post">
+              <button class="button small" type="submit">标记失败</button>
+            </form>
+            {% endif %}
+            {% if run.status != "cancelled" %}
+            <form class="inline-form" action="/collector/runs/{{ run.run_id }}/archive" method="post">
+              <button class="button small" type="submit">归档</button>
+            </form>
+            {% endif %}
+          </div>
+        </td>
       </tr>
       {% else %}
-      <tr><td colspan="6" class="muted">还没有采集任务。</td></tr>
+      <tr><td colspan="10" class="muted">还没有采集任务。</td></tr>
       {% endfor %}
     </tbody>
   </table>

@@ -490,6 +490,155 @@ class WebAppTest(unittest.TestCase):
             self.assertIn("search.png", response.text)
             assert_no_legacy_collection_markers(self, response.text)
 
+    def test_collector_overview_shows_lifecycle_columns_operations_and_duration(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "falcon.sqlite3"
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="xhs-manual",
+                    platform="xiaohongshu",
+                    keyword="AI cover",
+                    profile="default",
+                    status="manual_action_required",
+                    progress=50,
+                    current_step="检测到 手机扫码查看，需要人工处理后再继续。",
+                    created_at="2026-05-23T08:14:07+00:00",
+                    updated_at="2026-05-23T08:14:27+00:00",
+                )
+            )
+            client = TestClient(create_app(db_path))
+
+            response = client.get("/collector")
+
+            self.assertEqual(response.status_code, 200)
+            self.assertIn("开启时间", response.text)
+            self.assertIn("运行时长", response.text)
+            self.assertIn("资源占用", response.text)
+            self.assertIn("操作", response.text)
+            self.assertIn("需人工处理", response.text)
+            self.assertIn("已暂停", response.text)
+            self.assertIn("无占用", response.text)
+            self.assertIn("2026-05-23 16:14:07", response.text)
+            self.assertIn("20 秒", response.text)
+            self.assertIn('action="/collector/runs/xhs-manual/rerun"', response.text)
+            self.assertIn('action="/collector/runs/xhs-manual/mark-failed"', response.text)
+            self.assertIn('action="/collector/runs/xhs-manual/archive"', response.text)
+
+    def test_collector_run_actions_mark_failed_archive_and_rerun(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            db_path = tmp_path / "falcon.sqlite3"
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            for run_id in ["xhs-fail", "xhs-archive", "xhs-rerun"]:
+                repo.create_collection_run(
+                    CollectionRun(
+                        run_id=run_id,
+                        platform="xiaohongshu",
+                        keyword="AI cover",
+                        profile="default",
+                        status="manual_action_required",
+                        progress=50,
+                        current_step="检测到 手机扫码查看，需要人工处理后再继续。",
+                    )
+                )
+            client = TestClient(create_app(db_path))
+
+            failed = client.post("/collector/runs/xhs-fail/mark-failed", follow_redirects=False)
+            archived = client.post("/collector/runs/xhs-archive/archive", follow_redirects=False)
+            rerun = client.post("/collector/runs/xhs-rerun/rerun", follow_redirects=False)
+
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            runs = repo.list_collection_runs()
+            new_run = next(run for run in runs if run.run_id not in {"xhs-fail", "xhs-archive", "xhs-rerun"})
+            self.assertEqual(failed.status_code, 303)
+            self.assertEqual(archived.status_code, 303)
+            self.assertEqual(rerun.status_code, 303)
+            self.assertEqual(repo.get_collection_run("xhs-fail").status, "failed")
+            self.assertEqual(repo.get_collection_run("xhs-archive").status, "cancelled")
+            self.assertEqual(new_run.status, "queued")
+            self.assertEqual(new_run.platform, "xiaohongshu")
+            self.assertEqual(new_run.keyword, "AI cover")
+            self.assertTrue((tmp_path / "runtime" / "collector" / new_run.run_id / "request.json").exists())
+
+    def test_collector_run_detail_formats_event_times_as_shanghai_time(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "falcon.sqlite3"
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="xhs-time",
+                    platform="xiaohongshu",
+                    keyword="AI cover",
+                    profile="default",
+                    status="manual_action_required",
+                )
+            )
+            repo.append_collection_event(
+                CollectionEvent(
+                    run_id="xhs-time",
+                    sequence=1,
+                    scope="collector",
+                    event="run_started",
+                    message="采集任务已启动",
+                    created_at="2026-05-23T08:14:07.274Z",
+                )
+            )
+            client = TestClient(create_app(db_path))
+
+            response = client.get("/collector/runs/xhs-time")
+
+            self.assertEqual(response.status_code, 200)
+            self.assertIn("2026-05-23 16:14:07", response.text)
+            self.assertNotIn("2026-05-23T08:14:07.274Z", response.text)
+
+    def test_collected_post_title_links_to_local_preview_not_platform_url(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "falcon.sqlite3"
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="xhs-preview",
+                    platform="xiaohongshu",
+                    keyword="AI cover",
+                    profile="default",
+                    status="completed",
+                )
+            )
+            post_id = repo.save_collected_post(
+                CollectedPost(
+                    run_id="xhs-preview",
+                    platform="xiaohongshu",
+                    keyword="AI cover",
+                    title="Local preview post",
+                    content="Preview this inside Falcon.",
+                    url="https://www.xiaohongshu.com/explore/abc123",
+                    author="creator",
+                    like_count="12",
+                    comment_count="3",
+                    detail_fingerprint="abc123",
+                )
+            )
+            client = TestClient(create_app(db_path))
+
+            detail = client.get("/collector/runs/xhs-preview")
+            preview = client.get(f"/collector/runs/xhs-preview/posts/{post_id}")
+
+            self.assertEqual(detail.status_code, 200)
+            self.assertEqual(preview.status_code, 200)
+            self.assertIn(f'href="/collector/runs/xhs-preview/posts/{post_id}"', detail.text)
+            self.assertNotIn('href="https://www.xiaohongshu.com/explore/abc123"', detail.text)
+            self.assertIn("样本预览", preview.text)
+            self.assertIn("Local preview post", preview.text)
+            self.assertIn("Preview this inside Falcon.", preview.text)
+            self.assertIn("https://www.xiaohongshu.com/explore/abc123", preview.text)
+            self.assertNotIn('target="_blank"', preview.text)
+
     def test_collector_pages_display_chinese_status_and_event_vocabulary(self):
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "falcon.sqlite3"

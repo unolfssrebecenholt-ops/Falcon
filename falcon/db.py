@@ -460,6 +460,34 @@ class FalconRepository:
             rows = conn.execute(sql, params).fetchall()
         return [self._row_to_collected_post(row) for row in rows]
 
+    def get_collected_post(self, post_id: int) -> Optional[CollectedPost]:
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM collected_posts WHERE id = ?", (post_id,)).fetchone()
+        if row is None:
+            return None
+        return self._row_to_collected_post(row)
+
+    def list_collected_comments(
+        self,
+        run_id: Optional[str] = None,
+        post_id: Optional[int] = None,
+    ) -> List[CollectedComment]:
+        sql = "SELECT * FROM collected_comments"
+        params: List[object] = []
+        clauses: List[str] = []
+        if run_id:
+            clauses.append("run_id = ?")
+            params.append(run_id)
+        if post_id is not None:
+            clauses.append("post_id = ?")
+            params.append(post_id)
+        if clauses:
+            sql += " WHERE " + " AND ".join(clauses)
+        sql += " ORDER BY id ASC"
+        with self._connect() as conn:
+            rows = conn.execute(sql, params).fetchall()
+        return [self._row_to_collected_comment(row) for row in rows]
+
     def list_media_assets(self, run_id: str) -> List[MediaAsset]:
         with self._connect() as conn:
             rows = conn.execute(
@@ -770,6 +798,18 @@ class FalconRepository:
             like_count=row["like_count"],
             comment_count=row["comment_count"],
             detail_fingerprint=row["detail_fingerprint"],
+            collected_at=row["collected_at"],
+        )
+
+    def _row_to_collected_comment(self, row: sqlite3.Row) -> CollectedComment:
+        return CollectedComment(
+            comment_id=int(row["id"]),
+            post_id=int(row["post_id"]),
+            run_id=row["run_id"],
+            commenter=row["commenter"],
+            content=row["content"],
+            like_count=row["like_count"],
+            comment_rank=row["comment_rank"],
             collected_at=row["collected_at"],
         )
 
