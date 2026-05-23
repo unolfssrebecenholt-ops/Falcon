@@ -54,6 +54,8 @@ The startup script runs these steps in order:
 6. run `falcon doctor`
 7. open and start the local Web workbench at `http://127.0.0.1:8765`
 
+If port `8765` is already in use, the script automatically tries the next available port and prints the final URL.
+
 For fast restarts after dependencies are already installed:
 
 macOS:

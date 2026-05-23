@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import shutil
+import socket
 import subprocess
 import sys
 import threading
@@ -24,6 +25,24 @@ def resolve_step_args(args: list[str], which=shutil.which) -> list[str]:
     if executable:
         resolved[0] = executable
     return resolved
+
+
+def can_bind_port(host: str, port: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            sock.bind((host, port))
+        except OSError:
+            return False
+    return True
+
+
+def choose_available_port(host: str, preferred_port: int, can_bind=can_bind_port, attempts: int = 20) -> int:
+    for offset in range(attempts):
+        candidate = preferred_port + offset
+        if can_bind(host, candidate):
+            return candidate
+    raise RuntimeError(f"No available port found from {preferred_port} to {preferred_port + attempts - 1}")
 
 
 def build_bootstrap_steps(
@@ -95,6 +114,10 @@ def main(argv: list[str] | None = None) -> int:
     for path in [project_root / "data", project_root / "runtime" / "collector", project_root / "browser-profiles"]:
         path.mkdir(parents=True, exist_ok=True)
 
+    selected_port = args.port if args.doctor_only else choose_available_port(args.host, args.port)
+    if selected_port != args.port:
+        print(f"Port {args.port} is busy; using http://{args.host}:{selected_port} instead.")
+
     if args.doctor_only:
         steps = [
             BootstrapStep(
@@ -109,12 +132,12 @@ def main(argv: list[str] | None = None) -> int:
             python_executable=sys.executable,
             db_path=db_path,
             host=args.host,
-            port=args.port,
+            port=selected_port,
             skip_install=args.skip_install,
         )
 
     if not args.no_open and not args.dry_run and not args.doctor_only:
-        url = f"http://{args.host}:{args.port}"
+        url = f"http://{args.host}:{selected_port}"
         print(f"\nFalcon workbench will open at {url}")
         threading.Timer(2.0, lambda: webbrowser.open(url)).start()
 

@@ -8,15 +8,19 @@
   - 新增 `falcon doctor`，统一检查 Python、Node.js、npm、collector sidecar package、Node Playwright package、Playwright Chromium、本地 `data/`、`runtime/collector/`、`browser-profiles/` 目录，以及 GPT-5.5/Image2 relay 配置。
   - 新增 `scripts/falcon_bootstrap.py` 作为 Windows/macOS 共用启动核心。
   - 新增 `scripts/start.ps1` 与 `scripts/start.sh`，用户启动项目时只需要运行平台对应脚本。
-  - 启动流程会安装 Python editable package、安装 sidecar npm 依赖、安装 Playwright Chromium、创建本地目录、初始化 SQLite、运行 doctor、打开并启动 Web 工作台。
+  - 启动流程会安装 Python editable package、安装 sidecar npm 依赖、安装 Playwright Chromium、创建本地目录、初始化 SQLite、运行 doctor、打开并启动 Web 工作台；若 `8765` 被占用，会自动尝试下一个可用端口。
   - `/collector` 总览新增 Environment doctor 面板，能在可视化页面看到依赖和本地目录状态。
   - Windows 下 `npm.cmd`/`npx.cmd` 解析已处理，避免 subprocess 找不到 `.cmd` launcher。
+  - 新增 `sidecar/collector/package-lock.json` 锁定 Node sidecar 依赖，新增 `node_modules/` Git 忽略规则。
 - 验证结果：
-  - `py -3 -m unittest tests.test_doctor tests.test_bootstrap_scripts tests.test_web_app`：27 tests passed。
+  - `py -3 -m unittest discover -s tests`：68 tests passed。
+  - `py -3 -m compileall falcon`：passed。
+  - 旧路径关键词扫描无命中。
   - `py -3 scripts\falcon_bootstrap.py --dry-run`：启动命令链可正确输出。
-  - `py -3 -m falcon doctor --project-root . --ensure-dirs`：命令可运行；当前机器 Node.js/npm 可用，sidecar Node Playwright package 与 Chromium 尚未安装，首次执行 `.\scripts\start.ps1` 会进入自动安装步骤。
+  - `py -3 scripts\falcon_bootstrap.py --dry-run --skip-install --port 8765`：当 `8765` 已被占用时，自动切换到 `8766`。
+  - `py -3 -m falcon doctor --project-root . --ensure-dirs`：Required checks OK；当前 Windows 机器 Node.js、npm、sidecar Node Playwright package、Playwright Chromium、本地目录均就绪。
 - 已知问题：
-  - 本次没有真实执行 `npm install` 和 Playwright Chromium 下载，避免在当前开发回合制造较大的本地依赖目录；首次启动脚本会完成安装。
+  - 如果上一轮 Web 服务仍在运行，新的 `start.ps1` 会自动换端口；已打开的旧页面仍可继续使用。
   - Web 环境面板是同步检查，若某台机器 Node/Playwright 状态异常，打开 `/collector` 时可能比普通页面稍慢。
 - 下一步：
   - 用户在 Windows 运行 `.\scripts\start.ps1`，在 macOS 运行 `./scripts/start.sh`，确认首次安装和 Web 自动打开体验。

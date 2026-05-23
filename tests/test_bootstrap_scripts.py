@@ -13,6 +13,20 @@ def load_bootstrap_module():
 
 
 class BootstrapScriptsTest(unittest.TestCase):
+    def test_choose_available_port_returns_preferred_when_free(self):
+        bootstrap = load_bootstrap_module()
+
+        port = bootstrap.choose_available_port("127.0.0.1", 8765, can_bind=lambda _host, candidate: candidate == 8765)
+
+        self.assertEqual(port, 8765)
+
+    def test_choose_available_port_moves_to_next_free_port(self):
+        bootstrap = load_bootstrap_module()
+
+        port = bootstrap.choose_available_port("127.0.0.1", 8765, can_bind=lambda _host, candidate: candidate == 8767)
+
+        self.assertEqual(port, 8767)
+
     def test_resolve_step_args_uses_platform_launcher_path(self):
         bootstrap = load_bootstrap_module()
 

@@ -81,7 +81,7 @@ chmod +x scripts/start.sh
 ./scripts/start.sh
 ```
 
-The startup script installs the editable Python package, installs the Node collector sidecar dependencies, installs Playwright Chromium, creates local `data/`, `runtime/collector/`, and `browser-profiles/` directories, initializes `data/falcon.sqlite3`, opens the browser, and starts the local workbench. Use `--skip-install` for a faster restart after dependencies are already present.
+The startup script installs the editable Python package, installs the Node collector sidecar dependencies, installs Playwright Chromium, creates local `data/`, `runtime/collector/`, and `browser-profiles/` directories, initializes `data/falcon.sqlite3`, opens the browser, and starts the local workbench. If port `8765` is busy, it automatically tries the next available port. Use `--skip-install` for a faster restart after dependencies are already present.
 
 Check the machine without starting the web app:
 
