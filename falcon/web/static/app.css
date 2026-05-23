@@ -189,6 +189,16 @@ input, select {
   overflow: hidden;
 }
 
+.environment-summary {
+  display: block;
+  list-style: none;
+  cursor: pointer;
+}
+
+.environment-summary::-webkit-details-marker {
+  display: none;
+}
+
 .environment-head {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -201,6 +211,12 @@ input, select {
 
 .environment-head h2 { margin: 0 0 6px; }
 .environment-head p { margin: 0; color: var(--muted); }
+
+.environment-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
 
 .environment-score {
   min-width: 132px;
@@ -232,6 +248,41 @@ input, select {
   margin-top: 4px;
   color: var(--muted);
   font-size: 12px;
+}
+
+.environment-toggle {
+  min-width: 92px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: var(--ink);
+  background: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.environment-toggle::before {
+  content: "+";
+  display: inline-block;
+  margin-right: 6px;
+  color: var(--accent-dark);
+}
+
+.environment-panel[open] .environment-toggle::before {
+  content: "-";
+}
+
+.environment-toggle .show-open {
+  display: none;
+}
+
+.environment-panel[open] .environment-toggle .show-open {
+  display: inline;
+}
+
+.environment-panel[open] .environment-toggle .show-collapsed {
+  display: none;
 }
 
 .environment-strip {
@@ -464,7 +515,9 @@ td a { color: var(--accent-dark); }
 @media (max-width: 640px) {
   .metrics, .summary-list, .card-grid, .flow-list, .split-grid, .two-column, .environment-head, .environment-strip { grid-template-columns: 1fr; }
   .inline-form, .row-form, .action-row, .section-head { align-items: stretch; flex-direction: column; }
+  .environment-head-actions { align-items: stretch; flex-direction: column; }
   .environment-score { text-align: left; }
+  .environment-toggle { text-align: left; }
   .environment-strip div { border-right: 0; border-bottom: 1px solid var(--line); }
   .environment-strip div:last-child { border-bottom: 0; }
   .environment-table { overflow-x: visible; }

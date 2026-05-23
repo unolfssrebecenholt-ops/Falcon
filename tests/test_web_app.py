@@ -212,6 +212,10 @@ class WebAppTest(unittest.TestCase):
             response = client.get("/collector")
 
             self.assertEqual(response.status_code, 200)
+            self.assertIn('<details class="panel environment-panel" open>', response.text)
+            self.assertIn("<summary", response.text)
+            self.assertIn("展开明细", response.text)
+            self.assertIn("收起明细", response.text)
             self.assertIn("环境自检", response.text)
             self.assertIn("状态", response.text)
             self.assertIn("作用", response.text)
@@ -221,6 +225,24 @@ class WebAppTest(unittest.TestCase):
             self.assertIn("Playwright Chromium", response.text)
             self.assertIn("运行 Node Playwright sidecar", response.text)
             self.assertIn("node --version", response.text)
+
+    def test_collector_environment_doctor_collapses_when_ready(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "falcon.sqlite3"
+            report = DoctorReport(
+                [
+                    DoctorCheck("python", "Python", "ok", "3.11", True),
+                    DoctorCheck("node", "Node.js", "ok", "v24.14.0", True, "node --version"),
+                ]
+            )
+            client = TestClient(create_app(db_path, doctor_report_builder=lambda _root: report))
+
+            response = client.get("/collector")
+
+            self.assertEqual(response.status_code, 200)
+            self.assertIn('<details class="panel environment-panel">', response.text)
+            self.assertNotIn('<details class="panel environment-panel" open>', response.text)
+            self.assertIn("2/2 项就绪", response.text)
 
     def test_collector_create_get_renders_task_form(self):
         with tempfile.TemporaryDirectory() as tmp:

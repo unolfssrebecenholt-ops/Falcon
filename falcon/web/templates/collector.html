@@ -18,15 +18,22 @@
   <div class="metric"><span>采集样本</span><strong>{{ stats.total_posts }}</strong></div>
 </section>
 
-<section class="panel environment-panel">
+<details class="panel environment-panel"{% if not environment_ready %} open{% endif %}>
+  <summary class="environment-summary">
   <div class="environment-head">
     <div>
       <h2>环境自检</h2>
       <p>启动采集前确认本机运行时、sidecar、浏览器、数据目录和 AI 配置是否就绪。</p>
     </div>
-    <div class="environment-score {{ 'ready' if environment_ready else 'blocked' }}">
-      <strong>{{ 'READY' if environment_ready else 'ACTION' }}</strong>
-      <span>{{ environment_summary.ok_count }}/{{ environment_summary.total }} 项就绪</span>
+    <div class="environment-head-actions">
+      <div class="environment-score {{ 'ready' if environment_ready else 'blocked' }}">
+        <strong>{{ 'READY' if environment_ready else 'ACTION' }}</strong>
+        <span>{{ environment_summary.ok_count }}/{{ environment_summary.total }} 项就绪</span>
+      </div>
+      <span class="environment-toggle" aria-hidden="true">
+        <span class="show-collapsed">展开明细</span>
+        <span class="show-open">收起明细</span>
+      </span>
     </div>
   </div>
 
@@ -35,6 +42,7 @@
     <div><span>可选提醒</span><strong>{{ environment_summary.optional_warnings }}</strong></div>
     <div><span>本机状态</span><strong>{{ '可采集' if environment_ready else '需处理' }}</strong></div>
   </div>
+  </summary>
 
   <div class="environment-table" role="table" aria-label="Falcon environment doctor">
     <div class="environment-row header" role="row">
@@ -54,7 +62,7 @@
     </div>
     {% endfor %}
   </div>
-</section>
+</details>
 
 <section class="panel">
   <div class="section-head">
