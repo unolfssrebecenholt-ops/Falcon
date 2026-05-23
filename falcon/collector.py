@@ -28,6 +28,7 @@ COLLECTOR_STATUSES = {
     "cancelled",
 }
 COLLECTOR_IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
+METRIC_NUMBER_PATTERN = re.compile(r"(\d+(?:\.\d+)?)\s*([万萬wW千kK]?)")
 
 
 def safe_collector_identifier(value: str, field_name: str) -> str:
@@ -35,6 +36,33 @@ def safe_collector_identifier(value: str, field_name: str) -> str:
     if not COLLECTOR_IDENTIFIER_PATTERN.fullmatch(candidate):
         raise ValueError(f"Invalid collector {field_name}: {value!r}")
     return candidate
+
+
+def clean_metric_count(value: object) -> str:
+    text = "" if value is None else str(value)
+    text = text.replace(",", "").strip()
+    if not text:
+        return ""
+    match = METRIC_NUMBER_PATTERN.search(text)
+    if not match:
+        return ""
+    number = float(match.group(1))
+    suffix = match.group(2)
+    multiplier = 1
+    if suffix in {"万", "萬", "w", "W"}:
+        multiplier = 10_000
+    elif suffix in {"千", "k", "K"}:
+        multiplier = 1_000
+    return str(int(round(number * multiplier)))
+
+
+def metric_value(metrics: Dict[str, object], *names: str) -> str:
+    for name in names:
+        if name in metrics:
+            cleaned = clean_metric_count(metrics.get(name))
+            if cleaned:
+                return cleaned
+    return ""
 
 
 @dataclass
@@ -108,7 +136,7 @@ class CollectorService:
         )
         self.repo.create_collection_run(run)
         paths = self.prepare_run_request(run, headed=headed, dry_run=dry_run)
-        self.repo.update_collection_run(run_id, status="running", progress=5, current_step="sidecar started")
+        self.repo.update_collection_run(run_id, status="running", progress=5, current_step="采集器已启动")
 
         result = subprocess.run(
             [
@@ -147,7 +175,7 @@ class CollectorService:
                 run_id,
                 status="completed",
                 progress=100,
-                current_step="sidecar completed",
+                current_step="采集器已完成",
                 completed_at=utc_now_iso(),
             )
         else:
@@ -155,7 +183,7 @@ class CollectorService:
             self.repo.update_collection_run(
                 run_id,
                 status="failed",
-                current_step="sidecar failed",
+                current_step="采集器失败",
                 failed_reason=reason,
             )
         current = self.repo.get_collection_run(run_id)
@@ -239,8 +267,10 @@ class CollectorService:
                         url=str(record.get("url") or f"local://collector/{run_id}/{external_id}"),
                         author=str(author.get("display_name", "")),
                         published_at=str(record.get("published_at", "")),
-                        like_count=str(metrics.get("likes", "")),
-                        comment_count=str(metrics.get("comments", "")),
+                        like_count=metric_value(metrics, "likes", "like_count", "likes_text", "like_text")
+                        or clean_metric_count(record.get("like_count") or record.get("likes")),
+                        comment_count=metric_value(metrics, "comments", "comment_count", "comments_text", "comment_text")
+                        or clean_metric_count(record.get("comment_count") or record.get("comments")),
                         detail_fingerprint=str(record.get("detail_fingerprint") or external_id),
                     )
                 )
@@ -267,14 +297,16 @@ class CollectorService:
             if post_id is None:
                 continue
             author = record.get("author") if isinstance(record.get("author"), dict) else {}
+            metrics = record.get("metrics") if isinstance(record.get("metrics"), dict) else {}
             self.repo.save_collected_comment(
                 CollectedComment(
                     post_id=post_id,
                     run_id=run_id,
                     commenter=str(author.get("display_name", "")),
                     content=str(record.get("content") or record.get("body") or ""),
-                    like_count=str(record.get("like_count", "")),
-                    comment_rank=str(record.get("comment_rank", "")),
+                    like_count=clean_metric_count(record.get("like_count") or record.get("likes"))
+                    or metric_value(metrics, "likes", "like_count", "likes_text", "like_text"),
+                    comment_rank=clean_metric_count(record.get("comment_rank")) or str(record.get("comment_rank", "")),
                 )
             )
 
@@ -332,7 +364,7 @@ class CollectorService:
                 run_id,
                 status="completed",
                 progress=100,
-                current_step=completed_event.message or "sidecar completed",
+                current_step=completed_event.message or "采集器已完成",
                 completed_at=run.completed_at or utc_now_iso(),
             )
         elif started_event:
@@ -340,7 +372,7 @@ class CollectorService:
                 run_id,
                 status="running",
                 progress=max(run.progress, 5),
-                current_step=started_event.message or "sidecar started",
+                current_step=started_event.message or "采集器已启动",
             )
 
     def _new_run_id(self, platform: str) -> str:

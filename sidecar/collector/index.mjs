@@ -82,7 +82,7 @@ async function main() {
     events,
   };
 
-  events.write("info", "collector", "run_started", "Collector run started", {
+  events.write("info", "collector", "run_started", "采集任务已启动", {
     run_id: request.run_id,
     platform: request.platform,
     dry_run: Boolean(request.dry_run),
@@ -99,7 +99,7 @@ async function main() {
       throw error;
     }
 
-    events.write("info", "collector", "profile_loaded", "Browser profile path resolved", {
+    events.write("info", "collector", "profile_loaded", "账号环境已加载", {
       profile: request.profile,
       profile_path: profilePath,
     });
@@ -108,7 +108,7 @@ async function main() {
     await writeRecords(outputPath, records);
 
     if (!events.hasEvent("manual_action_required")) {
-      events.write("info", "collector", "run_completed", "Collector run completed", {
+      events.write("info", "collector", "run_completed", "采集任务已完成", {
         run_id: request.run_id,
         records: records.length,
       });

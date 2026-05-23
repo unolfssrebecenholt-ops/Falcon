@@ -1,7 +1,9 @@
 import json
 import os
+import sqlite3
 import tempfile
 import unittest
+from contextlib import closing
 from pathlib import Path
 
 from falcon.cli import build_parser, main
@@ -422,6 +424,83 @@ class CollectorServiceTest(unittest.TestCase):
             self.assertEqual(self._count_rows(db_path, "collected_comments"), 1)
             self.assertEqual(len(repo.list_media_assets("repeat-run")), 1)
             self.assertEqual(len(repo.list_evidences("repeat-run")), 1)
+
+    def test_collector_ingest_cleans_metric_aliases_and_comment_likes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            db_path = tmp_path / "falcon.sqlite3"
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="metric-run",
+                    platform="xiaohongshu",
+                    keyword="AI cover",
+                    profile="default",
+                )
+            )
+            service = CollectorService(repo)
+            run_dir = tmp_path / "runtime" / "collector" / "metric-run"
+            run_dir.mkdir(parents=True)
+            events_path = run_dir / "events.jsonl"
+            records_path = run_dir / "records.jsonl"
+            events_path.write_text(
+                json.dumps(
+                    {
+                        "sequence": 1,
+                        "time": "2026-05-23T00:01:00+00:00",
+                        "level": "info",
+                        "scope": "collector",
+                        "event": "run_completed",
+                        "message": "completed",
+                        "payload": {},
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            records_path.write_text(
+                "\n".join(
+                    json.dumps(record, ensure_ascii=False)
+                    for record in [
+                        {
+                            "type": "post",
+                            "run_id": "metric-run",
+                            "platform": "xiaohongshu",
+                            "post_id": "xiaohongshu:65abc123",
+                            "keyword": "AI cover",
+                            "title": "Clean metrics post",
+                            "body": "Collected from detail.",
+                            "url": "https://www.xiaohongshu.com/explore/65abc123",
+                            "metrics": {"likes_text": "1.2万", "comments_text": "3 条评论"},
+                        },
+                        {
+                            "type": "comment",
+                            "run_id": "metric-run",
+                            "platform": "xiaohongshu",
+                            "comment_id": "comment-1",
+                            "post_id": "xiaohongshu:65abc123",
+                            "body": "热评正文",
+                            "author": {"display_name": "读者"},
+                            "metrics": {"likes_text": "24 赞"},
+                            "comment_rank": 1,
+                        },
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            service.ingest_outputs("metric-run", events_path, records_path)
+
+            posts = repo.list_collected_posts("metric-run")
+            self.assertEqual(posts[0].like_count, "12000")
+            self.assertEqual(posts[0].comment_count, "3")
+            with closing(sqlite3.connect(db_path)) as conn:
+                row = conn.execute(
+                    "SELECT commenter, content, like_count, comment_rank FROM collected_comments"
+                ).fetchone()
+            self.assertEqual(row, ("读者", "热评正文", "24", "1"))
 
     def _count_rows(self, db_path: Path, table: str) -> int:
         import sqlite3

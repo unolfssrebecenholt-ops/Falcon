@@ -20,6 +20,129 @@ from ..workflows import promote_collected_posts
 WEB_DIR = Path(__file__).parent
 templates = Jinja2Templates(directory=str(WEB_DIR / "templates"))
 
+COLLECTOR_STATUS_LABELS = {
+    "queued": "排队中",
+    "running": "运行中",
+    "manual_action_required": "等待人工",
+    "failed": "失败",
+    "completed": "已完成",
+    "cancelled": "已取消",
+}
+COLLECTOR_LEVEL_LABELS = {
+    "info": "信息",
+    "warning": "提醒",
+    "error": "错误",
+}
+COLLECTOR_SCOPE_LABELS = {
+    "collector": "采集器",
+    "xiaohongshu": "小红书",
+    "core": "核心调度",
+    "search": "搜索页",
+    "manual_action_required": "人工处理",
+}
+COLLECTOR_EVENT_LABELS = {
+    "request_prepared": "请求已准备",
+    "run_started": "任务启动",
+    "profile_loaded": "账号环境已加载",
+    "browser_launching": "浏览器启动",
+    "detail_opening": "打开详情",
+    "record_collected": "记录生成",
+    "records_collected": "记录生成",
+    "media_download_failed": "图片下载失败",
+    "manual_action_required": "等待人工处理",
+    "run_completed": "任务完成",
+    "run_failed": "任务失败",
+}
+COLLECTOR_MESSAGE_LABELS = {
+    "Collector run started": "采集任务已启动",
+    "Browser profile path resolved": "账号环境已加载",
+    "Launching Xiaohongshu browser flow": "小红书浏览器采集已启动",
+    "Collected Xiaohongshu visible search records": "已生成小红书采集记录",
+    "Collector run completed": "采集任务已完成",
+    "Sidecar request prepared; waiting for manual start.": "采集请求已准备，等待启动。",
+    "sidecar started": "采集器已启动",
+    "sidecar completed": "采集器已完成",
+    "sidecar failed": "采集器失败",
+    "queued for browser collector": "等待浏览器采集调度",
+    "started": "采集任务已启动",
+    "completed": "采集任务已完成",
+}
+PLATFORM_LABELS = {
+    "xiaohongshu": "小红书",
+    "douyin": "抖音",
+    "weibo": "微博",
+    "xianyu": "闲鱼",
+}
+ASSET_TYPE_LABELS = {
+    "image": "图片",
+    "screenshot": "截图",
+    "asset": "素材",
+}
+EVIDENCE_SCOPE_LABELS = {
+    "dry_run_fixture": "测试合同",
+    "search_results_screenshot": "搜索页截图",
+    "field_snapshot": "字段快照",
+    "detail_screenshot": "详情页截图",
+    "screenshot": "截图",
+    "manual_action_required": "人工处理",
+}
+
+
+def collector_status_label(value: str) -> str:
+    return COLLECTOR_STATUS_LABELS.get(str(value or ""), str(value or "-"))
+
+
+def collector_level_label(value: str) -> str:
+    return COLLECTOR_LEVEL_LABELS.get(str(value or ""), str(value or "-"))
+
+
+def collector_scope_label(value: str) -> str:
+    return COLLECTOR_SCOPE_LABELS.get(str(value or ""), PLATFORM_LABELS.get(str(value or ""), str(value or "-")))
+
+
+def collector_event_label(value: str) -> str:
+    return COLLECTOR_EVENT_LABELS.get(str(value or ""), str(value or "-"))
+
+
+def collector_message_label(value: str, event: str = "") -> str:
+    text = str(value or "")
+    if text in COLLECTOR_MESSAGE_LABELS:
+        return COLLECTOR_MESSAGE_LABELS[text]
+    if text.startswith("Detected ") and "Xiaohongshu" in text:
+        return "小红书需要人工处理，请查看截图和任务步骤。"
+    if text.startswith("Collected ") and "fixture" in text:
+        return "已生成测试合同记录"
+    if not text and event:
+        return collector_event_label(event)
+    return text or "-"
+
+
+def collector_step_label(value: str) -> str:
+    return COLLECTOR_MESSAGE_LABELS.get(str(value or ""), str(value or "等待调度"))
+
+
+def platform_label(value: str) -> str:
+    return PLATFORM_LABELS.get(str(value or ""), str(value or "-"))
+
+
+def asset_type_label(value: str) -> str:
+    return ASSET_TYPE_LABELS.get(str(value or ""), str(value or "-"))
+
+
+def evidence_scope_label(value: str) -> str:
+    return EVIDENCE_SCOPE_LABELS.get(str(value or ""), str(value or "-"))
+
+
+templates.env.filters["collector_status"] = collector_status_label
+templates.env.filters["collector_level"] = collector_level_label
+templates.env.filters["collector_scope"] = collector_scope_label
+templates.env.filters["collector_event"] = collector_event_label
+templates.env.filters["collector_message"] = collector_message_label
+templates.env.filters["collector_step"] = collector_step_label
+templates.env.filters["platform_label"] = platform_label
+templates.env.filters["asset_type"] = asset_type_label
+templates.env.filters["evidence_scope"] = evidence_scope_label
+
 
 def create_app(db_path: Path, doctor_report_builder=None, profile_root=None, profile_login_launcher=None) -> FastAPI:
     app = FastAPI(title="Falcon 控制台")
@@ -213,7 +336,7 @@ def create_app(db_path: Path, doctor_report_builder=None, profile_root=None, pro
             profile=clean_profile,
             status="queued",
             progress=0,
-            current_step="queued for browser collector",
+            current_step="等待浏览器采集调度",
             max_posts=max(1, max_posts),
             max_comments_per_post=max(0, max_comments_per_post),
         )
@@ -225,7 +348,7 @@ def create_app(db_path: Path, doctor_report_builder=None, profile_root=None, pro
                 sequence=1,
                 scope="core",
                 event="request_prepared",
-                message="Sidecar request prepared; waiting for manual start.",
+                message="采集请求已准备，等待启动。",
             )
         )
         return RedirectResponse(f"/collector/runs/{run.run_id}", status_code=303)
@@ -331,10 +454,10 @@ def _new_run_id(platform: str) -> str:
 
 def _collector_platforms():
     return [
-        {"key": "xiaohongshu", "name": "小红书", "status": "第一阶段"},
-        {"key": "douyin", "name": "抖音", "status": "入口占位"},
-        {"key": "weibo", "name": "微博", "status": "入口占位"},
-        {"key": "xianyu", "name": "闲鱼", "status": "入口占位"},
+        {"key": "xiaohongshu", "name": "小红书", "status": "当前开发"},
+        {"key": "douyin", "name": "抖音", "status": "待接入"},
+        {"key": "weibo", "name": "微博", "status": "待接入"},
+        {"key": "xianyu", "name": "闲鱼", "status": "待接入"},
     ]
 
 

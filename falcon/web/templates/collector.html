@@ -79,7 +79,7 @@
       <dl class="compact-list">
         <div><dt>任务</dt><dd>{{ platform.run_count }}</dd></div>
         <div><dt>样本</dt><dd>{{ platform.post_count }}</dd></div>
-        <div><dt>最近状态</dt><dd>{{ platform.latest.status if platform.latest else "未开始" }}</dd></div>
+        <div><dt>最近状态</dt><dd>{{ platform.latest.status|collector_status if platform.latest else "未开始" }}</dd></div>
       </dl>
     </article>
     {% endfor %}
@@ -108,11 +108,11 @@
       {% for run in runs %}
       <tr>
         <td><a href="/collector/runs/{{ run.run_id }}">{{ run.run_id }}</a></td>
-        <td>{{ run.platform }}</td>
+        <td>{{ run.platform|platform_label }}</td>
         <td>{{ run.keyword }}</td>
-        <td>{{ run.status }}</td>
+        <td>{{ run.status|collector_status }}</td>
         <td>{{ run.progress }}%</td>
-        <td>{{ run.current_step or "-" }}</td>
+        <td>{{ run.current_step|collector_step }}</td>
       </tr>
       {% else %}
       <tr><td colspan="6" class="muted">还没有采集任务。</td></tr>

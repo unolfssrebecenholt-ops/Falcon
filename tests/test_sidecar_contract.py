@@ -27,6 +27,67 @@ class SidecarContractTests(unittest.TestCase):
         self.assertIn("playwright", package["dependencies"])
         self.assertIn("dry-run", package["scripts"])
 
+    def test_xiaohongshu_normalizer_canonicalizes_dedupes_and_cleans_card_fields(self):
+        script = r"""
+import {
+  canonicalPostId,
+  canonicalPostUrl,
+  normalizeSearchCard,
+  normalizeSearchCards,
+} from "./sidecar/collector/xiaohongshu-normalize.mjs";
+
+const first = normalizeSearchCard({
+  href: "https://www.xiaohongshu.com/search_result/65abc123?xsec_token=one",
+  text: "小红书封面设计技巧\n何花说升学\n04-04\n1.2万",
+  title: "",
+  author: "何花说升学04-04",
+  likesText: "1.2万",
+});
+const duplicate = normalizeSearchCards(
+  [
+    first,
+    {
+      href: "https://www.xiaohongshu.com/explore/65abc123?xsec_token=two",
+      text: "小红书封面设计技巧\n何花说升学\n04-04\n1.2万",
+      title: "小红书封面设计技巧",
+      author: "何花说升学",
+      likesText: "1.2万",
+    },
+  ],
+  5,
+);
+
+console.log(JSON.stringify({
+  firstId: first.postId,
+  secondId: canonicalPostId("https://www.xiaohongshu.com/explore/65abc123?xsec_token=two"),
+  canonicalUrl: canonicalPostUrl(first.href),
+  title: first.title,
+  author: first.author,
+  publishedAt: first.published_at,
+  likes: first.metrics.likes,
+  duplicateCount: duplicate.length,
+}));
+"""
+        result = subprocess.run(
+            ["node", "--input-type=module", "-e", script],
+            cwd=ROOT,
+            text=True,
+            encoding="utf-8",
+            capture_output=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["firstId"], "xiaohongshu:65abc123")
+        self.assertEqual(payload["secondId"], payload["firstId"])
+        self.assertEqual(payload["canonicalUrl"], "https://www.xiaohongshu.com/explore/65abc123")
+        self.assertEqual(payload["title"], "小红书封面设计技巧")
+        self.assertEqual(payload["author"], "何花说升学")
+        self.assertEqual(payload["publishedAt"], "04-04")
+        self.assertEqual(payload["likes"], 12000)
+        self.assertEqual(payload["duplicateCount"], 1)
+
     def run_sidecar(self, request, env=None):
         temp_root = Path(self.temp_dir.name)
         run_dir = temp_root / "runtime" / "collector" / request["run_id"]

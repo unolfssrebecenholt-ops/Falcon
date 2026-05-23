@@ -10,7 +10,7 @@
 </header>
 
 <section class="metrics">
-  <div class="metric"><span>状态</span><strong class="fit-text">{{ run.status }}</strong></div>
+  <div class="metric"><span>状态</span><strong class="fit-text">{{ run.status|collector_status }}</strong></div>
   <div class="metric"><span>进度</span><strong>{{ run.progress }}%</strong></div>
   <div class="metric"><span>帖子上限</span><strong>{{ run.max_posts }}</strong></div>
   <div class="metric"><span>评论上限</span><strong>{{ run.max_comments_per_post }}</strong></div>
@@ -18,7 +18,7 @@
 
 <section class="panel">
   <h2>当前步骤</h2>
-  <p>{{ run.current_step or "等待调度" }}</p>
+  <p>{{ run.current_step|collector_step }}</p>
   {% if run.failed_reason %}
   <p class="alert">{{ run.failed_reason }}</p>
   {% endif %}
@@ -34,10 +34,10 @@
       {% for event in events %}
       <tr>
         <td>{{ event.sequence }}</td>
-        <td>{{ event.scope }}</td>
-        <td>{{ event.event }}</td>
-        <td>{{ event.level }}</td>
-        <td>{{ event.message }}</td>
+        <td>{{ event.scope|collector_scope }}</td>
+        <td>{{ event.event|collector_event }}</td>
+        <td>{{ event.level|collector_level }}</td>
+        <td>{{ event.message|collector_message(event.event) }}</td>
         <td>{{ event.created_at }}</td>
       </tr>
       {% else %}
@@ -77,7 +77,7 @@
       </thead>
       <tbody>
         {% for asset in assets %}
-        <tr><td>{{ asset.asset_type }}</td><td>{{ asset.path }}</td><td>{{ asset.sha256 or "-" }}</td></tr>
+        <tr><td>{{ asset.asset_type|asset_type }}</td><td>{{ asset.path }}</td><td>{{ asset.sha256 or "-" }}</td></tr>
         {% else %}
         <tr><td colspan="3" class="muted">暂无资产。</td></tr>
         {% endfor %}
@@ -92,7 +92,7 @@
       </thead>
       <tbody>
         {% for evidence in evidences %}
-        <tr><td>{{ evidence.evidence_type }}</td><td>{{ evidence.scope }}</td><td>{{ evidence.path }}</td></tr>
+        <tr><td>{{ evidence.evidence_type|evidence_scope }}</td><td>{{ evidence.scope|evidence_scope }}</td><td>{{ evidence.path }}</td></tr>
         {% else %}
         <tr><td colspan="3" class="muted">暂无证据。</td></tr>
         {% endfor %}

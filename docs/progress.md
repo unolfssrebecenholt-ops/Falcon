@@ -2,6 +2,33 @@
 
 本文件是 Windows 和 M1 Mac 双机开发的接手入口。每次提交前必须更新。
 
+## 2026-05-23 Xiaohongshu adapter hardening and Chinese collector UI
+
+- 本次加固小红书采集 adapter：
+  - 新增 `sidecar/collector/xiaohongshu-normalize.mjs`，统一处理小红书笔记 URL 归一、`/explore/<id>` 与 `/search_result/<id>` 去重、标题/作者/日期/点赞字段清洗。
+  - 真实模式不再只保存图片 URL 占位 JSON；详情页可浏览时会下载真实图片文件，保存 `mime_type`、`sha256` 和本地路径。
+  - 采集流程从搜索页进入详情页，尝试读取详情正文、作者、互动数和热评；遇到登录、风控、验证码或“小红书 App 扫码查看”时写入 `manual_action_required` 并停止自动操作。
+  - 搜索页和详情页都会保存截图与字段快照，方便排查 DOM 变化和平台限制。
+- 本次清理 Web 展示：
+  - `/collector`、`/collector/runs/{run_id}` 不再直出 `completed`、`run_completed`、`info`、`sidecar completed` 等内部词汇，统一映射为中文状态、事件、级别和步骤。
+  - 创建任务页移除示例式关键词 placeholder，避免把设计阶段示例误看成真实数据。
+  - 多平台入口保留，但状态改为“当前开发 / 待接入”，避免“占位”语义像假数据。
+- 验证结果：
+  - `py -3 -m unittest discover -s tests`：75 tests passed。
+  - `py -3 -m compileall falcon`：passed。
+  - `node --check sidecar\collector\index.mjs; node --check sidecar\collector\xiaohongshu.mjs; node --check sidecar\collector\xiaohongshu-normalize.mjs`：passed。
+  - 浏览器检查 `http://127.0.0.1:8765/collector`：无横向溢出；总览和详情页中文状态/事件展示正常；未发现 demo/mock/Dry-run sample 展示内容。
+  - 真实 smoke：`collector-run --platform xiaohongshu --profile default --keyword "小红书封面" --max-posts 1 --max-comments-per-post 1` 能进入搜索页并识别笔记，但详情页被小红书提示“当前笔记暂时无法浏览，请打开小红书 App 扫码查看”，任务正确进入“等待人工”状态并保存截图证据。
+- 已知问题：
+  - 当前账号在 Web 详情页被小红书要求 App 扫码查看，因此详情正文、热评和真实图片下载的完整落库路径还需要扫码解除后再跑一次 smoke 验证。
+  - 旧 run 中已经落库的早期 MVP 记录不会被自动重写；新 run 会走新的清洗和去重逻辑。
+- 下一步：
+  - 用户在弹出的详情页扫码通过后，重新运行 `collector-run --max-posts 5 --max-comments-per-post 3`，验证详情正文、热评和真实图片下载。
+  - 加一个 Web 入口用于从任务详情页继续/重试等待人工的任务，减少命令行操作。
+- Windows/Mac 接手说明：
+  - Windows：`git pull` 后运行 `.\scripts\start.ps1 --skip-install`，打开 `/collector`。
+  - macOS：`git pull` 后运行 `./scripts/start.sh --skip-install`，再用同名 profile 重新登录小红书。
+
 ## 2026-05-23 Profile login workspace
 
 - 本次新增采集层 Profile 登录工作区：

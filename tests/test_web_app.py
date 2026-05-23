@@ -490,6 +490,55 @@ class WebAppTest(unittest.TestCase):
             self.assertIn("search.png", response.text)
             assert_no_legacy_collection_markers(self, response.text)
 
+    def test_collector_pages_display_chinese_status_and_event_vocabulary(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "falcon.sqlite3"
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="xhs-localized",
+                    platform="xiaohongshu",
+                    keyword="AI cover",
+                    profile="default",
+                    status="completed",
+                    progress=100,
+                    current_step="sidecar completed",
+                )
+            )
+            repo.append_collection_event(
+                CollectionEvent(
+                    run_id="xhs-localized",
+                    sequence=1,
+                    scope="collector",
+                    event="run_completed",
+                    level="info",
+                    message="Collector run completed",
+                )
+            )
+            client = TestClient(create_app(db_path))
+
+            overview = client.get("/collector")
+            detail = client.get("/collector/runs/xhs-localized")
+
+            self.assertEqual(overview.status_code, 200)
+            self.assertEqual(detail.status_code, 200)
+            self.assertIn("已完成", overview.text)
+            self.assertIn("已完成", detail.text)
+            self.assertIn("采集器已完成", detail.text)
+            self.assertIn("采集器", detail.text)
+            self.assertIn("任务完成", detail.text)
+            self.assertIn("信息", detail.text)
+            self.assertIn("采集任务已完成", detail.text)
+            for raw in [
+                ">completed<",
+                "sidecar completed",
+                "Collector run completed",
+                ">run_completed<",
+                ">info<",
+            ]:
+                self.assertNotIn(raw, detail.text)
+
     def test_analysis_overview_uses_existing_scored_items(self):
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "falcon.sqlite3"
