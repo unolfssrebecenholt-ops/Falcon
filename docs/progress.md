@@ -29,6 +29,17 @@
   - Windows：`git pull` 后运行 `.\scripts\start.ps1`；若依赖已装好，可运行 `.\scripts\start.ps1 --skip-install`。
   - macOS：`git pull` 后运行 `chmod +x scripts/start.sh`，再运行 `./scripts/start.sh`；若依赖已装好，可运行 `./scripts/start.sh --skip-install`。
 
+### 2026-05-23 Environment doctor UI refinement
+
+- 根据采集总览页面反馈，重设计 `/collector` 的环境自检区域：
+  - 从卡片墙改为运维清单布局，明确展示状态、组件、作用、路径 / 版本、处理命令。
+  - 每个 doctor 检查项补充用途说明，便于判断该依赖影响采集链路的哪一段。
+  - 顶部增加 READY / ACTION 状态、就绪计数、必要异常、可选提醒和本机状态。
+  - 桌面端保持高密度表格，移动端改为纵向字段，避免路径和命令横向撑破页面。
+- 验证结果：
+  - Web 单测覆盖环境自检新文案与 Node Playwright sidecar 作用说明。
+  - Playwright 截图检查桌面端无页面横向溢出；移动端 `bodyScrollWidth == bodyClientWidth`。
+
 ## 2026-05-23 Falcon collector foundation
 
 - 本次完成第一阶段采集层基础闭环：

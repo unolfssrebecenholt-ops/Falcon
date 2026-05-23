@@ -107,6 +107,7 @@ def create_app(db_path: Path, doctor_report_builder=None) -> FastAPI:
         posts = repository.list_collected_posts(limit=50)
         queued_runs = [run for run in runs if run.status in {"queued", "running", "manual_action_required"}]
         doctor_report = app.state.doctor_report_builder(app.state.project_root)
+        environment_checks = checks_for_web(doctor_report)
         return templates.TemplateResponse(
             request,
             "collector.html",
@@ -117,8 +118,9 @@ def create_app(db_path: Path, doctor_report_builder=None) -> FastAPI:
                 "runs": runs,
                 "queued_runs": queued_runs,
                 "profile_summary": _profile_summary(runs),
-                "environment_checks": checks_for_web(doctor_report),
+                "environment_checks": environment_checks,
                 "environment_ready": doctor_report.required_ok,
+                "environment_summary": _environment_summary(environment_checks),
             },
         )
 
@@ -335,3 +337,16 @@ def _keyword_stats(scored_items):
     for stats in grouped.values():
         stats["avg_intent"] = round(stats["total_intent"] / stats["count"]) if stats["count"] else 0
     return sorted(grouped.values(), key=lambda value: (-value["high_intent"], -value["avg_intent"], value["keyword"]))
+
+
+def _environment_summary(checks):
+    total = len(checks)
+    ok_count = sum(1 for check in checks if check["status"] == "ok")
+    required_issues = sum(1 for check in checks if check["required"] and check["status"] != "ok")
+    optional_warnings = sum(1 for check in checks if not check["required"] and check["status"] != "ok")
+    return {
+        "total": total,
+        "ok_count": ok_count,
+        "required_issues": required_issues,
+        "optional_warnings": optional_warnings,
+    }

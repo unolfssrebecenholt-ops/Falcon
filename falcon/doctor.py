@@ -129,12 +129,40 @@ def checks_for_web(report: DoctorReport) -> list[dict[str, object]]:
             "key": check.key,
             "label": check.label,
             "status": check.status,
+            "status_label": _status_label(check.status),
             "message": check.message,
+            "purpose": _check_purpose(check.key),
             "required": check.required,
             "command": check.command,
         }
         for check in report.checks
     ]
+
+
+def _status_label(status: str) -> str:
+    return {
+        "ok": "正常",
+        "warning": "可选",
+        "missing": "缺失",
+        "failed": "失败",
+    }.get(status, status)
+
+
+def _check_purpose(key: str) -> str:
+    purposes = {
+        "python": "运行 Falcon CLI、Web 工作台和本地 SQLite 调度。",
+        "node": "运行 Node Playwright sidecar，承接真实浏览器采集动作。",
+        "npm": "安装并锁定 sidecar 的 Node 依赖。",
+        "sidecar_package": "定义采集 sidecar 的入口、依赖和 dry-run 合同。",
+        "node_playwright": "提供浏览器自动化能力，用于打开、搜索、滚动和读取页面。",
+        "playwright_chromium": "提供受控 Chromium 浏览器实例，承载小红书采集会话。",
+        "data_dir": "保存本地 SQLite 数据库和项目运行数据。",
+        "collector_runtime_dir": "保存每次采集的 request、events、records、assets 和证据。",
+        "browser_profiles_dir": "保存平台账号 profile，用于复用人工登录状态。",
+        "gpt55_config": "启用采集后的分析、briefing 和草稿生成。",
+        "image2_config": "启用封面图和配图生成能力。",
+    }
+    return purposes.get(key, "支撑 Falcon 本地工作台运行。")
 
 
 def _python_check() -> DoctorCheck:

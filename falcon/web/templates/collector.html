@@ -18,21 +18,40 @@
   <div class="metric"><span>采集样本</span><strong>{{ stats.total_posts }}</strong></div>
 </section>
 
-<section class="panel">
-  <div class="section-head">
-    <h2>Environment doctor</h2>
-    <span class="pill {{ 'ready' if environment_ready else 'blocked' }}">{{ 'ready' if environment_ready else 'action needed' }}</span>
+<section class="panel environment-panel">
+  <div class="environment-head">
+    <div>
+      <h2>环境自检</h2>
+      <p>启动采集前确认本机运行时、sidecar、浏览器、数据目录和 AI 配置是否就绪。</p>
+    </div>
+    <div class="environment-score {{ 'ready' if environment_ready else 'blocked' }}">
+      <strong>{{ 'READY' if environment_ready else 'ACTION' }}</strong>
+      <span>{{ environment_summary.ok_count }}/{{ environment_summary.total }} 项就绪</span>
+    </div>
   </div>
-  <div class="status-grid">
+
+  <div class="environment-strip">
+    <div><span>必要异常</span><strong>{{ environment_summary.required_issues }}</strong></div>
+    <div><span>可选提醒</span><strong>{{ environment_summary.optional_warnings }}</strong></div>
+    <div><span>本机状态</span><strong>{{ '可采集' if environment_ready else '需处理' }}</strong></div>
+  </div>
+
+  <div class="environment-table" role="table" aria-label="Falcon environment doctor">
+    <div class="environment-row header" role="row">
+      <span>状态</span>
+      <span>组件</span>
+      <span>作用</span>
+      <span>路径 / 版本</span>
+      <span>处理命令</span>
+    </div>
     {% for check in environment_checks %}
-    <article class="status-item {{ check.status }}">
-      <div class="card-title">
-        <strong>{{ check.label }}</strong>
-        <span class="status-badge">{{ check.status }}</span>
-      </div>
-      <p>{{ check.message }}</p>
-      {% if check.command %}<code>{{ check.command }}</code>{% endif %}
-    </article>
+    <div class="environment-row {{ check.status }}" role="row">
+      <span class="env-state" data-label="状态"><i></i><b>{{ check.status_label }}</b></span>
+      <strong data-label="组件">{{ check.label }}</strong>
+      <span data-label="作用">{{ check.purpose }}</span>
+      <code data-label="路径 / 版本">{{ check.message }}</code>
+      <code data-label="处理命令">{{ check.command or '-' }}</code>
+    </div>
     {% endfor %}
   </div>
 </section>

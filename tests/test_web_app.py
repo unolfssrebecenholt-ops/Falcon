@@ -212,9 +212,14 @@ class WebAppTest(unittest.TestCase):
             response = client.get("/collector")
 
             self.assertEqual(response.status_code, 200)
-            self.assertIn("Environment doctor", response.text)
+            self.assertIn("环境自检", response.text)
+            self.assertIn("状态", response.text)
+            self.assertIn("作用", response.text)
+            self.assertIn("路径 / 版本", response.text)
+            self.assertIn("处理命令", response.text)
             self.assertIn("Node.js", response.text)
             self.assertIn("Playwright Chromium", response.text)
+            self.assertIn("运行 Node Playwright sidecar", response.text)
             self.assertIn("node --version", response.text)
 
     def test_collector_create_get_renders_task_form(self):
