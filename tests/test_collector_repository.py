@@ -4,6 +4,7 @@ from pathlib import Path
 
 from falcon.db import FalconRepository
 from falcon.models import (
+    CollectedComment,
     CollectedPost,
     CollectionEvent,
     CollectionRun,
@@ -245,6 +246,53 @@ class CollectorRepositoryTest(unittest.TestCase):
             self.assertEqual(len(evidences), 1)
             self.assertEqual(evidences[0].evidence_id, evidence_id)
             self.assertEqual(evidences[0].scope, "search")
+
+    def test_collected_posts_and_comments_store_collects_and_reply_relationships(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(tmp)
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="run-replies",
+                    platform="xiaohongshu",
+                    keyword="cover design",
+                    profile="default",
+                )
+            )
+            post_id = repo.save_collected_post(
+                CollectedPost(
+                    run_id="run-replies",
+                    platform="xiaohongshu",
+                    keyword="cover design",
+                    title="Reply post",
+                    content="Post content",
+                    url="https://example.test/post/replies",
+                    like_count="24",
+                    collect_count="10",
+                    comment_count="37",
+                    detail_fingerprint="reply-fp",
+                )
+            )
+
+            comment_id = repo.save_collected_comment(
+                CollectedComment(
+                    post_id=post_id,
+                    run_id="run-replies",
+                    commenter="replyer",
+                    content="nested reply content",
+                    like_count="1",
+                    comment_rank="2",
+                    comment_type="reply",
+                    reply_to="target user",
+                )
+            )
+
+            post = repo.get_collected_post(post_id)
+            comments = repo.list_collected_comments(run_id="run-replies", post_id=post_id)
+
+            self.assertEqual(post.collect_count, "10")
+            self.assertEqual(comments[0].comment_id, comment_id)
+            self.assertEqual(comments[0].comment_type, "reply")
+            self.assertEqual(comments[0].reply_to, "target user")
 
 
 if __name__ == "__main__":

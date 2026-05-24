@@ -1,5 +1,7 @@
+import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
+import { pathToFileURL } from "node:url";
 import { collectXiaohongshu } from "./xiaohongshu.mjs";
 
 function parseArgs(argv) {
@@ -27,26 +29,28 @@ function jsonLine(value) {
   return `${JSON.stringify(value)}\n`;
 }
 
-class EventWriter {
+export class EventWriter {
   constructor(path) {
     this.path = path;
     this.sequence = 0;
     this.lines = [];
+    mkdirSync(dirname(this.path), { recursive: true });
+    writeFileSync(this.path, "", "utf8");
   }
 
   write(level, scope, event, message, payload = {}) {
     this.sequence += 1;
-    this.lines.push(
-      jsonLine({
-        sequence: this.sequence,
-        time: new Date().toISOString(),
-        level,
-        scope,
-        event,
-        message,
-        payload,
-      }),
-    );
+    const line = jsonLine({
+      sequence: this.sequence,
+      time: new Date().toISOString(),
+      level,
+      scope,
+      event,
+      message,
+      payload,
+    });
+    this.lines.push(line);
+    appendFileSync(this.path, line, "utf8");
   }
 
   hasEvent(eventName) {
@@ -59,9 +63,18 @@ class EventWriter {
   }
 }
 
-async function writeRecords(path, records) {
+export async function writeRecords(path, records) {
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, records.map(jsonLine).join(""), "utf8");
+}
+
+export async function writePartialRecordsOnError(path, error) {
+  const records = Array.isArray(error?.partialRecords) ? error.partialRecords : [];
+  if (!records.length) {
+    return 0;
+  }
+  await writeRecords(path, records);
+  return records.length;
 }
 
 async function main() {
@@ -116,21 +129,25 @@ async function main() {
     await events.flush();
     return 0;
   } catch (error) {
+    const partialRecords = await writePartialRecordsOnError(outputPath, error);
     events.write("error", "collector", "run_failed", error.message, {
       run_id: request.run_id,
       platform: request.platform,
       code: error.code ?? "RUN_FAILED",
+      partial_records: partialRecords,
     });
     await events.flush();
     return error.code === "UNSUPPORTED_PLATFORM" ? 2 : 1;
   }
 }
 
-main()
-  .then((code) => {
-    process.exitCode = code;
-  })
-  .catch((error) => {
-    console.error(error);
-    process.exitCode = 1;
-  });
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main()
+    .then((code) => {
+      process.exitCode = code;
+    })
+    .catch((error) => {
+      console.error(error);
+      process.exitCode = 1;
+    });
+}

@@ -1,11 +1,14 @@
+import json
+import mimetypes
+import re
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 from uuid import uuid4
 
-from fastapi import FastAPI, Form, HTTPException, Request
-from fastapi.responses import RedirectResponse
+from fastapi import BackgroundTasks, FastAPI, Form, HTTPException, Request
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -39,6 +42,7 @@ COLLECTOR_SCOPE_LABELS = {
     "xiaohongshu": "小红书",
     "core": "核心调度",
     "search": "搜索页",
+    "dry_run_fixture": "采集合同",
     "manual_action_required": "人工处理",
 }
 COLLECTOR_EVENT_LABELS = {
@@ -47,6 +51,7 @@ COLLECTOR_EVENT_LABELS = {
     "profile_loaded": "账号环境已加载",
     "browser_launching": "浏览器启动",
     "detail_opening": "打开详情",
+    "detail_collected": "单帖采集完成",
     "record_collected": "记录生成",
     "records_collected": "记录生成",
     "media_download_failed": "图片下载失败",
@@ -56,6 +61,9 @@ COLLECTOR_EVENT_LABELS = {
     "rerun_created": "已创建重跑",
     "run_marked_failed": "人工标记失败",
     "run_archived": "任务归档",
+    "manual_action_window_opened": "已打开处理窗口",
+    "manual_action_resumed": "继续采集",
+    "queue_worker_dispatched": "队列启动",
 }
 COLLECTOR_MESSAGE_LABELS = {
     "Collector run started": "采集任务已启动",
@@ -79,11 +87,12 @@ PLATFORM_LABELS = {
 }
 ASSET_TYPE_LABELS = {
     "image": "图片",
+    "video": "视频",
     "screenshot": "截图",
     "asset": "素材",
 }
 EVIDENCE_SCOPE_LABELS = {
-    "dry_run_fixture": "测试合同",
+    "dry_run_fixture": "采集合同",
     "search_results_screenshot": "搜索页截图",
     "field_snapshot": "字段快照",
     "detail_screenshot": "详情页截图",
@@ -115,7 +124,7 @@ def collector_message_label(value: str, event: str = "") -> str:
     if text.startswith("Detected ") and "Xiaohongshu" in text:
         return "小红书需要人工处理，请查看截图和任务步骤。"
     if text.startswith("Collected ") and "fixture" in text:
-        return "已生成测试合同记录"
+        return "已生成采集合同记录"
     if not text and event:
         return collector_event_label(event)
     return text or "-"
@@ -156,6 +165,20 @@ def readable_time(value: str) -> str:
     return parsed.astimezone(SHANGHAI_TZ).strftime("%Y-%m-%d %H:%M:%S")
 
 
+def readable_day(value: str) -> str:
+    parsed = _parse_time(value)
+    if parsed is None:
+        return ""
+    return parsed.astimezone(SHANGHAI_TZ).strftime("%Y-%m-%d")
+
+
+def readable_clock(value: str) -> str:
+    parsed = _parse_time(value)
+    if parsed is None:
+        return "-"
+    return parsed.astimezone(SHANGHAI_TZ).strftime("%H:%M:%S")
+
+
 def run_duration_label(run: CollectionRun) -> str:
     start = _parse_time(run.created_at)
     if start is None:
@@ -189,8 +212,46 @@ def run_progress_stage(run: CollectionRun) -> str:
 
 def run_resource_label(run: CollectionRun) -> str:
     if run.status == "running":
-        return "采集中"
-    return "无占用"
+        return f"运行中，占用 {platform_label(run.platform)}/{run.profile}"
+    if run.status == "queued":
+        return "未启动，不占用资源"
+    if run.status == "manual_action_required":
+        return "等待人工处理，不占用采集器"
+    if run.status == "failed":
+        return "已失败，不占用资源"
+    if run.status == "completed":
+        return "已完成，不占用资源"
+    if run.status == "cancelled":
+        return "已归档，不占用资源"
+    return "未占用"
+
+
+def run_state_title(run: CollectionRun) -> str:
+    titles = {
+        "queued": "待启动：任务已创建，采集器尚未运行",
+        "running": "运行中：浏览器采集正在执行",
+        "manual_action_required": "需人工处理：请查看浏览器窗口",
+        "failed": "失败：采集器已退出",
+        "completed": "完成：采集结果已入库",
+        "cancelled": "已归档：任务不再执行",
+    }
+    return titles.get(run.status, collector_status_label(run.status))
+
+
+def run_state_detail(run: CollectionRun) -> str:
+    details = {
+        "queued": "未启动，不占用资源。点击“启动采集”后会打开浏览器并占用对应 profile。",
+        "running": f"运行中，占用 {platform_label(run.platform)}/{run.profile}，请保持浏览器窗口可用。",
+        "manual_action_required": "请打开同一账号 Profile 处理扫码、登录或验证；处理完成后点击“继续采集”复用当前 run。",
+        "failed": "已失败，不占用资源。可重新运行生成新任务。",
+        "completed": "已完成，不占用资源。可以查看采集样本和证据链。",
+        "cancelled": "已归档，不占用资源。",
+    }
+    return details.get(run.status, run.current_step or "-")
+
+
+def run_can_start(run: CollectionRun) -> bool:
+    return run.status == "queued"
 
 
 def _parse_time(value: str) -> Optional[datetime]:
@@ -225,12 +286,23 @@ def _duration_label(seconds: int) -> str:
 
 
 templates.env.filters["readable_time"] = readable_time
+templates.env.filters["readable_day"] = readable_day
+templates.env.filters["readable_clock"] = readable_clock
 templates.env.filters["run_duration"] = run_duration_label
 templates.env.filters["run_progress_stage"] = run_progress_stage
 templates.env.filters["run_resource"] = run_resource_label
+templates.env.filters["run_state_title"] = run_state_title
+templates.env.filters["run_state_detail"] = run_state_detail
+templates.env.filters["run_can_start"] = run_can_start
 
 
-def create_app(db_path: Path, doctor_report_builder=None, profile_root=None, profile_login_launcher=None) -> FastAPI:
+def create_app(
+    db_path: Path,
+    doctor_report_builder=None,
+    profile_root=None,
+    profile_login_launcher=None,
+    collector_run_launcher=None,
+) -> FastAPI:
     app = FastAPI(title="Falcon 控制台")
     app.state.db_path = Path(db_path)
     app.state.last_run = None
@@ -239,6 +311,20 @@ def create_app(db_path: Path, doctor_report_builder=None, profile_root=None, pro
     app.state.project_root = Path(__file__).resolve().parents[2]
     app.state.doctor_report_builder = doctor_report_builder or build_doctor_report
     app.state.profile_login_launcher = profile_login_launcher or launch_profile_login
+
+    def default_collector_run_launcher(run_id: str) -> None:
+        repository = FalconRepository(app.state.db_path)
+        repository.init_schema()
+        service = CollectorService(
+            repository,
+            runtime_root=app.state.runtime_root,
+            profile_root=app.state.profile_root,
+        )
+        finished_run = service.start_prepared_run(run_id, headed=True, dry_run=False)
+        if finished_run.status == "completed":
+            dispatch_queued_runs(repository, only_profile=(finished_run.platform, finished_run.profile))
+
+    app.state.collector_run_launcher = collector_run_launcher or default_collector_run_launcher
     app.mount("/static", StaticFiles(directory=str(WEB_DIR / "static")), name="static")
 
     def repo() -> FalconRepository:
@@ -252,6 +338,38 @@ def create_app(db_path: Path, doctor_report_builder=None, profile_root=None, pro
             runtime_root=app.state.runtime_root,
             profile_root=app.state.profile_root,
         )
+
+    def collector_create_context(repository: FalconRepository):
+        profile_entries = [
+            entry
+            for entry in list_profile_entries(
+                app.state.profile_root,
+                repository.list_collection_runs(limit=1000),
+                [item["key"] for item in _collector_platforms()],
+            )
+            if entry.platform == "xiaohongshu" and entry.path_exists
+        ]
+        default_profile = next((entry.profile for entry in profile_entries if entry.profile == "default"), "")
+        if not default_profile and profile_entries:
+            default_profile = profile_entries[0].profile
+        return {
+            "profile_options": profile_entries,
+            "defaults": {
+                "platform": "xiaohongshu",
+                "profile": default_profile,
+                "max_posts": 20,
+                "max_comments_per_post": 10,
+            },
+        }
+
+    def refresh_running_run(repository: FalconRepository, run: CollectionRun) -> CollectionRun:
+        if run.status != "running":
+            return run
+        service = collector_service(repository)
+        paths = service.paths_for(run.run_id, run.platform, run.profile)
+        if paths.events_path.exists() or paths.records_path.exists():
+            service.ingest_outputs(run.run_id, paths.events_path, paths.records_path)
+        return repository.get_collection_run(run.run_id) or run
 
     def append_run_event(
         repository: FalconRepository,
@@ -273,6 +391,226 @@ def create_app(db_path: Path, doctor_report_builder=None, profile_root=None, pro
                 level=level,
             )
         )
+
+    def busy_profile_keys(repository: FalconRepository, ignore_run_id: str = "") -> set[tuple[str, str]]:
+        return {
+            (item.platform, item.profile)
+            for item in repository.list_collection_runs(limit=1000)
+            if item.run_id != ignore_run_id and item.status in {"running", "manual_action_required"}
+        }
+
+    def profile_is_busy(repository: FalconRepository, run: CollectionRun) -> bool:
+        return (run.platform, run.profile) in busy_profile_keys(repository, ignore_run_id=run.run_id)
+
+    def dispatch_queued_runs(
+        repository: FalconRepository,
+        background_tasks: Optional[BackgroundTasks] = None,
+        only_profile: Optional[tuple[str, str]] = None,
+    ) -> list[str]:
+        service = collector_service(repository)
+        runs = repository.list_collection_runs(limit=1000)
+        busy = busy_profile_keys(repository)
+        dispatched: list[str] = []
+        queued = sorted(
+            (item for item in runs if item.status == "queued"),
+            key=lambda item: (item.created_at, item.run_id),
+        )
+        for run in queued:
+            profile_key = (run.platform, run.profile)
+            if only_profile is not None and profile_key != only_profile:
+                continue
+            if profile_key in busy:
+                continue
+            service.prepare_run_request(run, headed=True, dry_run=False)
+            repository.update_collection_run(
+                run.run_id,
+                status="running",
+                progress=max(run.progress, 5),
+                current_step="队列 worker 已启动采集器",
+            )
+            append_run_event(
+                repository,
+                run.run_id,
+                event="queue_worker_dispatched",
+                message=f"队列 worker 已确认 {run.platform}/{run.profile} 空闲，启动采集器。",
+            )
+            busy.add(profile_key)
+            dispatched.append(run.run_id)
+            if background_tasks is None:
+                app.state.collector_run_launcher(run.run_id)
+                break
+            background_tasks.add_task(app.state.collector_run_launcher, run.run_id)
+        return dispatched
+
+    def manual_action_target_url(repository: FalconRepository, run: CollectionRun) -> str:
+        return SUPPORTED_PROFILE_LOGIN_PLATFORMS.get(run.platform, "")
+
+    def local_asset_path(stored_path: str) -> Optional[Path]:
+        if not stored_path:
+            return None
+        allowed_roots = {
+            app.state.runtime_root.resolve(),
+            (app.state.db_path.parent / "runtime" / "collector").resolve(),
+            (app.state.project_root / "runtime" / "collector").resolve(),
+        }
+        raw_path = Path(stored_path)
+        candidates = []
+        if raw_path.is_absolute():
+            candidates.append(raw_path)
+        else:
+            candidates.extend(
+                [
+                    app.state.db_path.parent / raw_path,
+                    app.state.runtime_root / raw_path,
+                    app.state.project_root / raw_path,
+                ]
+            )
+        allowed_candidate = None
+        for candidate in candidates:
+            resolved = candidate.resolve()
+            if any(resolved == root or root in resolved.parents for root in allowed_roots):
+                if resolved.exists():
+                    return resolved
+                if allowed_candidate is None:
+                    allowed_candidate = resolved
+        return allowed_candidate
+
+    def local_media_response(stored_path: str):
+        path = local_asset_path(stored_path)
+        if path is None:
+            raise HTTPException(status_code=404, detail="Asset path is not allowed")
+        if not path.exists() or not path.is_file():
+            raise HTTPException(status_code=404, detail="Asset file not found")
+        media_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+        return FileResponse(path, media_type=media_type)
+
+    def media_item_from_asset(asset):
+        path = local_asset_path(asset.path)
+        exists = bool(path and path.exists() and path.is_file())
+        mime_type = mimetypes.guess_type(asset.path)[0] or ""
+        asset_type = str(asset.asset_type or "asset").lower()
+        is_video = mime_type.startswith("video/") or (asset_type == "video" and not mime_type)
+        is_image = mime_type.startswith("image/") or (asset_type == "image" and not mime_type)
+        status = "缺失/未下载"
+        if exists:
+            status = "可播放" if is_video else "可下载" if is_image else "已下载"
+        size_label = f"{path.stat().st_size} bytes" if exists and path else "-"
+        return {
+            "id": asset.asset_id,
+            "kind": "video" if is_video else "image" if is_image else "asset",
+            "type_label": asset_type_label(asset.asset_type),
+            "path": asset.path,
+            "url": asset.url,
+            "sha256": asset.sha256 or "-",
+            "mime_type": mime_type or "-",
+            "size_label": size_label,
+            "exists": exists,
+            "status": status,
+            "src": f"/collector/runs/{asset.run_id}/assets/{asset.asset_id}" if exists else "",
+        }
+
+    def media_item_from_evidence(evidence):
+        path = local_asset_path(evidence.path)
+        exists = bool(path and path.exists() and path.is_file())
+        mime_type = mimetypes.guess_type(evidence.path)[0] or "image/png"
+        return {
+            "id": evidence.evidence_id,
+            "kind": "image",
+            "type_label": evidence_scope_label(evidence.evidence_type),
+            "path": evidence.path,
+            "url": "",
+            "sha256": "-",
+            "mime_type": mime_type,
+            "size_label": f"{path.stat().st_size} bytes" if exists and path else "-",
+            "exists": exists,
+            "status": "详情页截图" if exists else "缺失/未下载",
+            "src": f"/collector/runs/{evidence.run_id}/evidences/{evidence.evidence_id}" if exists else "",
+            "is_evidence": True,
+        }
+
+    def detail_screenshot_fallback(evidences, post):
+        post_keys = {
+            str(post.detail_fingerprint or ""),
+            str(post.url or ""),
+        }
+        post_keys = {value for value in post_keys if value}
+        for evidence in evidences:
+            if evidence.evidence_type != "detail_screenshot" and evidence.scope != "detail_screenshot":
+                continue
+            try:
+                payload = json.loads(evidence.payload_json or "{}")
+            except json.JSONDecodeError:
+                payload = {}
+            evidence_keys = {
+                str(payload.get("post_id") or ""),
+                str(payload.get("url") or ""),
+            }
+            evidence_keys = {value for value in evidence_keys if value}
+            if not evidence_keys.intersection(post_keys):
+                continue
+            item = media_item_from_evidence(evidence)
+            if item["exists"]:
+                return item
+        return None
+
+    def detail_media_is_trusted(evidences, post) -> bool:
+        post_keys = {
+            str(post.detail_fingerprint or ""),
+            str(post.url or ""),
+        }
+        post_keys = {value for value in post_keys if value}
+        for evidence in evidences:
+            if evidence.evidence_type != "field_snapshot" and evidence.scope != "field_snapshot":
+                continue
+            try:
+                payload = json.loads(evidence.payload_json or "{}")
+            except json.JSONDecodeError:
+                payload = {}
+            if payload.get("media_scope") != "detail_container":
+                continue
+            evidence_keys = {
+                str(payload.get("post_id") or ""),
+                str(payload.get("url") or ""),
+            }
+            evidence_keys = {value for value in evidence_keys if value}
+            if evidence_keys.intersection(post_keys):
+                return True
+        return False
+
+    def canonical_media_url_key(value: str) -> str:
+        text = str(value or "").strip()
+        if not text:
+            return ""
+        if text.startswith("data:image/"):
+            return f"data:{hash(text)}"
+        try:
+            from urllib.parse import urlparse, unquote
+
+            parsed = urlparse(text)
+            path = unquote(parsed.path or "")
+        except ValueError:
+            return text
+        filename = next((part for part in reversed(path.split("/")) if part), path)
+        image_id = filename.split("!")[0]
+        if image_id and len(image_id) >= 10:
+            return f"image:{image_id}"
+        return f"{parsed.netloc}{path.split('!')[0]}"
+
+    def dedupe_preview_items(items):
+        seen = set()
+        deduped = []
+        for item in items:
+            if item.get("is_evidence"):
+                key = f"evidence:{item['id']}"
+            else:
+                key = canonical_media_url_key(item.get("url", ""))
+                if not key:
+                    key = f"sha:{item.get('sha256')}" if item.get("sha256") not in {"", "-"} else f"src:{item.get('src')}"
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(item)
+        return deduped
 
     @app.get("/")
     def dashboard(request: Request):
@@ -332,19 +670,15 @@ def create_app(db_path: Path, doctor_report_builder=None, profile_root=None, pro
         return RedirectResponse(f"/keywords?path={path}", status_code=303)
 
     @app.get("/collector")
-    def collector_page(
-        request: Request,
-        profile_action: str = "",
-        profile_platform: str = "",
-        profile_name: str = "",
-    ):
+    def collector_page(request: Request):
         repository = repo()
-        runs = repository.list_collection_runs(limit=20)
+        runs = repository.list_collection_runs(limit=100)
+        runs = [refresh_running_run(repository, run) for run in runs]
         dashboard = repository.collector_dashboard()
         posts = repository.list_collected_posts(limit=50)
         queued_runs = [run for run in runs if run.status in {"queued", "running", "manual_action_required"}]
         doctor_report = app.state.doctor_report_builder(app.state.project_root)
-        environment_checks = checks_for_web(doctor_report)
+        calendar_state = _collector_calendar_state(runs)
         return templates.TemplateResponse(
             request,
             "collector.html",
@@ -354,17 +688,53 @@ def create_app(db_path: Path, doctor_report_builder=None, profile_root=None, pro
                 "platforms": _platform_cards(runs, posts),
                 "runs": runs,
                 "queued_runs": queued_runs,
-                "profile_summary": _profile_summary(runs),
-                "profile_entries": list_profile_entries(
-                    app.state.profile_root,
-                    runs,
-                    [item["key"] for item in _collector_platforms()],
-                ),
-                "profile_notice": _profile_notice(profile_action, profile_platform, profile_name),
-                "profile_login_supported_platforms": SUPPORTED_PROFILE_LOGIN_PLATFORMS,
+                "queue_health": _queue_health(dashboard, queued_runs),
+                "focus_items": _collector_focus_items(runs),
+                "calendar_state": calendar_state,
+                "environment_ready": doctor_report.required_ok,
+                **collector_create_context(repository),
+            },
+        )
+
+    @app.get("/collector/environment")
+    def collector_environment_page(request: Request):
+        doctor_report = app.state.doctor_report_builder(app.state.project_root)
+        environment_checks = checks_for_web(doctor_report)
+        return templates.TemplateResponse(
+            request,
+            "collector_environment.html",
+            {
+                "active": "collector_environment",
                 "environment_checks": environment_checks,
                 "environment_ready": doctor_report.required_ok,
                 "environment_summary": _environment_summary(environment_checks),
+            },
+        )
+
+    @app.get("/collector/accounts")
+    def collector_accounts_page(
+        request: Request,
+        profile_action: str = "",
+        profile_platform: str = "",
+        profile_name: str = "",
+    ):
+        repository = repo()
+        runs = repository.list_collection_runs(limit=1000)
+        profile_entries = list_profile_entries(
+            app.state.profile_root,
+            runs,
+            [item["key"] for item in _collector_platforms()],
+        )
+        return templates.TemplateResponse(
+            request,
+            "collector_accounts.html",
+            {
+                "active": "collector_accounts",
+                "platforms": _collector_platforms(),
+                "profile_entries": profile_entries,
+                "profile_groups": _profile_groups(profile_entries),
+                "profile_notice": _profile_notice(profile_action, profile_platform, profile_name),
+                "profile_login_supported_platforms": SUPPORTED_PROFILE_LOGIN_PLATFORMS,
             },
         )
 
@@ -391,38 +761,27 @@ def create_app(db_path: Path, doctor_report_builder=None, profile_root=None, pro
                 profile_root=app.state.profile_root,
                 profile_path=profile_path,
                 project_root=app.state.project_root,
+                url=SUPPORTED_PROFILE_LOGIN_PLATFORMS[clean_platform],
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except OSError as exc:
             raise HTTPException(status_code=500, detail=f"Could not open profile login window: {exc}") from exc
         return RedirectResponse(
-            f"/collector?profile_action=opened&profile_platform={clean_platform}&profile_name={clean_profile}",
+            f"/collector/accounts?profile_action=opened&profile_platform={clean_platform}&profile_name={clean_profile}",
             status_code=303,
         )
 
     @app.get("/collector/create")
     def collector_create_page(request: Request):
-        return templates.TemplateResponse(
-            request,
-            "collector_create.html",
-            {
-                "active": "collector_create",
-                "platforms": _collector_platforms(),
-                "defaults": {
-                    "platform": "xiaohongshu",
-                    "profile": "default",
-                    "max_posts": 20,
-                    "max_comments_per_post": 10,
-                },
-            },
-        )
+        return RedirectResponse("/collector#collector-create-form", status_code=303)
 
     @app.post("/collector/create")
     def create_collection_run(
         platform: str = Form(...),
         profile: str = Form(...),
-        keyword: str = Form(...),
+        keyword: str = Form(""),
+        keywords: str = Form(""),
         max_posts: int = Form(20),
         max_comments_per_post: int = Form(10),
     ):
@@ -436,29 +795,39 @@ def create_app(db_path: Path, doctor_report_builder=None, profile_root=None, pro
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         repository = repo()
-        run = CollectionRun(
-            run_id=_new_run_id(clean_platform),
-            platform=clean_platform,
-            keyword=keyword.strip(),
-            profile=clean_profile,
-            status="queued",
-            progress=0,
-            current_step="等待浏览器采集调度",
-            max_posts=max(1, max_posts),
-            max_comments_per_post=max(0, max_comments_per_post),
-        )
-        repository.create_collection_run(run)
-        collector_service(repository).prepare_run_request(run, headed=True, dry_run=False)
-        repository.append_collection_event(
-            CollectionEvent(
-                run_id=run.run_id,
-                sequence=1,
-                scope="core",
-                event="request_prepared",
-                message="采集请求已准备，等待启动。",
+        keyword_items = _split_keywords(keywords or keyword)
+        if not keyword_items:
+            raise HTTPException(status_code=400, detail="At least one collector keyword is required")
+
+        created_runs = []
+        service = collector_service(repository)
+        for item in keyword_items:
+            run = CollectionRun(
+                run_id=_new_run_id(clean_platform),
+                platform=clean_platform,
+                keyword=item,
+                profile=clean_profile,
+                status="queued",
+                progress=0,
+                current_step="等待浏览器采集调度",
+                max_posts=max(1, max_posts),
+                max_comments_per_post=max(0, max_comments_per_post),
             )
-        )
-        return RedirectResponse(f"/collector/runs/{run.run_id}", status_code=303)
+            repository.create_collection_run(run)
+            service.prepare_run_request(run, headed=True, dry_run=False)
+            repository.append_collection_event(
+                CollectionEvent(
+                    run_id=run.run_id,
+                    sequence=1,
+                    scope="core",
+                    event="request_prepared",
+                    message="采集请求已准备，等待启动。",
+                )
+            )
+            created_runs.append(run)
+        if len(created_runs) == 1:
+            return RedirectResponse(f"/collector/runs/{created_runs[0].run_id}", status_code=303)
+        return RedirectResponse("/collector", status_code=303)
 
     @app.get("/collector/runs/{run_id}")
     def collector_run_detail(request: Request, run_id: str):
@@ -466,6 +835,7 @@ def create_app(db_path: Path, doctor_report_builder=None, profile_root=None, pro
         run = repository.get_collection_run(run_id)
         if run is None:
             raise HTTPException(status_code=404, detail="Collection run not found")
+        run = refresh_running_run(repository, run)
         return templates.TemplateResponse(
             request,
             "collector_run.html",
@@ -479,6 +849,103 @@ def create_app(db_path: Path, doctor_report_builder=None, profile_root=None, pro
                 "evidences": repository.list_evidences(run_id),
             },
         )
+
+    @app.post("/collector/runs/{run_id}/start")
+    def start_collection_run(run_id: str, background_tasks: BackgroundTasks):
+        repository = repo()
+        run = repository.get_collection_run(run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="Collection run not found")
+        if run.status == "running":
+            return RedirectResponse(f"/collector/runs/{run_id}", status_code=303)
+        if not run_can_start(run):
+            raise HTTPException(status_code=400, detail=f"Collection run cannot start from status: {run.status}")
+        if profile_is_busy(repository, run):
+            raise HTTPException(status_code=400, detail="Collector profile is already busy")
+
+        collector_service(repository).prepare_run_request(run, headed=True, dry_run=False)
+        repository.update_collection_run(
+            run_id,
+            status="running",
+            progress=max(run.progress, 5),
+            current_step="采集器启动中",
+        )
+        append_run_event(
+            repository,
+            run_id,
+            event="run_start_requested",
+            message="已请求启动采集器，浏览器即将打开。",
+        )
+        background_tasks.add_task(app.state.collector_run_launcher, run_id)
+        return RedirectResponse(f"/collector/runs/{run_id}", status_code=303)
+
+    @app.post("/collector/queue/start")
+    def start_collector_queue(background_tasks: BackgroundTasks):
+        repository = repo()
+        dispatch_queued_runs(repository, background_tasks=background_tasks)
+        return RedirectResponse("/collector", status_code=303)
+
+    @app.post("/collector/runs/{run_id}/open-manual-action")
+    def open_collection_run_manual_action(run_id: str):
+        repository = repo()
+        run = repository.get_collection_run(run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="Collection run not found")
+        if run.status != "manual_action_required":
+            raise HTTPException(status_code=400, detail="Collection run does not require manual action")
+        if run.platform not in SUPPORTED_PROFILE_LOGIN_PLATFORMS:
+            raise HTTPException(status_code=400, detail="Profile login is not supported for this platform yet")
+
+        profile_path = app.state.profile_root / run.platform / run.profile
+        target_url = manual_action_target_url(repository, run)
+        try:
+            app.state.profile_login_launcher(
+                platform=run.platform,
+                profile=run.profile,
+                profile_root=app.state.profile_root,
+                profile_path=profile_path,
+                project_root=app.state.project_root,
+                url=target_url,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except OSError as exc:
+            raise HTTPException(status_code=500, detail=f"Could not open manual action window: {exc}") from exc
+        append_run_event(
+            repository,
+            run_id,
+            event="manual_action_window_opened",
+            message=f"已打开 {run.platform}/{run.profile} 的人工处理窗口。",
+            level="warning",
+        )
+        return RedirectResponse(f"/collector/runs/{run_id}?manual_action=opened", status_code=303)
+
+    @app.post("/collector/runs/{run_id}/resume")
+    def resume_collection_run_after_manual_action(run_id: str, background_tasks: BackgroundTasks):
+        repository = repo()
+        run = repository.get_collection_run(run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="Collection run not found")
+        if run.status != "manual_action_required":
+            raise HTTPException(status_code=400, detail=f"Collection run cannot resume from status: {run.status}")
+        if profile_is_busy(repository, run):
+            raise HTTPException(status_code=400, detail="Collector profile is already busy")
+
+        collector_service(repository).prepare_run_request(run, headed=True, dry_run=False)
+        repository.update_collection_run(
+            run_id,
+            status="running",
+            progress=max(run.progress, 55),
+            current_step="人工处理已完成，继续采集器",
+        )
+        append_run_event(
+            repository,
+            run_id,
+            event="manual_action_resumed",
+            message="人工处理已完成，继续使用当前 run 启动采集器。",
+        )
+        background_tasks.add_task(app.state.collector_run_launcher, run_id)
+        return RedirectResponse(f"/collector/runs/{run_id}", status_code=303)
 
     @app.post("/collector/runs/{run_id}/rerun")
     def rerun_collection_run(run_id: str):
@@ -536,11 +1003,17 @@ def create_app(db_path: Path, doctor_report_builder=None, profile_root=None, pro
         return RedirectResponse(f"/collector/runs/{run_id}", status_code=303)
 
     @app.post("/collector/runs/{run_id}/archive")
-    def archive_collection_run(run_id: str):
+    def archive_collection_run(
+        request: Request,
+        background_tasks: BackgroundTasks,
+        run_id: str,
+        return_to: str = Form(""),
+    ):
         repository = repo()
         run = repository.get_collection_run(run_id)
         if run is None:
             raise HTTPException(status_code=404, detail="Collection run not found")
+        released_profile = (run.platform, run.profile) if run.status == "manual_action_required" else None
         repository.update_collection_run(
             run_id,
             status="cancelled",
@@ -552,6 +1025,19 @@ def create_app(db_path: Path, doctor_report_builder=None, profile_root=None, pro
             event="run_archived",
             message="任务已归档，不占用采集资源。",
         )
+        if released_profile is not None:
+            dispatch_queued_runs(repository, background_tasks=background_tasks, only_profile=released_profile)
+        if "application/json" in request.headers.get("accept", "") or request.headers.get("x-requested-with") == "fetch":
+            updated_run = repository.get_collection_run(run_id)
+            return JSONResponse(
+                {
+                    "run_id": run_id,
+                    "status": updated_run.status if updated_run else "cancelled",
+                    "status_label": collector_status_label("cancelled"),
+                }
+            )
+        if return_to == "/collector":
+            return RedirectResponse("/collector", status_code=303)
         return RedirectResponse(f"/collector/runs/{run_id}", status_code=303)
 
     @app.get("/collector/runs/{run_id}/posts/{post_id}")
@@ -566,6 +1052,19 @@ def create_app(db_path: Path, doctor_report_builder=None, profile_root=None, pro
             for asset in repository.list_media_assets(run_id)
             if asset.post_id == post.post_id
         ]
+        evidences = repository.list_evidences(run_id)
+        asset_items = [media_item_from_asset(asset) for asset in assets]
+        preview_items = [
+            item
+            for item in asset_items
+            if item["exists"] and item["kind"] in {"image", "video"}
+        ]
+        preview_items = dedupe_preview_items(preview_items)
+        detail_item = detail_screenshot_fallback(evidences, post)
+        if detail_item and not detail_media_is_trusted(evidences, post):
+            preview_items = []
+        if detail_item:
+            preview_items = [detail_item, *preview_items]
         return templates.TemplateResponse(
             request,
             "collector_post.html",
@@ -576,8 +1075,33 @@ def create_app(db_path: Path, doctor_report_builder=None, profile_root=None, pro
                 "post": post,
                 "comments": repository.list_collected_comments(run_id=run_id, post_id=post.post_id),
                 "assets": assets,
+                "asset_items": asset_items,
+                "preview_items": preview_items,
+                "primary_item": preview_items[0] if preview_items else None,
             },
         )
+
+    @app.get("/collector/runs/{run_id}/assets/{asset_id}")
+    def collector_asset_file(run_id: str, asset_id: int):
+        repository = repo()
+        asset = next(
+            (item for item in repository.list_media_assets(run_id) if item.asset_id == asset_id),
+            None,
+        )
+        if asset is None:
+            raise HTTPException(status_code=404, detail="Asset not found")
+        return local_media_response(asset.path)
+
+    @app.get("/collector/runs/{run_id}/evidences/{evidence_id}")
+    def collector_evidence_file(run_id: str, evidence_id: int):
+        repository = repo()
+        evidence = next(
+            (item for item in repository.list_evidences(run_id) if item.evidence_id == evidence_id),
+            None,
+        )
+        if evidence is None:
+            raise HTTPException(status_code=404, detail="Evidence not found")
+        return local_media_response(evidence.path)
 
     @app.get("/analysis")
     def analysis_page(request: Request):
@@ -685,6 +1209,106 @@ def _platform_cards(runs, posts):
             }
         )
     return cards
+
+
+def _profile_groups(entries):
+    by_platform = {item["key"]: {**item, "entries": []} for item in _collector_platforms()}
+    for entry in entries:
+        platform = by_platform.get(entry.platform)
+        if platform is None:
+            continue
+        platform["entries"].append(entry)
+    return list(by_platform.values())
+
+
+def _queue_health(stats, queued_runs):
+    manual_count = int(stats.get("waiting_manual_runs") or 0)
+    failed_count = int(stats.get("failed_runs") or 0)
+    queued_count = sum(1 for run in queued_runs if run.status == "queued")
+    return {
+        "manual_count": manual_count,
+        "failed_count": failed_count,
+        "queued_count": queued_count,
+        "manual_label": f"{manual_count} 个等待人工" if manual_count else "无人工阻塞",
+        "failed_label": f"{failed_count} 个失败 run 可复跑" if failed_count else "无失败 run",
+        "queued_label": f"{queued_count} 个等待启动" if queued_count else "队列空闲",
+    }
+
+
+def _collector_focus_items(runs):
+    focus_specs = [
+        {
+            "status": "manual_action_required",
+            "kind": "manual",
+            "label": "等待人工",
+            "action": "open-manual-action",
+            "action_label": "打开处理窗口",
+            "detail": "登录、扫码或验证会阻塞采集，优先处理后再复跑。",
+        },
+        {
+            "status": "failed",
+            "kind": "failed",
+            "label": "失败可复跑",
+            "action": "rerun",
+            "action_label": "重新运行",
+            "detail": "复跑会生成新的 run 和证据链，原失败记录保留。",
+        },
+        {
+            "status": "queued",
+            "kind": "queued",
+            "label": "待启动",
+            "action": "start",
+            "action_label": "启动采集",
+            "detail": "任务已准备请求，启动后会占用对应平台账号 profile。",
+        },
+    ]
+    items = []
+    for spec in focus_specs:
+        run = next((item for item in runs if item.status == spec["status"]), None)
+        if run is None:
+            continue
+        items.append({**spec, "run": run})
+    return items
+
+
+def _collector_calendar_state(runs):
+    parsed_dates = [_parse_time(run.created_at) for run in runs]
+    parsed_dates = [item.astimezone(SHANGHAI_TZ) for item in parsed_dates if item is not None]
+    selected = max(parsed_dates) if parsed_dates else datetime.now(SHANGHAI_TZ)
+    selected_day = selected.strftime("%Y-%m-%d")
+    return {
+        "selected_day": selected_day,
+        "month_label": f"{selected.year} 年 {selected.month} 月",
+        "days": _calendar_days_for_month(selected),
+    }
+
+
+def _calendar_days_for_month(selected: datetime):
+    first = selected.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    start = first - timedelta(days=first.weekday())
+    days = []
+    for offset in range(42):
+        current = start + timedelta(days=offset)
+        days.append(
+            {
+                "date": current.strftime("%Y-%m-%d"),
+                "day": current.day,
+                "muted": current.month != selected.month,
+            }
+        )
+    return days
+
+
+def _split_keywords(value: str) -> list[str]:
+    seen = set()
+    keywords = []
+    for item in re.split(r"[\n,，;；]+", value or ""):
+        keyword = item.strip()
+        if not keyword or keyword in seen:
+            continue
+        seen.add(keyword)
+        keywords.append(keyword)
+    return keywords
 
 
 def _profile_summary(runs):

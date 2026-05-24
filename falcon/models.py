@@ -66,6 +66,7 @@ class CollectedPost:
     author: str = ""
     published_at: str = ""
     like_count: str = ""
+    collect_count: str = ""
     comment_count: str = ""
     detail_fingerprint: str = ""
     collected_at: str = field(default_factory=utc_now_iso)
@@ -80,6 +81,8 @@ class CollectedComment:
     content: str
     like_count: str = ""
     comment_rank: str = ""
+    comment_type: str = "comment"
+    reply_to: str = ""
     collected_at: str = field(default_factory=utc_now_iso)
     comment_id: Optional[int] = None
 

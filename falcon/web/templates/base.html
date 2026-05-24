@@ -4,33 +4,29 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Falcon 控制台{% endblock %}</title>
-  <link rel="stylesheet" href="{{ url_for('static', path='/app.css') }}">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23060807'/%3E%3Cpath d='M9 23V8h14v4h-9v3h8v4h-8v4z' fill='%23a6ff63'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="{{ url_for('static', path='/app.css') }}?v=archive-actions-compact2-20260524">
 </head>
 <body>
-  <aside class="sidebar">
+  <aside class="sidebar" aria-label="Falcon navigation">
     <div class="brand">
       <span class="brand-mark">F</span>
       <div>
         <strong>Falcon</strong>
-        <small>Agent</small>
+        <small>Collector command</small>
       </div>
     </div>
     <nav class="nav-groups">
       <section class="nav-group">
-        <h2>采集</h2>
-        <a class="{{ 'active' if active == 'collector' else '' }}" href="/collector">采集总览</a>
-        <a class="{{ 'active' if active == 'collector_create' else '' }}" href="/collector/create">创建任务</a>
-        {% if current_run %}
-        <a class="{{ 'active' if active == 'collector_run' else '' }}" href="/collector/runs/{{ current_run.run_id }}">任务详情</a>
-        {% endif %}
+        <div class="nav-title"><span>采集</span><span>LIVE</span></div>
+        <a class="nav-link {{ 'active' if active in ['collector', 'collector_run'] else '' }}" href="/collector"><span>采集总览</span><span class="nav-count">RUN</span></a>
+        <a class="nav-link {{ 'active' if active == 'collector_accounts' else '' }}" href="/collector/accounts"><span>账号管理</span><span class="nav-count">PROFILE</span></a>
+        <a class="nav-link {{ 'active' if active == 'collector_environment' else '' }}" href="/collector/environment"><span>环境自检</span><span class="nav-count">CHECK</span></a>
       </section>
       <section class="nav-group">
-        <h2>分析</h2>
-        <a class="{{ 'active' if active == 'analysis' else '' }}" href="/analysis">分析总览</a>
-      </section>
-      <section class="nav-group">
-        <h2>执行</h2>
-        <a class="{{ 'active' if active == 'execution' else '' }}" href="/execution">执行总览</a>
+        <div class="nav-title"><span>后续链路</span><span>LOCK</span></div>
+        <a class="nav-link {{ 'active' if active == 'analysis' else '' }}" href="/analysis"><span>分析总览</span><span class="nav-count">NEXT</span></a>
+        <a class="nav-link {{ 'active' if active == 'execution' else '' }}" href="/execution"><span>执行总览</span><span class="nav-count">HUMAN</span></a>
       </section>
     </nav>
   </aside>

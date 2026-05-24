@@ -27,7 +27,7 @@ const args = parseArgs(process.argv.slice(2));
 const platform = requireArg(args, "platform");
 const profile = requireArg(args, "profile");
 const profilePath = requireArg(args, "profile-path");
-const loginUrl = LOGIN_URLS[platform];
+const loginUrl = args.url || LOGIN_URLS[platform];
 
 if (!loginUrl) {
   throw new Error(`Profile login is not supported for platform: ${platform}`);

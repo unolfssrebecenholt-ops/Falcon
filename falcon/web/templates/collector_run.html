@@ -1,123 +1,192 @@
 {% extends "base.html" %}
 {% block title %}任务详情 - Falcon{% endblock %}
 {% block content %}
-<header class="page-header">
+<header class="page-header run-page-header">
   <div>
+    <nav class="breadcrumb" aria-label="当前位置">采集总览 -&gt; 任务详情({{ run.run_id }})</nav>
+    <div class="eyebrow">collector run detail</div>
     <h1>任务详情</h1>
-    <p>{{ run.run_id }} · {{ run.platform }} · {{ run.keyword }}</p>
+    <p>{{ run.run_id }} · {{ run.platform|platform_label }} · {{ run.keyword }}</p>
   </div>
-  <a class="button" href="/collector">返回采集总览</a>
+  <div class="action-row">
+    <a class="button" href="/collector">返回采集总览</a>
+    {% if run|run_can_start %}
+    <form class="inline-form" action="/collector/runs/{{ run.run_id }}/start" method="post">
+      <button class="button primary" type="submit">启动采集</button>
+    </form>
+    {% endif %}
+  </div>
 </header>
 
-<section class="metrics">
-  <div class="metric"><span>状态</span><strong class="fit-text">{{ run.status|collector_status }}</strong></div>
-  <div class="metric"><span>阶段</span><strong>{{ run|run_progress_stage }}</strong></div>
+<section class="run-hero status-{{ run.status }}">
+  <div class="run-hero-main">
+    <span class="status-dot"></span>
+    <div>
+      <span class="subtext">生命周期状态</span>
+      <strong>{{ run|run_state_title }}</strong>
+      <p>{{ run|run_state_detail }}</p>
+    </div>
+  </div>
+  <div class="run-hero-meta">
+    <span class="status-badge status-{{ run.status }}"><i></i>{{ run.status|collector_status }}</span>
+    <span>{{ run|run_progress_stage }}</span>
+  </div>
+</section>
+
+<section class="metrics run-metrics">
   <div class="metric"><span>开启时间</span><strong class="fit-text">{{ run.created_at|readable_time }}</strong></div>
   <div class="metric"><span>运行时长</span><strong>{{ run|run_duration }}</strong></div>
+  <div class="metric"><span>资源占用</span><strong class="fit-text">{{ run|run_resource }}</strong></div>
+  <div class="metric"><span>采样范围</span><strong>{{ run.max_posts }} / {{ run.max_comments_per_post }}</strong></div>
 </section>
+
+<section class="run-state-banner status-{{ run.status }}">
+  <div class="run-state-main">
+    <span class="status-dot"></span>
+    <div>
+      <strong>当前阻塞点</strong>
+      <p>{{ run.current_step|collector_step }}</p>
+      {% if run.failed_reason %}
+      <p class="alert">{{ run.failed_reason }}</p>
+      {% endif %}
+    </div>
+  </div>
+  <div class="run-actions">
+    {% if run|run_can_start %}
+    <form class="inline-form" action="/collector/runs/{{ run.run_id }}/start" method="post">
+      <button class="button primary" type="submit">启动采集</button>
+    </form>
+    {% endif %}
+    {% if run.status == "running" %}
+    <button class="button" type="button" disabled>运行中</button>
+    {% endif %}
+    {% if run.status == "manual_action_required" %}
+    <form class="inline-form" action="/collector/runs/{{ run.run_id }}/open-manual-action" method="post">
+      <button class="button" type="submit">打开处理窗口</button>
+    </form>
+    <form class="inline-form" action="/collector/runs/{{ run.run_id }}/resume" method="post">
+      <button class="button primary" type="submit">继续采集</button>
+    </form>
+    {% endif %}
+    {% if run.status in ["manual_action_required", "failed", "completed"] %}
+    <form class="inline-form" action="/collector/runs/{{ run.run_id }}/rerun" method="post">
+      <button class="button" type="submit">{{ "重新运行新任务" if run.status == "manual_action_required" else "重新运行" }}</button>
+    </form>
+    {% endif %}
+    {% if run.status == "manual_action_required" %}
+    <form class="inline-form" action="/collector/runs/{{ run.run_id }}/mark-failed" method="post">
+      <button class="button" type="submit">标记失败</button>
+    </form>
+    {% endif %}
+    {% if run.status != "cancelled" %}
+    <form class="inline-form" action="/collector/runs/{{ run.run_id }}/archive" method="post">
+      <button class="button" type="submit">归档</button>
+    </form>
+    {% endif %}
+  </div>
+</section>
+
+{% if run.status in ["queued", "running", "manual_action_required"] %}
+<div class="auto-refresh-note" data-auto-refresh="3000">
+  自动刷新已开启，每 3 秒同步一次任务状态、进度和最新记录。
+</div>
+{% endif %}
 
 <section class="panel">
   <div class="section-head">
     <div>
-      <h2>当前步骤</h2>
-      <p>{{ run.current_step|collector_step }}</p>
-      <p class="muted">资源占用：{{ run|run_resource }} · 帖子上限 {{ run.max_posts }} · 评论上限 {{ run.max_comments_per_post }}</p>
+      <h2>采集样本</h2>
+      <p class="muted">样本标题跳转到 Falcon 本地预览，不打开平台原始链接。</p>
     </div>
-    <div class="run-actions">
-      <form class="inline-form" action="/collector/runs/{{ run.run_id }}/rerun" method="post">
-        <button class="button small" type="submit">重新运行</button>
-      </form>
-      {% if run.status == "manual_action_required" %}
-      <form class="inline-form" action="/collector/runs/{{ run.run_id }}/mark-failed" method="post">
-        <button class="button small" type="submit">标记失败</button>
-      </form>
-      {% endif %}
-      {% if run.status != "cancelled" %}
-      <form class="inline-form" action="/collector/runs/{{ run.run_id }}/archive" method="post">
-        <button class="button small" type="submit">归档</button>
-      </form>
-      {% endif %}
-    </div>
+    <span class="pill">{{ posts|length }} 条</span>
   </div>
-  {% if run.failed_reason %}
-  <p class="alert">{{ run.failed_reason }}</p>
-  {% endif %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>标题</th><th>作者</th><th>互动</th><th>正文</th></tr>
+      </thead>
+      <tbody>
+        {% for post in posts %}
+        <tr>
+          <td><a class="run-id" href="/collector/runs/{{ run.run_id }}/posts/{{ post.post_id }}">{{ post.title }}</a></td>
+          <td>{{ post.author or "-" }}</td>
+          <td><span class="subtext">赞 {{ post.like_count or "0" }} · 藏 {{ post.collect_count or "0" }} · 评 {{ post.comment_count or "0" }}</span></td>
+          <td>{{ post.content }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4" class="muted">暂无样本。</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </section>
 
-<section class="panel">
-  <h2>事件链</h2>
-  <table>
-    <thead>
-      <tr><th>#</th><th>范围</th><th>事件</th><th>级别</th><th>消息</th><th>时间</th></tr>
-    </thead>
-    <tbody>
+<section class="detail-grid">
+  <section class="panel">
+    <div class="section-head">
+      <div>
+        <h2>事件链</h2>
+        <p class="muted">保留原始执行顺序，平台事件和核心调度事件统一翻译成人可读文案。</p>
+      </div>
+      <span class="pill">{{ events|length }} 条</span>
+    </div>
+    <div class="timeline-list">
       {% for event in events %}
-      <tr>
-        <td>{{ event.sequence }}</td>
-        <td>{{ event.scope|collector_scope }}</td>
-        <td>{{ event.event|collector_event }}</td>
-        <td>{{ event.level|collector_level }}</td>
-        <td>{{ event.message|collector_message(event.event) }}</td>
-        <td>{{ event.created_at|readable_time }}</td>
-      </tr>
+      <article class="timeline-item">
+        <span class="timeline-index">{{ event.sequence }}</span>
+        <div>
+          <strong>{{ event.event|collector_event }}</strong>
+          <p>{{ event.message|collector_message(event.event) }}</p>
+          <span class="subtext">{{ event.scope|collector_scope }} · {{ event.level|collector_level }} · {{ event.created_at|readable_time }}</span>
+        </div>
+      </article>
       {% else %}
-      <tr><td colspan="6" class="muted">暂无事件。</td></tr>
+      <div class="empty-state"><strong>暂无事件</strong><span>任务启动后会持续写入事件链。</span></div>
       {% endfor %}
-    </tbody>
-  </table>
-</section>
-
-<section class="panel">
-  <h2>采集样本</h2>
-  <table>
-    <thead>
-      <tr><th>标题</th><th>作者</th><th>互动</th><th>正文</th></tr>
-    </thead>
-    <tbody>
-      {% for post in posts %}
-      <tr>
-        <td><a href="/collector/runs/{{ run.run_id }}/posts/{{ post.post_id }}">{{ post.title }}</a></td>
-        <td>{{ post.author or "-" }}</td>
-        <td>{{ post.like_count or "0" }} / {{ post.comment_count or "0" }}</td>
-        <td>{{ post.content }}</td>
-      </tr>
-      {% else %}
-      <tr><td colspan="4" class="muted">暂无样本。</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</section>
-
-<section class="two-column">
-  <section class="panel">
-    <h2>媒体资产</h2>
-    <table>
-      <thead>
-        <tr><th>类型</th><th>路径</th><th>Hash</th></tr>
-      </thead>
-      <tbody>
-        {% for asset in assets %}
-        <tr><td>{{ asset.asset_type|asset_type }}</td><td>{{ asset.path }}</td><td>{{ asset.sha256 or "-" }}</td></tr>
-        {% else %}
-        <tr><td colspan="3" class="muted">暂无资产。</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
+    </div>
   </section>
+
   <section class="panel">
-    <h2>证据包</h2>
-    <table>
-      <thead>
-        <tr><th>类型</th><th>范围</th><th>路径</th></tr>
-      </thead>
-      <tbody>
-        {% for evidence in evidences %}
-        <tr><td>{{ evidence.evidence_type|evidence_scope }}</td><td>{{ evidence.scope|evidence_scope }}</td><td>{{ evidence.path }}</td></tr>
-        {% else %}
-        <tr><td colspan="3" class="muted">暂无证据。</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
+    <div class="section-head">
+      <div>
+        <h2>资产 / 证据摘要</h2>
+        <p class="muted">媒体文件和截图证据分组显示，便于判断这次采集是否可追溯。</p>
+      </div>
+      <span class="pill">{{ assets|length + evidences|length }} 项</span>
+    </div>
+    <div class="asset-evidence-list">
+      <h3>媒体资产</h3>
+      {% for asset in assets %}
+      <article class="evidence-row">
+        <span>{{ asset.asset_type|asset_type }}</span>
+        <code>{{ asset.path }}</code>
+        <small>{{ asset.sha256 or "-" }}</small>
+      </article>
+      {% else %}
+      <p class="muted">暂无资产。</p>
+      {% endfor %}
+      <h3>证据包</h3>
+      {% for evidence in evidences %}
+      <article class="evidence-row">
+        <span>{{ evidence.evidence_type|evidence_scope }}</span>
+        <code>{{ evidence.path }}</code>
+        <small>{{ evidence.scope|evidence_scope }}</small>
+      </article>
+      {% else %}
+      <p class="muted">暂无证据。</p>
+      {% endfor %}
+    </div>
   </section>
 </section>
+
+{% if run.status in ["queued", "running", "manual_action_required"] %}
+<script>
+(() => {
+  const marker = document.querySelector("[data-auto-refresh]");
+  if (!marker) return;
+  const interval = Number(marker.dataset.autoRefresh || 3000);
+  window.setTimeout(() => window.location.reload(), interval);
+})();
+</script>
+{% endif %}
 {% endblock %}

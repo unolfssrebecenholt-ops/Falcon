@@ -116,6 +116,7 @@ export function normalizeSearchCard(rawCard) {
     published_at: normalizeWhitespace(rawCard?.published_at) || metadata.publishedAt,
     image: normalizeWhitespace(rawCard?.image),
     metrics,
+    cardIndex: Number.isInteger(rawCard?.cardIndex) ? rawCard.cardIndex : undefined,
   };
 }
 

@@ -2,6 +2,63 @@
 
 本文件是 Windows 和 M1 Mac 双机开发的接手入口。每次提交前必须更新。
 
+## 2026-05-24 Collector manual resume and profile dispatch closeout
+
+- 本次收口 1-5 项采集层目标：
+  - 基线测试恢复并扩大到当前 134 个用例通过。
+  - `manual_action_required` 后新增同一 run 继续采集入口：用户处理登录、扫码或风控后，可在详情页或队列中点击“继续采集”，复用原 run 和原 sidecar request，不再只能新建重跑任务。
+  - Collector 状态同步改为按事件顺序取最新终态和进度事件；历史 `manual_action_required` 不再覆盖后续 `run_completed`，恢复后的 run 可以正确落到 `completed`。
+  - 归档人工阻塞 run 时会释放对应 `platform/profile`，并立即尝试派发同 profile 的下一个 queued run，补上 worker/profile 队列调度的关键缺口。
+  - `/collector` 和 `/collector/runs/{run_id}` 的人工处理文案与操作按钮同步调整为“打开处理窗口 / 继续采集 / 重新运行新任务”。
+- 验证结果：
+  - `py -3 -m unittest tests.test_web_app tests.test_collector_service -v`：75 tests passed。
+  - `py -3 -m unittest discover -s tests`：134 tests passed。
+  - `py -3 -m compileall falcon`：passed。
+  - `node --check sidecar\collector\index.mjs`、`node --check sidecar\collector\xiaohongshu.mjs`、`node --check sidecar\collector\xiaohongshu-normalize.mjs`、`node --check sidecar\collector\profile-login.mjs`：passed。
+  - `py -3 -m falcon doctor --project-root . --ensure-dirs`：Required checks OK；仅 GPT-5.5 relay 和 Image2 relay 为可选配置提醒。
+  - dry-run smoke：`collector-dry-run --platform xiaohongshu --profile default --keyword "小红书封面" --max-posts 1 --max-comments-per-post 1` 完成，run id `xiaohongshu-20260524-080533-0018fc`。
+  - real browser smoke：`collector-run --platform xiaohongshu --profile default --keyword "小红书封面" --max-posts 1 --max-comments-per-post 1` 完成，run id `xiaohongshu-20260524-080555-34ce2d`；事件链到 `run_completed`，`records.jsonl` 14 行，资产目录 12 个文件。
+- 已知问题：
+  - doctor 中 GPT-5.5 relay / Image2 relay 未配置仍是可选提醒；只有进入 GPT 分析、草稿生成或 image2 生图时才需要补齐。
+  - 本次真实 smoke 只跑 `max-posts 1`，用于验证采集闭环；下一次可在同一 profile 登录态稳定时扩到 `max-posts 5 --max-comments-per-post 3` 做更长链路抽样。
+- Windows/Mac 接手说明：
+  - 本次未引入新依赖。另一台机器 `git pull` 后按 `docs/development-guide.md` 运行 baseline tests 即可。
+  - `data/`、`runtime/collector/`、`browser-profiles/` 仍为本地运行数据，不进入 Git；真实 smoke 生成的 run 只作为本机验证证据。
+
+## 2026-05-23 Collector navigation and sample preview redesign draft
+
+- 本次调整采集工作台信息架构：
+  - 左侧目录在桌面端改为固定侧栏，页面滚动时导航不再跟随内容滚走；移动端仍回到普通顶部流布局，避免窄屏挤压。
+  - `/collector` 移除平台账号/Profile 表单和账号列表，只保留采集总览、平台入口、环境自检、三层流转和任务队列。
+  - 新增 `/collector/accounts` 账号管理页，集中展示 platform/profile、本地目录、登录态、任务锁和登录/检查入口。
+  - Profile 登录完成后的回跳地址改为 `/collector/accounts?profile_action=opened...`，避免账号操作状态出现在采集总览。
+  - `/collector/runs/{run_id}` 中“采集样本”移到“事件链”上方，便于先看产物再排查链路。
+- 本次生产页落地样本预览 v3：
+  - `/collector/runs/{run_id}/posts/{post_id}` 已改为多媒体预览结构，包含轮播主预览、左右切换、媒体元信息、缩略图轨道、图片/视频资产状态清单、正文、热评、结构化字段和证据链。
+  - 新增受控本地文件路由：`/collector/runs/{run_id}/assets/{asset_id}` 与 `/collector/runs/{run_id}/evidences/{evidence_id}`，只允许读取 `runtime/collector` 相关目录内文件，避免暴露任意本机路径。
+  - 图片资产渲染为 `img`，视频资产渲染为 `video controls` 且不自动播放；原始小红书 URL 继续仅作为文本证据，不提供外链。
+  - 兼容早期 `asset_type=image` 但实际文件是 `.json` 的占位记录：JSON 只进入资产清单，不进入轮播；轮播会回退到详情页截图或搜索页截图。
+- 本次新增样本预览改版设计稿：
+  - `docs/design/falcon-sample-preview-redesign.html`：Huashu 风格高保真原型，定位为本地证据查看器。
+  - `docs/design/falcon-sample-preview-redesign.png`：从原型生成的预览截图。
+  - `docs/design/falcon-sample-preview-redesign-v2.png`：首屏重新排布后的截图，左侧固定帖子封面/当前截图，右侧固定图片/视频资产。
+  - `docs/design/falcon-sample-preview-redesign-v3.png`：多图轮播版截图，左侧为主预览轮播和缩略图轨道，右侧为图片/视频资产状态清单。
+  - 设计方向：首屏展示当前帖子截图和媒体资产；多图帖子使用主轮播 + 缩略图轨道，图片和视频混排，右侧清单展示下载/播放状态；原始小红书 URL 只作为文本证据，不作为跳转按钮。
+- 验证结果：
+  - `py -3 -m unittest discover -s tests`：84 tests passed。
+  - `py -3 -m compileall falcon`：passed。
+  - 旧关键词扫描：无命中。
+  - 浏览器验证 `/collector`、`/collector/accounts`、`/collector/runs/xiaohongshu-20260523-075104-8e68e8`：无横向溢出；账号页独立；详情页样本在事件链上方；侧栏为 fixed。
+  - 浏览器验证 `/collector/runs/xiaohongshu-20260523-075104-8e68e8/posts/1`：生产页有轮播和资产清单；无小红书外链；旧 JSON 占位资产未被当作图片渲染，页面回退展示截图。
+- 已知问题：
+  - Image2 初次按 `https://codexopenai.cloud` 请求时被 308 重定向到 `https://api.codexopenai.cloud`，导致 primary 错误没有被清晰打印，随后 fallback 超时；已将本机 `~/.codex/image2.toml` primary base_url 调整为 `https://api.codexopenai.cloud`。
+  - 修正后 primary `/v1/images/generations` 能成功返回，但本次生成图跑偏为通用 Falcon dashboard，未作为样本预览设计稿采用；当前可交付设计稿仍以 Huashu HTML 原型截图为准。
+  - 旧 run 中已经入库的早期媒体资产仍可能是 JSON 占位记录，不会自动变成真实图片；需要新采集 run 才能验证真实图片/视频的完整轮播体验。
+- 下一步：
+  - 按确认后的样本预览设计改造 `/collector/runs/{run_id}/posts/{post_id}`，优先读取 detail screenshot，并把本地图片/video asset 渲染为可轮播预览。
+  - 为样本预览增加多图轮播、视频渲染、截图回退和缺失资产状态的 Web 单测。
+  - 继续保持账号、runtime、截图和 profile 目录不入 Git。
+
 ## 2026-05-23 Collector task lifecycle and local sample preview
 
 - 本次优化采集任务生命周期展示：
@@ -215,15 +272,24 @@
 
 ```powershell
 py -3 -m unittest discover -s tests
+py -3 -m compileall falcon
+node --check sidecar\collector\index.mjs
+node --check sidecar\collector\xiaohongshu.mjs
+node --check sidecar\collector\xiaohongshu-normalize.mjs
+node --check sidecar\collector\profile-login.mjs
+py -3 -m falcon doctor --project-root . --ensure-dirs
+py -3 -m falcon --db data\falcon.sqlite3 collector-dry-run --platform xiaohongshu --profile default --keyword "小红书封面" --max-posts 1 --max-comments-per-post 1
+py -3 -m falcon --db data\falcon.sqlite3 collector-run --platform xiaohongshu --profile default --keyword "小红书封面" --max-posts 1 --max-comments-per-post 1
 ```
 
 结果：
 
-- 2026-05-23 Windows PowerShell：29 tests passed.
-- `python -m compileall falcon` passed.
-- `docs/design/falcon-collector-workbench-v2.html` 静态结构检查通过：主要 HTML 标签数量成对；旧采集/外部工作流关键词扫描未发现回流。
-- `docs/design/falcon-collector-workbench-v3.html` 静态结构检查通过：主要 HTML 标签数量成对；未发现旧采集/外部工作流关键词回流；已加入采集层、分析层、执行层整体入口，并把左侧导航调整为采集/分析/执行分组目录。最新版本已收敛重复子目录，采集页上半区放任务规模、平台入口和三层流转，下半区放任务队列、Worker/Profile 和操作入口。
-- Codex in-app Browser 对本地 `file://` 原型导航触发 URL policy 阻止；本机 Edge headless 已生成 `docs/design/falcon-collector-workbench-v3-sidebar.png` 作为左侧导航和采集总览预览，可手动在浏览器刷新 `file:///F:/projects/Falcon/docs/design/falcon-collector-workbench-v3.html` 查看最新拆分版。
+- 2026-05-24 Windows PowerShell：134 tests passed.
+- `py -3 -m compileall falcon` passed.
+- Node sidecar syntax checks passed for `index.mjs`、`xiaohongshu.mjs`、`xiaohongshu-normalize.mjs`、`profile-login.mjs`。
+- `falcon doctor` Required checks OK；GPT-5.5 relay / Image2 relay 仅为可选提醒。
+- dry-run smoke completed：`xiaohongshu-20260524-080533-0018fc`。
+- real browser smoke completed：`xiaohongshu-20260524-080555-34ce2d`，`records.jsonl` 14 行，资产目录 12 个文件。
 
 ## Windows 接手提示
 

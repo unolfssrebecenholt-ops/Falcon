@@ -9,7 +9,7 @@ from pathlib import Path
 from falcon.cli import build_parser, main
 from falcon.collector import CollectorService
 from falcon.db import FalconRepository
-from falcon.models import CollectionRun
+from falcon.models import CollectionEvent, CollectionRun
 
 
 class CollectorServiceTest(unittest.TestCase):
@@ -323,6 +323,176 @@ class CollectorServiceTest(unittest.TestCase):
             self.assertEqual(run.progress, 100)
             self.assertEqual(len(repo.list_collected_posts("ingest-run")), 1)
 
+    def test_collector_resume_completion_overrides_previous_manual_action(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            db_path = tmp_path / "falcon.sqlite3"
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="resume-run",
+                    platform="xiaohongshu",
+                    keyword="AI cover",
+                    profile="default",
+                    status="manual_action_required",
+                    progress=50,
+                    current_step="检测到 手机扫码查看，需要人工处理后再继续。",
+                )
+            )
+            repo.append_collection_event(
+                CollectionEvent(
+                    run_id="resume-run",
+                    sequence=2,
+                    scope="xiaohongshu",
+                    event="manual_action_required",
+                    message="需要扫码",
+                    level="warning",
+                )
+            )
+            service = CollectorService(repo)
+            run_dir = tmp_path / "runtime" / "collector" / "resume-run"
+            run_dir.mkdir(parents=True)
+            events_path = run_dir / "events.jsonl"
+            records_path = run_dir / "records.jsonl"
+            events_path.write_text(
+                "\n".join(
+                    json.dumps(event)
+                    for event in [
+                        {
+                            "sequence": 1,
+                            "time": "2026-05-23T00:02:00+00:00",
+                            "level": "info",
+                            "scope": "collector",
+                            "event": "run_started",
+                            "message": "resume started",
+                            "payload": {},
+                        },
+                        {
+                            "sequence": 2,
+                            "time": "2026-05-23T00:03:00+00:00",
+                            "level": "info",
+                            "scope": "collector",
+                            "event": "run_completed",
+                            "message": "resume completed",
+                            "payload": {},
+                        },
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            records_path.write_text("", encoding="utf-8")
+
+            service.ingest_outputs("resume-run", events_path, records_path)
+
+            run = repo.get_collection_run("resume-run")
+            self.assertEqual(run.status, "completed")
+            self.assertEqual(run.progress, 100)
+            self.assertEqual(run.current_step, "采集器已完成")
+
+    def test_collector_progress_uses_collected_post_fraction_before_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            db_path = tmp_path / "falcon.sqlite3"
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="post-progress-run",
+                    platform="xiaohongshu",
+                    keyword="AI cover",
+                    profile="default",
+                    status="running",
+                    progress=15,
+                    max_posts=5,
+                )
+            )
+            service = CollectorService(repo)
+            run_dir = tmp_path / "runtime" / "collector" / "post-progress-run"
+            run_dir.mkdir(parents=True)
+            events_path = run_dir / "events.jsonl"
+            records_path = run_dir / "records.jsonl"
+            events_path.write_text(
+                "\n".join(
+                    json.dumps(event)
+                    for event in [
+                        {
+                            "sequence": 1,
+                            "time": "2026-05-23T00:00:00+00:00",
+                            "level": "info",
+                            "scope": "xiaohongshu",
+                            "event": "detail_collected",
+                            "message": "第 4/5 条小红书笔记已采集",
+                            "payload": {"post_index": 4, "post_total": 5},
+                        },
+                        {
+                            "sequence": 2,
+                            "time": "2026-05-23T00:00:10+00:00",
+                            "level": "error",
+                            "scope": "collector",
+                            "event": "run_failed",
+                            "message": "detail failed",
+                            "payload": {},
+                        },
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            service.ingest_outputs("post-progress-run", events_path, records_path)
+
+            run = repo.get_collection_run("post-progress-run")
+            self.assertEqual(run.status, "failed")
+            self.assertEqual(run.progress, 75)
+            self.assertEqual(run.current_step, "detail failed")
+
+    def test_collector_progress_uses_current_post_opening_fraction(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            db_path = tmp_path / "falcon.sqlite3"
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="post-opening-run",
+                    platform="xiaohongshu",
+                    keyword="AI cover",
+                    profile="default",
+                    status="running",
+                    progress=15,
+                    max_posts=5,
+                )
+            )
+            service = CollectorService(repo)
+            run_dir = tmp_path / "runtime" / "collector" / "post-opening-run"
+            run_dir.mkdir(parents=True)
+            events_path = run_dir / "events.jsonl"
+            records_path = run_dir / "records.jsonl"
+            events_path.write_text(
+                json.dumps(
+                    {
+                        "sequence": 1,
+                        "time": "2026-05-23T00:00:00+00:00",
+                        "level": "info",
+                        "scope": "xiaohongshu",
+                        "event": "detail_opening",
+                        "message": "正在采集第 5/5 条小红书笔记",
+                        "payload": {"post_index": 5, "post_total": 5},
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            service.ingest_outputs("post-opening-run", events_path, records_path)
+
+            run = repo.get_collection_run("post-opening-run")
+            self.assertEqual(run.status, "running")
+            self.assertEqual(run.progress, 75)
+            self.assertEqual(run.current_step, "正在采集第 5/5 条小红书笔记")
+
     def test_collector_ingest_is_idempotent_for_repeated_outputs(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
@@ -472,7 +642,7 @@ class CollectorServiceTest(unittest.TestCase):
                             "title": "Clean metrics post",
                             "body": "Collected from detail.",
                             "url": "https://www.xiaohongshu.com/explore/65abc123",
-                            "metrics": {"likes_text": "1.2万", "comments_text": "3 条评论"},
+                            "metrics": {"likes_text": "1.2万", "collects_text": "8 收藏", "comments_text": "3 条评论"},
                         },
                         {
                             "type": "comment",
@@ -485,6 +655,19 @@ class CollectorServiceTest(unittest.TestCase):
                             "metrics": {"likes_text": "24 赞"},
                             "comment_rank": 1,
                         },
+                        {
+                            "type": "comment",
+                            "run_id": "metric-run",
+                            "platform": "xiaohongshu",
+                            "comment_id": "comment-2",
+                            "post_id": "xiaohongshu:65abc123",
+                            "body": "回复正文",
+                            "author": {"display_name": "回复者"},
+                            "comment_type": "reply",
+                            "reply_to": "读者",
+                            "like_count": "1",
+                            "comment_rank": 2,
+                        },
                     ]
                 )
                 + "\n",
@@ -495,12 +678,14 @@ class CollectorServiceTest(unittest.TestCase):
 
             posts = repo.list_collected_posts("metric-run")
             self.assertEqual(posts[0].like_count, "12000")
+            self.assertEqual(posts[0].collect_count, "8")
             self.assertEqual(posts[0].comment_count, "3")
             with closing(sqlite3.connect(db_path)) as conn:
-                row = conn.execute(
-                    "SELECT commenter, content, like_count, comment_rank FROM collected_comments"
-                ).fetchone()
-            self.assertEqual(row, ("读者", "热评正文", "24", "1"))
+                rows = conn.execute(
+                    "SELECT commenter, content, like_count, comment_rank, comment_type, reply_to FROM collected_comments ORDER BY id"
+                ).fetchall()
+            self.assertEqual(rows[0], ("读者", "热评正文", "24", "1", "comment", ""))
+            self.assertEqual(rows[1], ("回复者", "回复正文", "1", "2", "reply", "读者"))
 
     def _count_rows(self, db_path: Path, table: str) -> int:
         import sqlite3

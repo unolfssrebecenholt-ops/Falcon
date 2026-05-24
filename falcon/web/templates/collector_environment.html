@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}环境自检 - Falcon{% endblock %}
+{% block content %}
+<header class="page-header">
+  <div>
+    <div class="eyebrow">collector environment</div>
+    <h1>环境自检</h1>
+    <p>集中检查 sidecar、浏览器依赖、本地目录和运行配置，排障信息不再挤在采集总览里。</p>
+  </div>
+  <div class="action-row">
+    <a class="button" href="/collector">返回采集总览</a>
+    <a class="button primary" href="/collector#collector-create-form">任务配置</a>
+  </div>
+</header>
+
+<section class="status-strip environment-status-strip" aria-label="Collector environment summary">
+  <div class="status-cell lead">
+    <span>本机状态</span>
+    <strong>{{ '可采集' if environment_ready else '需处理' }}</strong>
+    <p>必要依赖、可选提醒和本机路径状态在下方展开。</p>
+  </div>
+  <div class="status-cell"><span>就绪项</span><strong>{{ environment_summary.ok_count }}/{{ environment_summary.total }}</strong></div>
+  <div class="status-cell"><span>必要异常</span><strong>{{ environment_summary.required_issues }}</strong></div>
+  <div class="status-cell"><span>可选提醒</span><strong>{{ environment_summary.optional_warnings }}</strong></div>
+</section>
+
+<details class="panel environment-panel environment-page-panel" open>
+  <summary class="environment-summary">
+    <div class="environment-head">
+      <div>
+        <h2>环境自检</h2>
+        <p>默认展开，方便第一时间看到缺失依赖、版本和处理命令。</p>
+      </div>
+      <div class="environment-head-actions">
+        <div class="environment-score {{ 'ready' if environment_ready else 'blocked' }}">
+          <strong>{{ 'READY' if environment_ready else 'ACTION' }}</strong>
+          <span>{{ environment_summary.ok_count }}/{{ environment_summary.total }} 项就绪</span>
+        </div>
+        <span class="environment-toggle" aria-hidden="true">
+          <span class="show-collapsed">展开明细</span>
+          <span class="show-open">收起明细</span>
+        </span>
+      </div>
+    </div>
+    <div class="environment-strip">
+      <div><span>必要异常</span><strong>{{ environment_summary.required_issues }}</strong></div>
+      <div><span>可选提醒</span><strong>{{ environment_summary.optional_warnings }}</strong></div>
+      <div><span>本机状态</span><strong>{{ '可采集' if environment_ready else '需处理' }}</strong></div>
+    </div>
+  </summary>
+
+  <div class="environment-table" role="table" aria-label="Falcon environment doctor">
+    <div class="environment-row header" role="row">
+      <span>状态</span>
+      <span>组件</span>
+      <span>作用</span>
+      <span>路径 / 版本</span>
+      <span>处理命令</span>
+    </div>
+    {% for check in environment_checks %}
+    <div class="environment-row {{ check.status }}" role="row">
+      <span class="env-state" data-label="状态"><i></i><b>{{ check.status_label }}</b></span>
+      <strong data-label="组件">{{ check.label }}</strong>
+      <span data-label="作用">{{ check.purpose }}</span>
+      <code data-label="路径 / 版本">{{ check.message }}</code>
+      <code data-label="处理命令">{{ check.command or '-' }}</code>
+    </div>
+    {% endfor %}
+  </div>
+</details>
+{% endblock %}

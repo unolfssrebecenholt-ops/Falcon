@@ -3,205 +3,553 @@
 {% block content %}
 <header class="page-header">
   <div>
-    <h1>采集总览</h1>
-    <p>统一查看 Falcon 浏览器采集层的任务规模、平台入口、队列状态、Worker/Profile 摘要和三层流转。</p>
+    <div class="eyebrow">collector overview</div>
+    <h1>采集作战台</h1>
+    <p>采集总览统一查看任务规模、平台入口、队列状态和三层流转。数据来自本机 SQLite 与 collector runtime。</p>
   </div>
   <div class="action-row">
-    <a class="button primary" href="/collector/create">创建任务</a>
+    <a class="button" href="/collector/accounts">检查账号</a>
+    <form class="inline-form" action="/collector/queue/start" method="post">
+      <button class="button" type="submit">启动队列</button>
+    </form>
+    <a class="button primary" href="#collector-create-form">任务配置</a>
   </div>
 </header>
 
-<section class="metrics">
-  <div class="metric"><span>任务总数</span><strong>{{ stats.total_runs }}</strong></div>
-  <div class="metric"><span>运行中</span><strong>{{ stats.running_runs }}</strong></div>
-  <div class="metric"><span>等待人工</span><strong>{{ stats.waiting_manual_runs }}</strong></div>
-  <div class="metric"><span>采集样本</span><strong>{{ stats.total_posts }}</strong></div>
+<section class="status-strip" aria-label="Collector status summary">
+  <div class="status-cell lead">
+    <span>本机状态</span>
+    <strong>{{ '可采集' if environment_ready else '需处理' }}</strong>
+    <p><a class="inline-link" href="/collector/environment">打开环境自检</a> 查看 sidecar、浏览器、数据目录和 profile 状态。</p>
+  </div>
+  <div class="status-cell"><span>任务总数</span><strong>{{ stats.total_runs }}</strong></div>
+  <div class="status-cell"><span>运行中</span><strong>{{ stats.running_runs }}</strong></div>
+  <div class="status-cell"><span>等待人工</span><strong>{{ stats.waiting_manual_runs }}</strong></div>
+  <div class="status-cell"><span>采集样本</span><strong>{{ stats.total_posts }}</strong></div>
 </section>
 
-<details class="panel environment-panel"{% if not environment_ready %} open{% endif %}>
-  <summary class="environment-summary">
-  <div class="environment-head">
-    <div>
-      <h2>环境自检</h2>
-      <p>启动采集前确认本机运行时、sidecar、浏览器、数据目录和 AI 配置是否就绪。</p>
-    </div>
-    <div class="environment-head-actions">
-      <div class="environment-score {{ 'ready' if environment_ready else 'blocked' }}">
-        <strong>{{ 'READY' if environment_ready else 'ACTION' }}</strong>
-        <span>{{ environment_summary.ok_count }}/{{ environment_summary.total }} 项就绪</span>
+<div class="overview-grid">
+  <div class="overview-column overview-column-left">
+    <section class="panel">
+      <div class="section-head">
+        <div>
+          <h2>三层流转</h2>
+          <p class="muted">以职责边界展示链路，不把简单说明做成巨大卡片。</p>
+        </div>
+        <span class="pill">collector -&gt; analysis -&gt; execution</span>
       </div>
-      <span class="environment-toggle" aria-hidden="true">
-        <span class="show-collapsed">展开明细</span>
-        <span class="show-open">收起明细</span>
-      </span>
-    </div>
-  </div>
-
-  <div class="environment-strip">
-    <div><span>必要异常</span><strong>{{ environment_summary.required_issues }}</strong></div>
-    <div><span>可选提醒</span><strong>{{ environment_summary.optional_warnings }}</strong></div>
-    <div><span>本机状态</span><strong>{{ '可采集' if environment_ready else '需处理' }}</strong></div>
-  </div>
-  </summary>
-
-  <div class="environment-table" role="table" aria-label="Falcon environment doctor">
-    <div class="environment-row header" role="row">
-      <span>状态</span>
-      <span>组件</span>
-      <span>作用</span>
-      <span>路径 / 版本</span>
-      <span>处理命令</span>
-    </div>
-    {% for check in environment_checks %}
-    <div class="environment-row {{ check.status }}" role="row">
-      <span class="env-state" data-label="状态"><i></i><b>{{ check.status_label }}</b></span>
-      <strong data-label="组件">{{ check.label }}</strong>
-      <span data-label="作用">{{ check.purpose }}</span>
-      <code data-label="路径 / 版本">{{ check.message }}</code>
-      <code data-label="处理命令">{{ check.command or '-' }}</code>
-    </div>
-    {% endfor %}
-  </div>
-</details>
-
-<section class="panel">
-  <div class="section-head">
-    <h2>平台入口</h2>
-    <span class="muted">第一阶段优先小红书，其余入口保留配置位置。</span>
-  </div>
-  <div class="card-grid">
-    {% for platform in platforms %}
-    <article class="mini-card">
-      <div class="card-title">
-        <strong>{{ platform.name }}</strong>
-        <span class="pill">{{ platform.status }}</span>
+      <div class="flow-grid">
+        <article class="flow-step"><span class="step-index">01</span><h3>采集层</h3><p>真实浏览器读取公开样本、事件链、媒体资产和证据包。</p></article>
+        <article class="flow-step"><span class="step-index">02</span><h3>分析层</h3><p>从样本中识别需求、痛点、选题和评论意向。</p></article>
+        <article class="flow-step"><span class="step-index">03</span><h3>执行层</h3><p>生成可预览草稿和素材，最后动作保持人工确认。</p></article>
       </div>
-      <dl class="compact-list">
-        <div><dt>任务</dt><dd>{{ platform.run_count }}</dd></div>
-        <div><dt>样本</dt><dd>{{ platform.post_count }}</dd></div>
-        <div><dt>最近状态</dt><dd>{{ platform.latest.status|collector_status if platform.latest else "未开始" }}</dd></div>
-      </dl>
-    </article>
-    {% endfor %}
-  </div>
-</section>
+    </section>
 
-<section class="panel">
-  <h2>三层流转</h2>
-  <ol class="flow-list">
-    <li><strong>采集层</strong><span>真实浏览器读取公开样本、事件链、媒体资产和证据包。</span></li>
-    <li><strong>分析层</strong><span>从样本中识别需求、痛点、选题和评论意向。</span></li>
-    <li><strong>执行层</strong><span>生成可预览草稿和素材，最后动作保持人工确认。</span></li>
-  </ol>
-</section>
-
-<section class="panel">
-  <div class="section-head">
-    <h2>任务队列</h2>
-    <a class="button small" href="/collector/create">新建</a>
-  </div>
-  <table>
-    <thead>
-      <tr>
-        <th>Run</th>
-        <th>平台</th>
-        <th>关键词</th>
-        <th>状态</th>
-        <th>阶段</th>
-        <th>开启时间</th>
-        <th>运行时长</th>
-        <th>资源占用</th>
-        <th>当前步骤</th>
-        <th>操作</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for run in runs %}
-      <tr>
-        <td><a href="/collector/runs/{{ run.run_id }}">{{ run.run_id }}</a></td>
-        <td>{{ run.platform|platform_label }}</td>
-        <td>{{ run.keyword }}</td>
-        <td>{{ run.status|collector_status }}</td>
-        <td>{{ run|run_progress_stage }}</td>
-        <td>{{ run.created_at|readable_time }}</td>
-        <td>{{ run|run_duration }}</td>
-        <td>{{ run|run_resource }}</td>
-        <td>{{ run.current_step|collector_step }}</td>
-        <td>
-          <div class="run-actions">
-            <form class="inline-form" action="/collector/runs/{{ run.run_id }}/rerun" method="post">
-              <button class="button small" type="submit">重新运行</button>
-            </form>
-            {% if run.status == "manual_action_required" %}
-            <form class="inline-form" action="/collector/runs/{{ run.run_id }}/mark-failed" method="post">
-              <button class="button small" type="submit">标记失败</button>
-            </form>
-            {% endif %}
-            {% if run.status != "cancelled" %}
-            <form class="inline-form" action="/collector/runs/{{ run.run_id }}/archive" method="post">
-              <button class="button small" type="submit">归档</button>
-            </form>
-            {% endif %}
+    <section class="panel focus-panel">
+      <div class="section-head">
+        <div>
+          <h2>待处理焦点</h2>
+          <p class="muted">把需要人介入或可立即执行的 run 提前露出。</p>
+        </div>
+        <span class="pill">{{ focus_items|length }} 个焦点</span>
+      </div>
+      {% if focus_items %}
+      <div class="focus-list">
+        {% for item in focus_items %}
+        <article class="focus-item focus-item-{{ item.kind }}">
+          <span class="focus-mark" aria-hidden="true"></span>
+          <div class="focus-body">
+            <div class="focus-topline">
+              <a class="run-id" href="/collector/runs/{{ item.run.run_id }}">{{ item.run.run_id }}</a>
+              <span class="status-badge status-{{ item.status }}"><i></i>{{ item.label }}</span>
+            </div>
+            <div class="focus-meta">{{ item.run.platform|platform_label }} / {{ item.run.profile }}</div>
+            <p>{{ item.run.keyword }}</p>
+            <small>{{ item.detail }}</small>
           </div>
-        </td>
-      </tr>
-      {% else %}
-      <tr><td colspan="10" class="muted">还没有采集任务。</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</section>
-
-<section class="panel profile-panel">
-  <div class="section-head">
-    <div>
-      <h2>平台账号 / Profile</h2>
-      <p class="muted">以 platform/profile 管理登录态。同一 profile 后续按串行任务锁执行，不同平台或不同 profile 可并行调度。</p>
-    </div>
-  </div>
-  {% if profile_notice %}
-  <p class="notice">{{ profile_notice }}</p>
-  {% endif %}
-  <form class="row-form profile-login-form" action="/collector/profiles/open-login" method="post">
-    <label>平台
-      <select name="platform">
-        {% for platform in platforms %}
-        <option value="{{ platform.key }}">{{ platform.name }} / {{ platform.key }}</option>
-        {% endfor %}
-      </select>
-    </label>
-    <label>Profile
-      <input name="profile" value="default" required>
-    </label>
-    <button class="button primary" type="submit">打开登录窗口</button>
-  </form>
-  <table>
-    <thead>
-      <tr><th>账号键</th><th>本地目录</th><th>状态</th><th>任务锁</th><th>操作</th></tr>
-    </thead>
-    <tbody>
-      {% for item in profile_entries %}
-      <tr>
-        <td data-label="账号键"><strong>{{ item.key }}</strong></td>
-        <td data-label="本地目录"><code>{{ item.display_path }}</code></td>
-        <td data-label="状态">{{ item.status_label }}</td>
-        <td data-label="任务锁">{{ item.queue_label }}</td>
-        <td data-label="操作">
-          {% if item.login_supported %}
-          <form class="inline-form" action="/collector/profiles/open-login" method="post">
-            <input type="hidden" name="platform" value="{{ item.platform }}">
-            <input type="hidden" name="profile" value="{{ item.profile }}">
-            <button class="button small" type="submit">登录/检查</button>
+          <form class="inline-form focus-action" action="/collector/runs/{{ item.run.run_id }}/{{ item.action }}" method="post">
+            <button class="button small primary" type="submit">{{ item.action_label }}</button>
           </form>
-          {% else %}
-          <button class="button small" type="button" disabled>待接入</button>
-          {% endif %}
-        </td>
-      </tr>
+        </article>
+        {% endfor %}
+      </div>
       {% else %}
-      <tr><td colspan="5" class="muted">暂无 Profile 记录。</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</section>
+      <div class="focus-empty">
+        <strong>当前没有待处理 run</strong>
+        <p>队列暂时没有人工阻塞、失败复跑或待启动任务。</p>
+      </div>
+      {% endif %}
+    </section>
+
+    {% include "collector_create_form.html" %}
+  </div>
+
+  <div class="overview-column overview-column-right">
+    <section class="panel">
+      <div class="section-head">
+        <div>
+          <h2>平台入口</h2>
+          <p class="muted">小红书是当前开发入口，其他平台作为明确的待接入配置位。</p>
+        </div>
+        <span class="pill">小红书主线</span>
+      </div>
+      <div class="platform-grid">
+        {% for platform in platforms %}
+        <article class="platform-card {{ 'active' if platform.key == 'xiaohongshu' else '' }}">
+          <h3>{{ platform.name }} <span class="pill">{{ platform.status }}</span></h3>
+          <div class="platform-kv">
+            <div><span>任务</span><strong>{{ platform.run_count }}</strong></div>
+            <div><span>样本</span><strong>{{ platform.post_count }}</strong></div>
+            <div><span>最近状态</span><strong>{{ platform.latest.status|collector_status if platform.latest else "未开始" }}</strong></div>
+          </div>
+        </article>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="section-head">
+        <div>
+          <h2>队列健康</h2>
+          <p class="muted">把可行动的阻塞点收进一张紧凑面板，避免状态数字散落。</p>
+        </div>
+        <span class="pill">{{ queue_health.manual_label }}</span>
+      </div>
+      <div class="health-list">
+        <article class="health-item warn">
+          <span class="health-mark" aria-hidden="true"></span>
+          <div><strong>{{ queue_health.manual_label }}</strong><p>等待人工处理的任务不占用采集器，但需要打开对应 profile 处理。</p></div>
+          <span class="status-badge status-manual_action_required"><i></i>需人工</span>
+        </article>
+        <article class="health-item failed">
+          <span class="health-mark" aria-hidden="true"></span>
+          <div><strong>{{ queue_health.failed_label }}</strong><p>失败任务不复用旧 run，重新入队生成新证据链。</p></div>
+          <span class="status-badge status-failed"><i></i>复跑</span>
+        </article>
+        <article class="health-item">
+          <span class="health-mark" aria-hidden="true"></span>
+          <div><strong>{{ queue_health.queued_label }}</strong><p>未启动任务不占用浏览器资源，可以按 profile 串行启动。</p></div>
+          <span class="status-badge status-completed"><i></i>可用</span>
+        </article>
+      </div>
+    </section>
+  </div>
+
+  <section class="panel queue-panel">
+    <div class="section-head">
+      <div>
+        <h2>任务队列</h2>
+        <p class="muted">Run ID、状态和当前步骤突出；时间、资源、说明降级显示。</p>
+      </div>
+      <a class="button small" href="#collector-create-form">新建</a>
+    </div>
+
+    <div class="queue-filters" aria-label="任务队列筛选">
+      <div class="filter-group">
+        <span class="filter-label">平台</span>
+        <div class="segmented" role="group" aria-label="平台筛选">
+          <button class="segment active" type="button" data-platform-filter="all" aria-pressed="true">全部</button>
+          {% for platform in platforms %}
+          <button class="segment" type="button" data-platform-filter="{{ platform.key }}" aria-pressed="false">{{ platform.name }}</button>
+          {% endfor %}
+        </div>
+      </div>
+      <div class="filter-group">
+        <span class="filter-label">任务开启日期范围</span>
+        <div class="date-picker">
+          <button class="date-trigger" type="button" id="queue-calendar-toggle" aria-expanded="false" aria-controls="queue-calendar-panel">
+            <span class="date-trigger-label" id="queue-date-label">全部日期</span>
+            <span class="date-trigger-meta" id="queue-date-meta">点击打开日历，选择开始日和结束日</span>
+          </button>
+          <input id="queue-start-from" type="hidden" value="">
+          <input id="queue-start-to" type="hidden" value="">
+          <div class="calendar-panel" id="queue-calendar-panel" hidden>
+            <div class="calendar-head">
+              <strong>{{ calendar_state.month_label }}</strong>
+              <div class="calendar-presets" aria-label="快捷日期范围">
+                <button type="button" data-date-preset="clear">不限</button>
+                <button type="button" data-date-preset="sample-day">最新任务日</button>
+                <button type="button" data-date-preset="three-days">近 3 日</button>
+                <button type="button" data-date-preset="all">全月</button>
+              </div>
+            </div>
+            <div class="calendar-weekdays" aria-hidden="true">
+              <span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span>
+            </div>
+            <div class="calendar-grid" aria-label="{{ calendar_state.month_label }}日历">
+              {% for day in calendar_state.days %}
+              <button class="calendar-day {{ 'is-muted' if day.muted else '' }}" type="button" data-date="{{ day.date }}">{{ day.day }}</button>
+              {% endfor %}
+            </div>
+            <div class="calendar-foot">
+              <span>已选：<strong id="queue-calendar-selected">未限制</strong></span>
+              <span>按日期覆盖全天任务</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <button class="button small" type="button" id="queue-filter-apply">筛选</button>
+    </div>
+
+    <div class="queue-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Run</th>
+            <th>平台 / 关键词</th>
+            <th>状态</th>
+            <th>阶段</th>
+            <th>开启时间</th>
+            <th>运行时长</th>
+            <th>资源占用</th>
+            <th>当前步骤</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for run in runs %}
+          <tr class="run-row status-{{ run.status }}" data-run-id="{{ run.run_id }}" data-platform="{{ run.platform }}" data-start-date="{{ run.created_at|readable_day }}">
+            <td><a class="run-id" href="/collector/runs/{{ run.run_id }}">{{ run.run_id }}</a><span class="subtext">profile: {{ run.profile }}</span></td>
+            <td><span class="primary-text">{{ run.platform|platform_label }}</span><span class="subtext">{{ run.keyword }}</span></td>
+            <td><span class="status-badge status-{{ run.status }}"><i></i>{{ run.status|collector_status }}</span></td>
+            <td><span class="primary-text">{{ run|run_progress_stage }}</span></td>
+            <td><span class="primary-text">{{ run.created_at|readable_clock }}</span><span class="subtext">{{ run.created_at|readable_time }}</span></td>
+            <td>{{ run|run_duration }}</td>
+            <td><span class="primary-text">{{ run|run_resource }}</span></td>
+            <td><strong class="run-state-text">{{ run|run_state_title }}</strong><small>{{ run|run_state_detail }}</small></td>
+            <td>
+              <div class="queue-action-cell">
+                <div class="queue-action-primary">
+                {% if run|run_can_start %}
+                <form class="inline-form" action="/collector/runs/{{ run.run_id }}/start" method="post"><button class="button small primary" type="submit">启动采集</button></form>
+                {% endif %}
+                {% if run.status == "running" %}<button class="button small" type="button" disabled>运行中</button>{% endif %}
+                {% if run.status == "manual_action_required" %}
+                <form class="inline-form" action="/collector/runs/{{ run.run_id }}/resume" method="post"><button class="button small primary" type="submit">继续采集</button></form>
+                {% endif %}
+                {% if run.status in ["failed", "completed"] %}
+                <form class="inline-form" action="/collector/runs/{{ run.run_id }}/rerun" method="post"><button class="button small primary" type="submit">重新运行</button></form>
+                {% endif %}
+                {% if run.status != "cancelled" %}
+                <form class="inline-form queue-archive-form" action="/collector/runs/{{ run.run_id }}/archive" method="post" data-queue-archive-form data-run-id="{{ run.run_id }}">
+                  <input type="hidden" name="return_to" value="/collector">
+                  <button class="button small archive" type="submit">归档</button>
+                </form>
+                {% else %}
+                <button class="button small archived" type="button" disabled>已归档</button>
+                {% endif %}
+                </div>
+                {% if run.status == "manual_action_required" %}
+                <details class="queue-action-more">
+                  <summary>更多</summary>
+                  <div class="queue-action-menu">
+                    <form class="inline-form" action="/collector/runs/{{ run.run_id }}/open-manual-action" method="post"><button class="button small" type="submit">打开处理窗口</button></form>
+                    <form class="inline-form" action="/collector/runs/{{ run.run_id }}/rerun" method="post"><button class="button small" type="submit">重新运行新任务</button></form>
+                    <form class="inline-form" action="/collector/runs/{{ run.run_id }}/mark-failed" method="post"><button class="button small" type="submit">标记失败</button></form>
+                  </div>
+                </details>
+                {% endif %}
+              </div>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="9" class="muted">还没有采集任务。</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <div class="queue-empty" id="queue-empty" hidden>暂无匹配任务，调整平台或开启日期范围后再筛选。</div>
+    </div>
+  </section>
+</div>
+
+<script>
+(() => {
+  const platformFilters = Array.from(document.querySelectorAll("[data-platform-filter]"));
+  const queueEmpty = document.getElementById("queue-empty");
+  const queueStartFrom = document.getElementById("queue-start-from");
+  const queueStartTo = document.getElementById("queue-start-to");
+  const queueFilterApply = document.getElementById("queue-filter-apply");
+  const queueCalendarToggle = document.getElementById("queue-calendar-toggle");
+  const queueCalendarPanel = document.getElementById("queue-calendar-panel");
+  const queueCalendarDays = Array.from(document.querySelectorAll("[data-date]"));
+  const queueCalendarPresets = Array.from(document.querySelectorAll("[data-date-preset]"));
+  const queueDateLabel = document.getElementById("queue-date-label");
+  const queueDateMeta = document.getElementById("queue-date-meta");
+  const queueCalendarSelected = document.getElementById("queue-calendar-selected");
+  const queueDefaultDate = "{{ calendar_state.selected_day }}";
+  let calendarAnchorDate = null;
+
+  function queueRowsNow() {
+    return Array.from(document.querySelectorAll(".queue-wrap tbody .run-row"));
+  }
+
+  function parseDate(value) {
+    if (!value) return null;
+    const parts = value.split("-").map(Number);
+    if (parts.length !== 3) return null;
+    return new Date(parts[0], parts[1] - 1, parts[2]);
+  }
+
+  function normalizeRange(start, end) {
+    return start <= end ? [start, end] : [end, start];
+  }
+
+  function formatLocalDate(date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
+
+  function dayCount(start, end) {
+    const first = parseDate(start);
+    const last = parseDate(end);
+    if (!first || !last) return 0;
+    return Math.round((last - first) / 86400000) + 1;
+  }
+
+  function updateCalendarDisplay() {
+    const start = queueStartFrom?.value || "";
+    const end = queueStartTo?.value || start;
+    if (!start || !end) {
+      if (queueDateLabel) queueDateLabel.textContent = "全部日期";
+      if (queueDateMeta) queueDateMeta.textContent = "点击打开日历，选择开始日和结束日";
+      if (queueCalendarSelected) queueCalendarSelected.textContent = "未限制";
+      queueCalendarDays.forEach((button) => {
+        button.classList.remove("is-selected", "is-in-range");
+        button.setAttribute("aria-pressed", "false");
+      });
+      return;
+    }
+    const label = start === end ? start : `${start} 至 ${end}`;
+    const count = dayCount(start, end);
+    if (queueDateLabel) queueDateLabel.textContent = label;
+    if (queueDateMeta) queueDateMeta.textContent = count > 1 ? `已选择 ${count} 天 · 点击日历重新选择` : "已选择 1 天 · 点击日历重新选择";
+    if (queueCalendarSelected) queueCalendarSelected.textContent = label;
+    queueCalendarDays.forEach((button) => {
+      const date = button.dataset.date;
+      const selected = date === start || date === end;
+      button.classList.toggle("is-selected", selected);
+      button.classList.toggle("is-in-range", date >= start && date <= end);
+      button.setAttribute("aria-pressed", String(selected));
+    });
+  }
+
+  function applyQueueFilters() {
+    const activePlatform = platformFilters.find((button) => button.classList.contains("active"))?.dataset.platformFilter || "all";
+    const start = queueStartFrom?.value || "";
+    const end = queueStartTo?.value || start;
+    let visibleCount = 0;
+    queueRowsNow().forEach((row) => {
+      const matchesPlatform = activePlatform === "all" || row.dataset.platform === activePlatform;
+      const date = row.dataset.startDate || "";
+      const matchesDate = !start || !end || (date >= start && date <= end);
+      const visible = matchesPlatform && matchesDate;
+      row.hidden = !visible;
+      visibleCount += visible ? 1 : 0;
+    });
+    if (queueEmpty) queueEmpty.hidden = visibleCount > 0;
+  }
+
+  function rowSelectorForRun(runId) {
+    if (window.CSS?.escape) return `.run-row[data-run-id="${CSS.escape(runId)}"]`;
+    return `.run-row[data-run-id="${String(runId).replace(/"/g, '\\"')}"]`;
+  }
+
+  async function refreshQueueRow(runId) {
+    const response = await fetch("/collector", { headers: { "X-Requested-With": "fetch" } });
+    if (!response.ok) return;
+    const html = await response.text();
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const updated = doc.querySelector(rowSelectorForRun(runId));
+    const current = document.querySelector(rowSelectorForRun(runId));
+    if (updated && current) {
+      current.replaceWith(updated);
+      applyQueueFilters();
+    }
+  }
+
+  document.addEventListener("submit", async (event) => {
+    const form = event.target.closest("[data-queue-archive-form]");
+    if (!form) return;
+    event.preventDefault();
+    const button = form.querySelector("button[type='submit']");
+    const originalText = button?.textContent || "";
+    if (button) {
+      button.disabled = true;
+      button.textContent = "归档中";
+    }
+    try {
+      const response = await fetch(form.action, {
+        method: "POST",
+        headers: {
+          "Accept": "application/json",
+          "X-Requested-With": "fetch",
+        },
+        body: new FormData(form),
+      });
+      if (!response.ok) throw new Error(`Archive failed: ${response.status}`);
+      const payload = await response.json();
+      await refreshQueueRow(payload.run_id || form.dataset.runId);
+    } catch (error) {
+      if (button) {
+        button.disabled = false;
+        button.textContent = originalText || "归档";
+      }
+      console.error(error);
+    }
+  });
+
+  function setQueueDateRange(start, end) {
+    if (!start || !end) {
+      if (queueStartFrom) queueStartFrom.value = "";
+      if (queueStartTo) queueStartTo.value = "";
+      updateCalendarDisplay();
+      applyQueueFilters();
+      return;
+    }
+    const range = normalizeRange(start, end);
+    if (queueStartFrom) queueStartFrom.value = range[0];
+    if (queueStartTo) queueStartTo.value = range[1];
+    updateCalendarDisplay();
+    applyQueueFilters();
+  }
+
+  platformFilters.forEach((button) => {
+    button.addEventListener("click", () => {
+      platformFilters.forEach((item) => {
+        const active = item === button;
+        item.classList.toggle("active", active);
+        item.setAttribute("aria-pressed", String(active));
+      });
+      applyQueueFilters();
+    });
+  });
+
+  queueCalendarToggle?.addEventListener("click", () => {
+    const opening = Boolean(queueCalendarPanel?.hidden);
+    if (queueCalendarPanel) queueCalendarPanel.hidden = !opening;
+    queueCalendarToggle.setAttribute("aria-expanded", String(opening));
+  });
+
+  queueCalendarDays.forEach((button) => {
+    button.addEventListener("click", () => {
+      const date = button.dataset.date;
+      if (!date) return;
+      if (!calendarAnchorDate) {
+        calendarAnchorDate = date;
+        setQueueDateRange(date, date);
+        if (queueDateMeta) queueDateMeta.textContent = "已选择开始日，再点一次选择结束日";
+      } else {
+        setQueueDateRange(calendarAnchorDate, date);
+        calendarAnchorDate = null;
+      }
+    });
+  });
+
+  queueCalendarPresets.forEach((button) => {
+    button.addEventListener("click", () => {
+      calendarAnchorDate = null;
+      if (button.dataset.datePreset === "clear") {
+        setQueueDateRange("", "");
+        return;
+      }
+      const selected = queueStartFrom?.value || queueDefaultDate;
+      const selectedDate = parseDate(selected);
+      if (!selectedDate) return;
+      if (button.dataset.datePreset === "sample-day") {
+        setQueueDateRange(selected, selected);
+      } else if (button.dataset.datePreset === "three-days") {
+        const start = new Date(selectedDate);
+        start.setDate(start.getDate() - 2);
+        setQueueDateRange(formatLocalDate(start), selected);
+      } else if (button.dataset.datePreset === "all") {
+        const first = formatLocalDate(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1));
+        const last = formatLocalDate(new Date(selectedDate.getFullYear(), selectedDate.getMonth() + 1, 0));
+        setQueueDateRange(first, last);
+      }
+    });
+  });
+
+  queueFilterApply?.addEventListener("click", () => {
+    calendarAnchorDate = null;
+    if (queueCalendarPanel) queueCalendarPanel.hidden = true;
+    queueCalendarToggle?.setAttribute("aria-expanded", "false");
+    applyQueueFilters();
+  });
+
+  updateCalendarDisplay();
+  applyQueueFilters();
+})();
+
+(() => {
+  const keywordTags = document.getElementById("keyword-tags");
+  const keywordInput = document.getElementById("keyword-input");
+  const keywordAdd = document.getElementById("keyword-add");
+  const keywordsHidden = document.getElementById("keywords-hidden");
+  const keywordSummary = document.getElementById("keyword-summary");
+  const keywordSplitSummary = document.getElementById("keyword-split-summary");
+  const keywordCountChip = document.getElementById("keyword-count-chip");
+  const profileSelect = document.getElementById("profile-select");
+  const profileSummary = document.getElementById("profile-summary");
+
+  function getKeywords() {
+    return Array.from(keywordTags?.querySelectorAll(".keyword-chip") || [])
+      .map((chip) => chip.dataset.keyword || chip.firstChild?.textContent?.trim())
+      .filter(Boolean);
+  }
+
+  function updateKeywordSummary() {
+    const keywords = getKeywords();
+    const count = keywords.length;
+    if (keywordsHidden) keywordsHidden.value = keywords.join("\n");
+    if (keywordSummary) keywordSummary.textContent = count ? keywords.join(" / ") : "未添加";
+    if (keywordSplitSummary) keywordSplitSummary.textContent = count ? `${count} 个子采集单元` : "待添加关键词";
+    if (keywordCountChip) keywordCountChip.textContent = `${count} 个关键词`;
+  }
+
+  function createKeywordChip(keyword) {
+    const chip = document.createElement("span");
+    chip.className = "keyword-chip";
+    chip.dataset.keyword = keyword;
+    chip.append(document.createTextNode(`${keyword} `));
+    const removeButton = document.createElement("button");
+    removeButton.type = "button";
+    removeButton.setAttribute("aria-label", `移除 ${keyword}`);
+    removeButton.textContent = "×";
+    removeButton.addEventListener("click", () => {
+      chip.remove();
+      updateKeywordSummary();
+    });
+    chip.append(removeButton);
+    return chip;
+  }
+
+  function addKeywordsFromInput() {
+    if (!keywordInput || !keywordTags) return;
+    const existing = new Set(getKeywords());
+    const values = keywordInput.value.split(/[,，\n]/).map((value) => value.trim()).filter(Boolean);
+    values.forEach((keyword) => {
+      if (!existing.has(keyword)) {
+        keywordTags.append(createKeywordChip(keyword));
+        existing.add(keyword);
+      }
+    });
+    keywordInput.value = "";
+    updateKeywordSummary();
+  }
+
+  keywordAdd?.addEventListener("click", addKeywordsFromInput);
+  profileSelect?.addEventListener("change", () => {
+    if (profileSummary) profileSummary.textContent = profileSelect.value || "未选择";
+  });
+  keywordInput?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === "," || event.key === "，") {
+      event.preventDefault();
+      addKeywordsFromInput();
+    }
+  });
+  updateKeywordSummary();
+})();
+</script>
 {% endblock %}

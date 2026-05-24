@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}账号管理 - Falcon{% endblock %}
+{% block content %}
+<header class="page-header">
+  <div>
+    <div class="eyebrow">profile command</div>
+    <h1>账号管理</h1>
+    <p>按 <span class="schema-token">platform/profile</span> 显示本机账号资料目录、登录状态和任务锁，不使用下拉框遮挡信息。</p>
+  </div>
+  <div class="action-row">
+    <a class="button" href="/collector">返回采集总览</a>
+    <a class="button primary" href="/collector#collector-create-form">任务配置</a>
+  </div>
+</header>
+
+{% if profile_notice %}
+<p class="notice account-notice">{{ profile_notice }}</p>
+{% endif %}
+
+<section class="account-board" aria-label="平台账号矩阵">
+  {% for group in profile_groups %}
+  <section class="account-column">
+    <div class="account-column-head">
+      <div>
+        <span class="subtext">platform</span>
+        <h2>{{ group.name }}</h2>
+      </div>
+      <span class="pill">{{ group.status }}</span>
+    </div>
+
+    <div class="account-column-meta">
+      <span>{{ group.key }}</span>
+      <strong>{{ group.entries|length }} 个 profile</strong>
+    </div>
+
+    {% if group.entries %}
+    <div class="account-card-list">
+      {% for item in group.entries %}
+      <article class="account-card {{ 'is-manual' if item.status_label == '等待人工' else '' }} {{ 'is-running' if item.status_label == '运行中' else '' }}">
+        <div class="account-card-top">
+          <div>
+            <span class="subtext">account key</span>
+            <strong>{{ item.key }}</strong>
+          </div>
+          <span class="account-status">{{ item.status_label }}</span>
+        </div>
+
+        <div class="account-facts">
+          <div><span>本地目录</span><code>{{ item.display_path }}</code></div>
+          <div><span>任务锁</span><strong>{{ item.queue_label }}</strong></div>
+          <div><span>历史任务</span><strong>{{ item.total_runs }}</strong></div>
+        </div>
+
+        <div class="account-actions">
+          {% if item.login_supported %}
+          <form class="inline-form" action="/collector/profiles/open-login" method="post">
+            <input type="hidden" name="platform" value="{{ item.platform }}">
+            <input type="hidden" name="profile" value="{{ item.profile }}">
+            <button class="button small primary" type="submit">登录/检查</button>
+          </form>
+          {% else %}
+          <button class="button small" type="button" disabled>待接入</button>
+          {% endif %}
+        </div>
+      </article>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">
+      <strong>暂无 profile</strong>
+      <span>该平台还没有本机账号目录或队列任务。</span>
+    </div>
+    {% endif %}
+
+    {% if group.key in profile_login_supported_platforms %}
+    <form class="account-create-form" action="/collector/profiles/open-login" method="post">
+      <input type="hidden" name="platform" value="{{ group.key }}">
+      <label>
+        <span>打开指定 Profile</span>
+        <input name="profile" value="default" required>
+      </label>
+      <button class="button small" type="submit">打开登录窗口</button>
+    </form>
+    {% endif %}
+  </section>
+  {% endfor %}
+</section>
+{% endblock %}

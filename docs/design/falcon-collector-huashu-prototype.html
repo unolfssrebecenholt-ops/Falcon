@@ -1,0 +1,2653 @@
+<!doctype html>
+<!--
+Falcon Collector Huashu Prototype
+
+Assumptions:
+- This is a design prototype only. It does not connect to Falcon backend data.
+- The direction translates Trae's black canvas, green signal, sparse chrome, and dot-field texture into a local collector workbench.
+- The target user is an operator checking collection status, accounts, and run recovery points many times per day.
+- Prototype data is intentionally static and marked as sample data.
+
+Design notes:
+- Metrics are compact status bands, not oversized stat cards.
+- Account management avoids select dropdowns; platform/profile relations are always visible.
+- Motion is limited to navigation, row hover, active run pulse, and lightweight state glow.
+-->
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Falcon 采集层 Huashu 原型</title>
+  <style>
+    :root {
+      --bg: #060809;
+      --bg-2: #0a0e10;
+      --panel: #111719;
+      --panel-2: #151d20;
+      --panel-3: #0d1214;
+      --line: rgba(209, 255, 232, 0.14);
+      --line-strong: rgba(54, 255, 155, 0.34);
+      --text: #f3fff8;
+      --muted: #8fa29a;
+      --weak: #5f716a;
+      --green: #2dff91;
+      --green-2: #00c979;
+      --cyan: #66e7ff;
+      --amber: #ffb84d;
+      --red: #ff5f7f;
+      --blue: #86a8ff;
+      --violet: #b99cff;
+      --shadow: 0 24px 80px rgba(0, 0, 0, 0.42);
+      --mono: "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
+      --sans: "Microsoft YaHei", "PingFang SC", "Segoe UI", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 68% 10%, rgba(45, 255, 145, 0.14), transparent 28%),
+        radial-gradient(circle at 18% 72%, rgba(102, 231, 255, 0.08), transparent 24%),
+        linear-gradient(180deg, #050607 0%, #080b0c 48%, #030405 100%);
+      font-family: var(--sans);
+      letter-spacing: 0;
+    }
+
+    button,
+    input,
+    textarea {
+      font: inherit;
+    }
+
+    a {
+      color: inherit;
+      text-decoration: none;
+    }
+
+    .app-shell {
+      display: grid;
+      grid-template-columns: 280px minmax(0, 1fr);
+      min-height: 100vh;
+    }
+
+    .sidebar {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      height: 100vh;
+      overflow: hidden auto;
+      border-right: 1px solid var(--line);
+      background:
+        linear-gradient(180deg, rgba(12, 18, 20, 0.96), rgba(6, 8, 9, 0.98)),
+        radial-gradient(circle at 70% 10%, rgba(45, 255, 145, 0.12), transparent 32%);
+      padding: 22px 16px;
+    }
+
+    .sidebar::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background-image:
+        linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+      background-size: 18px 18px;
+      mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.7), transparent 72%);
+    }
+
+    .brand {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 24px;
+      padding: 6px 6px 16px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .brand-mark {
+      display: grid;
+      width: 42px;
+      height: 42px;
+      place-items: center;
+      border-radius: 8px;
+      color: #06100b;
+      background: var(--green);
+      box-shadow: 0 0 28px rgba(45, 255, 145, 0.32);
+      font-size: 21px;
+      font-weight: 900;
+    }
+
+    .brand strong {
+      display: block;
+      font-size: 20px;
+      line-height: 1.1;
+      font-weight: 900;
+    }
+
+    .brand small {
+      display: block;
+      margin-top: 3px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .nav-group {
+      position: relative;
+      z-index: 1;
+      margin-bottom: 18px;
+    }
+
+    .nav-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin: 0 6px 8px;
+      color: var(--weak);
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .nav-title span:last-child {
+      color: var(--green);
+      font-family: var(--mono);
+      font-size: 11px;
+      opacity: 0.82;
+    }
+
+    .nav-link {
+      position: relative;
+      display: grid;
+      grid-template-columns: 9px minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: center;
+      width: 100%;
+      min-height: 42px;
+      margin: 4px 0;
+      border: 1px solid transparent;
+      border-radius: 8px;
+      color: #d9e8e0;
+      background: transparent;
+      padding: 0 12px;
+      text-align: left;
+      cursor: pointer;
+      transition: border-color 160ms ease, background 160ms ease, transform 160ms ease, color 160ms ease;
+    }
+
+    .nav-link::before {
+      content: "";
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: currentColor;
+      opacity: 0.36;
+    }
+
+    .nav-link::after {
+      content: "";
+      position: absolute;
+      inset: 6px auto 6px 0;
+      width: 3px;
+      border-radius: 999px;
+      background: var(--green);
+      opacity: 0;
+      box-shadow: 0 0 20px rgba(45, 255, 145, 0.75);
+      transition: opacity 160ms ease;
+    }
+
+    .nav-link:hover {
+      border-color: rgba(45, 255, 145, 0.16);
+      background: rgba(45, 255, 145, 0.07);
+      transform: translateX(2px);
+    }
+
+    .nav-link.active {
+      color: var(--text);
+      border-color: rgba(45, 255, 145, 0.28);
+      background: linear-gradient(90deg, rgba(45, 255, 145, 0.2), rgba(45, 255, 145, 0.045));
+    }
+
+    .nav-link.active::before,
+    .nav-link.active::after {
+      opacity: 1;
+    }
+
+    .nav-count {
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 11px;
+    }
+
+    .side-status {
+      position: relative;
+      z-index: 1;
+      margin-top: 26px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.035);
+      padding: 14px;
+    }
+
+    .side-status h3 {
+      margin: 0 0 10px;
+      font-size: 13px;
+    }
+
+    .side-kv {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .side-kv strong {
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 12px;
+    }
+
+    .main {
+      position: relative;
+      min-width: 0;
+      padding: 28px;
+      isolation: isolate;
+    }
+
+    .main::before {
+      content: "";
+      position: fixed;
+      inset: 0 0 auto 280px;
+      height: 360px;
+      z-index: 0;
+      pointer-events: none;
+      background-image: radial-gradient(rgba(45, 255, 145, 0.22) 1px, transparent 1.5px);
+      background-size: 13px 13px;
+      opacity: 0.14;
+      mask-image: linear-gradient(135deg, transparent 0%, #000 38%, transparent 74%);
+    }
+
+    .view {
+      display: none;
+      position: relative;
+      z-index: 2;
+    }
+
+    .view.active {
+      display: block;
+      animation: viewIn 180ms ease both;
+    }
+
+    @keyframes viewIn {
+      from {
+        opacity: 1;
+        transform: translateY(6px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .topbar {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 20px;
+      margin-bottom: 22px;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 24px;
+      margin-bottom: 10px;
+      color: var(--green);
+      font-family: var(--mono);
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .eyebrow::before {
+      content: "";
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--green);
+      box-shadow: 0 0 18px rgba(45, 255, 145, 0.75);
+    }
+
+    .breadcrumb {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 12px;
+      color: var(--weak);
+      font-family: var(--mono);
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .breadcrumb button {
+      border: 0;
+      color: var(--green);
+      background: transparent;
+      padding: 0;
+      cursor: pointer;
+      font: inherit;
+    }
+
+    .breadcrumb strong {
+      color: var(--text);
+      font-weight: 900;
+    }
+
+    h1 {
+      margin: 0;
+      max-width: 920px;
+      font-size: clamp(34px, 5vw, 72px);
+      line-height: 0.98;
+      font-weight: 900;
+      letter-spacing: 0;
+    }
+
+    h2 {
+      margin: 0;
+      font-size: 20px;
+      line-height: 1.2;
+    }
+
+    h3 {
+      margin: 0;
+      font-size: 16px;
+      line-height: 1.25;
+    }
+
+    p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.65;
+    }
+
+    .hero-copy {
+      margin-top: 14px;
+      max-width: 760px;
+      font-size: 15px;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      justify-content: flex-end;
+    }
+
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 38px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      color: var(--text);
+      background: rgba(255, 255, 255, 0.045);
+      padding: 0 14px;
+      font-weight: 800;
+      cursor: pointer;
+      transition: transform 150ms ease, border-color 150ms ease, background 150ms ease;
+    }
+
+    .button:hover {
+      border-color: var(--line-strong);
+      background: rgba(45, 255, 145, 0.08);
+      transform: translateY(-1px);
+    }
+
+    .button.primary {
+      color: #06100b;
+      border-color: var(--green);
+      background: var(--green);
+      box-shadow: 0 0 24px rgba(45, 255, 145, 0.22);
+    }
+
+    .button.small {
+      min-height: 32px;
+      padding: 0 10px;
+      font-size: 13px;
+    }
+
+    .status-strip {
+      display: grid;
+      grid-template-columns: 1.2fr repeat(4, minmax(130px, 1fr));
+      gap: 1px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--line);
+      box-shadow: var(--shadow);
+      margin-bottom: 18px;
+    }
+
+    .status-cell {
+      min-height: 78px;
+      background: rgba(17, 23, 25, 0.92);
+      padding: 14px 16px;
+    }
+
+    .status-cell.lead {
+      display: grid;
+      align-content: center;
+      background:
+        linear-gradient(135deg, rgba(45, 255, 145, 0.16), rgba(17, 23, 25, 0.92)),
+        var(--panel);
+    }
+
+    .status-cell span,
+    .meta-label {
+      display: block;
+      color: var(--weak);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .status-cell strong {
+      display: block;
+      margin-top: 6px;
+      font-family: var(--mono);
+      font-size: 26px;
+      line-height: 1;
+    }
+
+    .status-cell.lead strong {
+      font-family: var(--sans);
+      font-size: 20px;
+    }
+
+    .status-cell p {
+      margin-top: 5px;
+      font-size: 12px;
+    }
+
+    .panel {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(13, 18, 20, 0.88);
+      box-shadow: var(--shadow);
+      margin-bottom: 18px;
+      overflow: hidden;
+    }
+
+    .panel-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      min-height: 62px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.025);
+      padding: 16px 18px;
+    }
+
+    .panel-header p {
+      margin-top: 5px;
+      font-size: 13px;
+    }
+
+    .panel-body {
+      padding: 18px;
+    }
+
+    .overview-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 18px;
+      align-items: stretch;
+      margin-bottom: 18px;
+    }
+
+    .overview-grid .panel {
+      margin-bottom: 0;
+    }
+
+    .overview-grid > .panel:not(.queue-panel) {
+      min-height: 266px;
+    }
+
+    .overview-grid .panel.queue-panel {
+      grid-column: 1 / -1;
+    }
+
+    .inline-metrics {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      min-height: 28px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: #dbe9e1;
+      background: rgba(255, 255, 255, 0.045);
+      padding: 0 10px;
+      font-size: 12px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .chip.good {
+      color: #062012;
+      border-color: rgba(45, 255, 145, 0.8);
+      background: var(--green);
+    }
+
+    .chip.warn {
+      color: #211203;
+      border-color: rgba(255, 184, 77, 0.8);
+      background: var(--amber);
+    }
+
+    .chip.dim {
+      color: var(--muted);
+    }
+
+    .platform-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .platform-card {
+      position: relative;
+      min-height: 136px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background:
+        linear-gradient(135deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.018)),
+        var(--panel-2);
+      padding: 14px;
+      overflow: hidden;
+    }
+
+    .platform-card.active {
+      border-color: rgba(45, 255, 145, 0.5);
+      background:
+        radial-gradient(circle at 90% 8%, rgba(45, 255, 145, 0.18), transparent 38%),
+        var(--panel-2);
+    }
+
+    .platform-card h3 {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .platform-kv {
+      display: grid;
+      gap: 8px;
+    }
+
+    .platform-kv div {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .platform-kv strong {
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 13px;
+    }
+
+    .flow-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .overview-grid .flow-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .flow-step {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel-2);
+      padding: 15px;
+    }
+
+    .flow-step .step-index {
+      color: var(--green);
+      font-family: var(--mono);
+      font-size: 12px;
+      font-weight: 900;
+    }
+
+    .flow-step h3 {
+      margin-top: 8px;
+    }
+
+    .flow-step p {
+      margin-top: 8px;
+      font-size: 13px;
+    }
+
+    .health-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .health-item {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      gap: 12px;
+      align-items: center;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.03);
+      padding: 12px;
+    }
+
+    .health-item strong {
+      display: block;
+      color: var(--text);
+      font-size: 14px;
+    }
+
+    .health-item p {
+      margin-top: 4px;
+      font-size: 12px;
+    }
+
+    .health-mark {
+      width: 10px;
+      height: 34px;
+      border-radius: 999px;
+      background: var(--green);
+      box-shadow: 0 0 18px rgba(45, 255, 145, 0.34);
+    }
+
+    .health-item.warn .health-mark {
+      background: var(--amber);
+      box-shadow: 0 0 18px rgba(255, 184, 77, 0.32);
+    }
+
+    .health-item.failed .health-mark {
+      background: var(--red);
+      box-shadow: 0 0 18px rgba(255, 95, 127, 0.3);
+    }
+
+    .queue-wrap {
+      max-height: 822px;
+      overflow: auto;
+      overscroll-behavior: contain;
+      border-top: 1px solid var(--line);
+    }
+
+    .queue-filters {
+      display: grid;
+      grid-template-columns: minmax(280px, 1fr) minmax(390px, 1.1fr) auto;
+      gap: 12px;
+      align-items: end;
+      padding: 14px 18px;
+      border-top: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.018);
+    }
+
+    .filter-group {
+      display: grid;
+      gap: 8px;
+    }
+
+    .filter-label {
+      color: var(--weak);
+      font-size: 12px;
+      font-weight: 900;
+    }
+
+    .segmented {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .segment {
+      appearance: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 32px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: var(--muted);
+      background: rgba(255, 255, 255, 0.035);
+      padding: 0 11px;
+      font-size: 12px;
+      font-weight: 900;
+      cursor: pointer;
+    }
+
+    .segment:not(.active):hover {
+      color: var(--text);
+      border-color: rgba(45, 255, 145, 0.28);
+      background: rgba(45, 255, 145, 0.055);
+    }
+
+    .segment.active {
+      color: #06100b;
+      border-color: var(--green);
+      background: var(--green);
+    }
+
+    .date-picker {
+      display: grid;
+      gap: 10px;
+    }
+
+    .date-trigger {
+      display: grid;
+      width: 100%;
+      min-height: 44px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 6px;
+      color: var(--text);
+      background: rgba(0, 0, 0, 0.24);
+      padding: 8px 10px;
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .date-trigger:hover {
+      border-color: rgba(45, 255, 145, 0.4);
+      background: rgba(45, 255, 145, 0.055);
+    }
+
+    .date-trigger-label {
+      color: #e8fff2;
+      font-family: var(--mono);
+      font-size: 13px;
+      font-weight: 900;
+    }
+
+    .date-trigger-meta {
+      margin-top: 3px;
+      color: var(--weak);
+      font-size: 12px;
+    }
+
+    .calendar-panel {
+      border: 1px solid rgba(45, 255, 145, 0.26);
+      border-radius: 8px;
+      background:
+        radial-gradient(circle at 96% 0%, rgba(45, 255, 145, 0.12), transparent 30%),
+        rgba(8, 13, 14, 0.96);
+      box-shadow: var(--shadow);
+      padding: 12px;
+    }
+
+    .calendar-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
+    .calendar-head strong {
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 13px;
+    }
+
+    .calendar-presets {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .calendar-presets button,
+    .calendar-day {
+      border: 1px solid var(--line);
+      color: var(--muted);
+      background: rgba(255, 255, 255, 0.035);
+      cursor: pointer;
+    }
+
+    .calendar-presets button {
+      min-height: 28px;
+      border-radius: 999px;
+      padding: 0 10px;
+      font-size: 12px;
+      font-weight: 900;
+    }
+
+    .calendar-weekdays,
+    .calendar-grid {
+      display: grid;
+      grid-template-columns: repeat(7, minmax(0, 1fr));
+      gap: 6px;
+    }
+
+    .calendar-weekdays span {
+      color: var(--weak);
+      font-size: 12px;
+      font-weight: 900;
+      text-align: center;
+    }
+
+    .calendar-grid {
+      margin-top: 8px;
+    }
+
+    .calendar-day {
+      min-height: 34px;
+      border-radius: 6px;
+      font-family: var(--mono);
+      font-size: 12px;
+      font-weight: 900;
+    }
+
+    .calendar-day.is-muted {
+      opacity: 0.32;
+    }
+
+    .calendar-day.is-in-range {
+      color: var(--text);
+      border-color: rgba(45, 255, 145, 0.22);
+      background: rgba(45, 255, 145, 0.08);
+    }
+
+    .calendar-day.is-selected {
+      color: #06100b;
+      border-color: var(--green);
+      background: var(--green);
+    }
+
+    .calendar-day:hover,
+    .calendar-presets button:hover {
+      color: var(--text);
+      border-color: rgba(45, 255, 145, 0.42);
+    }
+
+    .calendar-foot {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      margin-top: 10px;
+      color: var(--weak);
+      font-size: 12px;
+    }
+
+    .calendar-foot strong {
+      color: var(--text);
+    }
+
+    .queue-empty {
+      border-top: 1px solid var(--line);
+      color: var(--weak);
+      padding: 22px 18px;
+      text-align: center;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 1040px;
+    }
+
+    th,
+    td {
+      border-bottom: 1px solid var(--line);
+      padding: 12px 12px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      color: var(--weak);
+      background: var(--panel-3);
+      font-size: 12px;
+      font-weight: 900;
+    }
+
+    tbody tr {
+      height: 78px;
+      transition: background 150ms ease;
+    }
+
+    tbody tr:hover {
+      background: rgba(45, 255, 145, 0.045);
+    }
+
+    .run-row {
+      border-left: 3px solid transparent;
+    }
+
+    .run-row.complete {
+      border-left-color: var(--green);
+    }
+
+    .run-row.failed {
+      border-left-color: var(--red);
+    }
+
+    .run-row.manual {
+      border-left-color: var(--amber);
+    }
+
+    .run-id {
+      display: block;
+      color: #e8fff2;
+      font-family: var(--mono);
+      font-size: 13px;
+      font-weight: 900;
+    }
+
+    .subtext {
+      display: block;
+      margin-top: 4px;
+      color: var(--weak);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .primary-text {
+      color: var(--text);
+      font-weight: 900;
+    }
+
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      min-height: 28px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 0 10px;
+      font-size: 12px;
+      font-weight: 900;
+      white-space: nowrap;
+    }
+
+    .status-badge::before {
+      content: "";
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+
+    .status-badge.complete {
+      color: var(--green);
+      border-color: rgba(45, 255, 145, 0.42);
+      background: rgba(45, 255, 145, 0.08);
+    }
+
+    .status-badge.failed {
+      color: var(--red);
+      border-color: rgba(255, 95, 127, 0.42);
+      background: rgba(255, 95, 127, 0.08);
+    }
+
+    .status-badge.manual {
+      color: var(--amber);
+      border-color: rgba(255, 184, 77, 0.42);
+      background: rgba(255, 184, 77, 0.08);
+    }
+
+    .status-badge.running::before,
+    .pulse-dot {
+      animation: pulse 1.4s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%,
+      100% {
+        opacity: 0.45;
+        transform: scale(0.82);
+      }
+      50% {
+        opacity: 1;
+        transform: scale(1.2);
+      }
+    }
+
+    .form-layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.65fr);
+      gap: 16px;
+      align-items: start;
+    }
+
+    .field-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .field,
+    .option-card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.035);
+      padding: 14px;
+    }
+
+    .field.wide {
+      grid-column: 1 / -1;
+    }
+
+    .field-title {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      margin-bottom: 8px;
+      color: var(--weak);
+      font-size: 12px;
+      font-weight: 900;
+    }
+
+    .help-dot {
+      position: relative;
+      display: inline-grid;
+      width: 18px;
+      height: 18px;
+      place-items: center;
+      border: 1px solid rgba(45, 255, 145, 0.42);
+      border-radius: 50%;
+      color: var(--green);
+      background: rgba(45, 255, 145, 0.08);
+      padding: 0;
+      font-family: var(--mono);
+      font-size: 11px;
+      line-height: 1;
+      cursor: help;
+    }
+
+    .help-dot::after {
+      content: attr(data-tip);
+      position: absolute;
+      left: 50%;
+      bottom: calc(100% + 9px);
+      z-index: 5;
+      width: min(280px, 72vw);
+      border: 1px solid rgba(45, 255, 145, 0.34);
+      border-radius: 8px;
+      color: var(--text);
+      background: rgba(6, 10, 11, 0.98);
+      box-shadow: var(--shadow);
+      padding: 9px 10px;
+      font: 12px/1.5 var(--sans);
+      opacity: 0;
+      pointer-events: none;
+      transform: translate(-50%, 4px);
+      transition: opacity 140ms ease, transform 140ms ease;
+    }
+
+    .help-dot:hover::after,
+    .help-dot:focus::after {
+      opacity: 1;
+      transform: translate(-50%, 0);
+    }
+
+    input,
+    textarea {
+      width: 100%;
+      min-height: 42px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 6px;
+      color: var(--text);
+      background: rgba(0, 0, 0, 0.24);
+      padding: 9px 10px;
+      outline: none;
+    }
+
+    input:focus,
+    textarea:focus {
+      border-color: rgba(45, 255, 145, 0.64);
+      box-shadow: 0 0 0 3px rgba(45, 255, 145, 0.08);
+    }
+
+    .keyword-builder {
+      display: grid;
+      gap: 10px;
+    }
+
+    .keyword-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      min-height: 44px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 6px;
+      background: rgba(0, 0, 0, 0.24);
+      padding: 8px;
+    }
+
+    .keyword-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 28px;
+      border: 1px solid rgba(45, 255, 145, 0.34);
+      border-radius: 999px;
+      color: #e8fff2;
+      background: rgba(45, 255, 145, 0.08);
+      padding: 0 7px 0 10px;
+      font-size: 13px;
+      font-weight: 900;
+    }
+
+    .keyword-chip button {
+      width: 18px;
+      height: 18px;
+      border: 0;
+      border-radius: 50%;
+      color: var(--weak);
+      background: rgba(255, 255, 255, 0.08);
+      cursor: pointer;
+      line-height: 1;
+    }
+
+    .keyword-chip button:hover {
+      color: var(--text);
+      background: rgba(255, 95, 127, 0.18);
+    }
+
+    .keyword-entry {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+    }
+
+    .keyword-entry input {
+      min-height: 38px;
+    }
+
+    .keyword-plan {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      color: var(--weak);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .platform-picker {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .option-card {
+      display: grid;
+      gap: 8px;
+      cursor: pointer;
+    }
+
+    .option-card.selected {
+      border-color: rgba(45, 255, 145, 0.62);
+      background: rgba(45, 255, 145, 0.08);
+    }
+
+    .option-card strong {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .summary-card {
+      border: 1px solid rgba(45, 255, 145, 0.32);
+      border-radius: 8px;
+      background:
+        linear-gradient(180deg, rgba(45, 255, 145, 0.1), rgba(255, 255, 255, 0.035)),
+        var(--panel);
+      padding: 16px;
+      position: sticky;
+      top: 22px;
+    }
+
+    .summary-card h3 {
+      margin-bottom: 12px;
+    }
+
+    .summary-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      border-top: 1px solid var(--line);
+      padding: 10px 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .summary-row strong {
+      color: var(--text);
+      text-align: right;
+    }
+
+    .account-board {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(220px, 1fr));
+      gap: 12px;
+    }
+
+    .account-column {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.03);
+      overflow: hidden;
+    }
+
+    .account-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      border-bottom: 1px solid var(--line);
+      padding: 14px;
+    }
+
+    .account-list {
+      display: grid;
+      gap: 10px;
+      padding: 12px;
+    }
+
+    .account-card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel-2);
+      padding: 13px;
+    }
+
+    .account-card.live {
+      border-color: rgba(45, 255, 145, 0.4);
+    }
+
+    .account-card h3 {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 10px;
+      font-family: var(--mono);
+      font-size: 14px;
+    }
+
+    .account-meta {
+      display: grid;
+      gap: 7px;
+    }
+
+    .account-meta div {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .account-meta strong {
+      color: var(--text);
+      text-align: right;
+    }
+
+    .detail-layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(320px, 0.42fr);
+      gap: 16px;
+      align-items: start;
+    }
+
+    .run-hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 16px;
+      align-items: center;
+      border: 1px solid rgba(255, 184, 77, 0.38);
+      border-radius: 8px;
+      background:
+        radial-gradient(circle at 94% 8%, rgba(255, 184, 77, 0.16), transparent 34%),
+        var(--panel);
+      padding: 18px;
+      margin-bottom: 16px;
+    }
+
+    .run-hero h2 {
+      margin-bottom: 8px;
+      font-size: 26px;
+    }
+
+    .pulse-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: var(--amber);
+      box-shadow: 0 0 22px rgba(255, 184, 77, 0.82);
+    }
+
+    .timeline {
+      display: grid;
+      gap: 10px;
+    }
+
+    .timeline-item {
+      display: grid;
+      grid-template-columns: 90px minmax(0, 1fr);
+      gap: 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.03);
+      padding: 12px;
+    }
+
+    .timeline-time {
+      color: var(--weak);
+      font-family: var(--mono);
+      font-size: 12px;
+    }
+
+    .sample-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .sample-card {
+      min-height: 120px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background:
+        linear-gradient(135deg, rgba(45, 255, 145, 0.09), transparent),
+        var(--panel-2);
+      padding: 12px;
+    }
+
+    .sample-card p {
+      margin-top: 8px;
+      font-size: 12px;
+    }
+
+    .resource-stack {
+      display: grid;
+      gap: 10px;
+    }
+
+    .resource-card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.035);
+      padding: 12px;
+    }
+
+    .resource-card strong {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+
+    .mobile-tabs {
+      display: none;
+    }
+
+    @media (max-width: 1100px) {
+      .app-shell {
+        grid-template-columns: 1fr;
+      }
+
+      .sidebar {
+        position: sticky;
+        top: 0;
+        height: auto;
+        max-height: 42vh;
+      }
+
+      .main {
+        padding: 20px;
+      }
+
+      .main::before {
+        inset-left: 0;
+      }
+
+      .status-strip,
+      .overview-grid,
+      .form-layout,
+      .detail-layout,
+      .queue-filters {
+        grid-template-columns: 1fr;
+      }
+
+      .platform-grid,
+      .account-board {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .queue-wrap {
+        max-height: 690px;
+      }
+
+      .overview-grid > .panel:not(.queue-panel) {
+        min-height: auto;
+      }
+
+      .summary-card {
+        position: static;
+      }
+    }
+
+    @media (max-width: 720px) {
+      .sidebar {
+        padding: 14px;
+      }
+
+      .brand {
+        margin-bottom: 12px;
+        padding-bottom: 12px;
+      }
+
+      .nav-groups {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 8px;
+      }
+
+      .nav-link {
+        min-height: 38px;
+      }
+
+      .topbar,
+      .run-hero {
+        grid-template-columns: 1fr;
+        display: grid;
+      }
+
+      .actions {
+        justify-content: flex-start;
+      }
+
+      .platform-grid,
+      .flow-grid,
+      .field-grid,
+      .platform-picker,
+      .account-board,
+      .sample-grid,
+      .calendar-head,
+      .calendar-foot {
+        grid-template-columns: 1fr;
+      }
+
+      .calendar-head,
+      .calendar-foot {
+        display: grid;
+      }
+
+      h1 {
+        font-size: 42px;
+      }
+
+      .status-cell {
+        min-height: 66px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="Falcon collector navigation">
+      <div class="brand">
+        <div class="brand-mark">F</div>
+        <div>
+          <strong>Falcon</strong>
+          <small>Collector command prototype</small>
+        </div>
+      </div>
+
+      <nav class="nav-groups">
+        <section class="nav-group">
+          <div class="nav-title"><span>采集</span><span>LIVE</span></div>
+          <button class="nav-link active" type="button" data-view-target="overview"><span>采集总览</span><span class="nav-count">13</span></button>
+          <button class="nav-link" type="button" data-view-target="create"><span>创建任务</span><span class="nav-count">QUEUE</span></button>
+          <button class="nav-link" type="button" data-view-target="accounts"><span>账号管理</span><span class="nav-count">4</span></button>
+        </section>
+        <section class="nav-group">
+          <div class="nav-title"><span>后续链路</span><span>LOCK</span></div>
+          <button class="nav-link" type="button" disabled><span>分析总览</span><span class="nav-count">NEXT</span></button>
+          <button class="nav-link" type="button" disabled><span>执行总览</span><span class="nav-count">HUMAN</span></button>
+        </section>
+      </nav>
+
+      <section class="side-status">
+        <h3>当前采集器状态</h3>
+        <div class="side-kv"><span>Node sidecar</span><strong>online</strong></div>
+        <div class="side-kv"><span>活跃 profile</span><strong>xhs/default</strong></div>
+        <div class="side-kv"><span>资源占用</span><strong>0 running</strong></div>
+        <div class="side-kv"><span>下一动作</span><strong>人工恢复</strong></div>
+      </section>
+    </aside>
+
+    <main class="main">
+      <section class="view active" id="view-overview" data-view="overview">
+        <header class="topbar">
+          <div>
+            <div class="eyebrow">collector overview</div>
+            <h1>采集作战台</h1>
+            <p class="hero-copy">统一查看任务规模、平台入口、队列状态和三层流转。所有数字使用原型静态数据，只用于验证界面层级。</p>
+          </div>
+          <div class="actions">
+            <button class="button" type="button" data-view-target="accounts">检查账号</button>
+            <button class="button primary" type="button" data-view-target="create">创建任务</button>
+          </div>
+        </header>
+
+        <section class="status-strip" aria-label="Collector status summary">
+          <div class="status-cell lead">
+            <span>本机状态</span>
+            <strong>可采集</strong>
+            <p>sidecar、浏览器、数据目录已就绪</p>
+          </div>
+          <div class="status-cell"><span>任务总数</span><strong>13</strong></div>
+          <div class="status-cell"><span>运行中</span><strong>0</strong></div>
+          <div class="status-cell"><span>等待人工</span><strong>1</strong></div>
+          <div class="status-cell"><span>采集样本</span><strong>9</strong></div>
+        </section>
+
+        <div class="overview-grid">
+        <section class="panel">
+          <div class="panel-header">
+            <div>
+              <h2>环境自检</h2>
+              <p>把 doctor 信息压成状态带，展开明细只在需要排障时出现。</p>
+            </div>
+            <div class="inline-metrics">
+              <span class="chip good">READY 9/11</span>
+              <span class="chip warn">可选提醒 2</span>
+              <span class="chip dim">必要异常 0</span>
+            </div>
+          </div>
+          <div class="panel-body">
+            <div class="flow-grid">
+              <article class="flow-step">
+                <span class="step-index">runtime</span>
+                <h3>Python / SQLite</h3>
+                <p>数据库和本地目录已创建，采集记录可写入 ignored runtime。</p>
+              </article>
+              <article class="flow-step">
+                <span class="step-index">sidecar</span>
+                <h3>Node Playwright</h3>
+                <p>sidecar 可启动，当前没有任务占用浏览器资源。</p>
+              </article>
+              <article class="flow-step">
+                <span class="step-index">ai relay</span>
+                <h3>GPT-5.5 / Image2</h3>
+                <p>配置存在但不在采集阶段自动调用，后续分析层再使用。</p>
+              </article>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <div>
+              <h2>平台入口</h2>
+              <p>小红书是当前开发入口，其他平台作为明确的待接入配置位。</p>
+            </div>
+            <span class="chip good">小红书主线</span>
+          </div>
+          <div class="panel-body">
+            <div class="platform-grid">
+              <article class="platform-card active">
+                <h3>小红书 <span class="status-badge complete">当前开发</span></h3>
+                <div class="platform-kv">
+                  <div><span>任务</span><strong>13</strong></div>
+                  <div><span>样本</span><strong>9</strong></div>
+                  <div><span>最近状态</span><strong>失败待排查</strong></div>
+                </div>
+              </article>
+              <article class="platform-card">
+                <h3>抖音 <span class="chip dim">待接入</span></h3>
+                <div class="platform-kv">
+                  <div><span>任务</span><strong>0</strong></div>
+                  <div><span>样本</span><strong>0</strong></div>
+                  <div><span>最近状态</span><strong>未开始</strong></div>
+                </div>
+              </article>
+              <article class="platform-card">
+                <h3>微博 <span class="chip dim">待接入</span></h3>
+                <div class="platform-kv">
+                  <div><span>任务</span><strong>0</strong></div>
+                  <div><span>样本</span><strong>0</strong></div>
+                  <div><span>最近状态</span><strong>未开始</strong></div>
+                </div>
+              </article>
+              <article class="platform-card">
+                <h3>闲鱼 <span class="chip dim">待接入</span></h3>
+                <div class="platform-kv">
+                  <div><span>任务</span><strong>0</strong></div>
+                  <div><span>样本</span><strong>0</strong></div>
+                  <div><span>最近状态</span><strong>未开始</strong></div>
+                </div>
+              </article>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <div>
+              <h2>三层流转</h2>
+              <p>以职责边界展示链路，不把简单说明做成巨大卡片。</p>
+            </div>
+            <span class="chip">collector -> analysis -> execution</span>
+          </div>
+          <div class="panel-body">
+            <div class="flow-grid">
+              <article class="flow-step">
+                <span class="step-index">01</span>
+                <h3>采集层</h3>
+                <p>真实浏览器读取公开样本、事件链、媒体资产和证据包。</p>
+              </article>
+              <article class="flow-step">
+                <span class="step-index">02</span>
+                <h3>分析层</h3>
+                <p>从样本中识别需求、痛点、选题和评论意向。</p>
+              </article>
+              <article class="flow-step">
+                <span class="step-index">03</span>
+                <h3>执行层</h3>
+                <p>生成可预览草稿和素材，最终动作保持人工确认。</p>
+              </article>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <div>
+              <h2>队列健康</h2>
+              <p>把可行动的阻塞点收进一张紧凑面板，避免状态数字散落。</p>
+            </div>
+            <span class="chip warn">1 个阻塞</span>
+          </div>
+          <div class="panel-body">
+            <div class="health-list">
+              <article class="health-item warn">
+                <span class="health-mark" aria-hidden="true"></span>
+                <div>
+                  <strong>creator profile 等待人工处理</strong>
+                  <p>扫码恢复后重新运行，当前不占用采集器。</p>
+                </div>
+                <span class="status-badge manual">需人工</span>
+              </article>
+              <article class="health-item failed">
+                <span class="health-mark" aria-hidden="true"></span>
+                <div>
+                  <strong>7 个失败 run 可复跑</strong>
+                  <p>失败任务不复用旧 run，重新入队生成新证据链。</p>
+                </div>
+                <span class="status-badge failed">复跑</span>
+              </article>
+              <article class="health-item">
+                <span class="health-mark" aria-hidden="true"></span>
+                <div>
+                  <strong>default profile 空闲</strong>
+                  <p>当前没有浏览器锁，新任务可以进入等待队列。</p>
+                </div>
+                <span class="status-badge complete">可用</span>
+              </article>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel queue-panel">
+          <div class="panel-header">
+            <div>
+              <h2>任务队列</h2>
+              <p>主信息加粗，解释性内容降级；状态通过徽标和左侧状态线表达。</p>
+            </div>
+            <button class="button small" type="button" data-view-target="create">新建</button>
+          </div>
+          <div class="queue-filters" aria-label="任务队列筛选">
+            <div class="filter-group">
+              <span class="filter-label">平台</span>
+              <div class="segmented" role="group" aria-label="平台筛选">
+                <button class="segment active" type="button" data-platform-filter="all" aria-pressed="true">全部</button>
+                <button class="segment" type="button" data-platform-filter="小红书" aria-pressed="false">小红书</button>
+                <button class="segment" type="button" data-platform-filter="抖音" aria-pressed="false">抖音</button>
+                <button class="segment" type="button" data-platform-filter="微博" aria-pressed="false">微博</button>
+                <button class="segment" type="button" data-platform-filter="闲鱼" aria-pressed="false">闲鱼</button>
+              </div>
+            </div>
+            <div class="filter-group">
+              <span class="filter-label">任务开启日期范围</span>
+              <div class="date-picker">
+                <button class="date-trigger" type="button" id="queue-calendar-toggle" aria-expanded="false" aria-controls="queue-calendar-panel">
+                  <span class="date-trigger-label" id="queue-date-label">2026-05-23</span>
+                  <span class="date-trigger-meta" id="queue-date-meta">点击打开日历，选择开始日和结束日</span>
+                </button>
+                <input id="queue-start-from" type="hidden" value="2026-05-23">
+                <input id="queue-start-to" type="hidden" value="2026-05-23">
+                <div class="calendar-panel" id="queue-calendar-panel" hidden>
+                  <div class="calendar-head">
+                    <strong>2026 年 5 月</strong>
+                    <div class="calendar-presets" aria-label="快捷日期范围">
+                      <button type="button" data-date-preset="sample-day">样本日</button>
+                      <button type="button" data-date-preset="three-days">近 3 日</button>
+                      <button type="button" data-date-preset="all">全月</button>
+                    </div>
+                  </div>
+                  <div class="calendar-weekdays" aria-hidden="true">
+                    <span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span>
+                  </div>
+                  <div class="calendar-grid" aria-label="2026 年 5 月日历">
+                    <button class="calendar-day is-muted" type="button" data-date="2026-04-27">27</button>
+                    <button class="calendar-day is-muted" type="button" data-date="2026-04-28">28</button>
+                    <button class="calendar-day is-muted" type="button" data-date="2026-04-29">29</button>
+                    <button class="calendar-day is-muted" type="button" data-date="2026-04-30">30</button>
+                    <button class="calendar-day" type="button" data-date="2026-05-01">1</button>
+                    <button class="calendar-day" type="button" data-date="2026-05-02">2</button>
+                    <button class="calendar-day" type="button" data-date="2026-05-03">3</button>
+                    <button class="calendar-day" type="button" data-date="2026-05-04">4</button>
+                    <button class="calendar-day" type="button" data-date="2026-05-05">5</button>
+                    <button class="calendar-day" type="button" data-date="2026-05-06">6</button>
+                    <button class="calendar-day" type="button" data-date="2026-05-07">7</button>
+                    <button class="calendar-day" type="button" data-date="2026-05-08">8</button>
+                    <button class="calendar-day" type="button" data-date="2026-05-09">9</button>
+                    <button class="calendar-day" type="button" data-date="2026-05-10">10</button>
+                    <button class="calendar-day" type="button" data-date="2026-05-11">11</button>
+                    <button class="calendar-day" type="button" data-date="2026-05-12">12</button>
+                    <button class="calendar-day" type="button" data-date="2026-05-13">13</button>
+                    <button class="calendar-day" type="button" data-date="2026-05-14">14</button>
+                    <button class="calendar-day" type="button" data-date="2026-05-15">15</button>
+                    <button class="calendar-day" type="button" data-date="2026-05-16">16</button>
+                    <button class="calendar-day" type="button" data-date="2026-05-17">17</button>
+                    <button class="calendar-day" type="button" data-date="2026-05-18">18</button>
+                    <button class="calendar-day" type="button" data-date="2026-05-19">19</button>
+                    <button class="calendar-day" type="button" data-date="2026-05-20">20</button>
+                    <button class="calendar-day" type="button" data-date="2026-05-21">21</button>
+                    <button class="calendar-day" type="button" data-date="2026-05-22">22</button>
+                    <button class="calendar-day" type="button" data-date="2026-05-23">23</button>
+                    <button class="calendar-day" type="button" data-date="2026-05-24">24</button>
+                    <button class="calendar-day" type="button" data-date="2026-05-25">25</button>
+                    <button class="calendar-day" type="button" data-date="2026-05-26">26</button>
+                    <button class="calendar-day" type="button" data-date="2026-05-27">27</button>
+                    <button class="calendar-day" type="button" data-date="2026-05-28">28</button>
+                    <button class="calendar-day" type="button" data-date="2026-05-29">29</button>
+                    <button class="calendar-day" type="button" data-date="2026-05-30">30</button>
+                    <button class="calendar-day" type="button" data-date="2026-05-31">31</button>
+                  </div>
+                  <div class="calendar-foot">
+                    <span>已选：<strong id="queue-calendar-selected">2026-05-23</strong></span>
+                    <span>按日期覆盖全天任务</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <button class="button small" type="button" id="queue-filter-apply">筛选</button>
+          </div>
+          <div class="queue-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Run</th>
+                  <th>平台 / 关键词</th>
+                  <th>状态</th>
+                  <th>阶段</th>
+                  <th>开启时间</th>
+                  <th>运行时长</th>
+                  <th>资源占用</th>
+                  <th>当前步骤</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr class="run-row failed">
+                  <td><span class="run-id">xiaohongshu-20260523-132544-29e428</span><span class="subtext">profile: default</span></td>
+                  <td><span class="primary-text">小红书</span><span class="subtext">副业</span></td>
+                  <td><span class="status-badge failed">失败</span></td>
+                  <td><span class="primary-text">已停止</span></td>
+                  <td>21:25:44</td>
+                  <td>2 分 3 秒</td>
+                  <td><span class="primary-text">不占用</span><span class="subtext">可重新运行</span></td>
+                  <td><span class="primary-text">采集器已退出</span><span class="subtext">重新运行会生成新任务</span></td>
+                  <td><button class="button small" type="button" data-view-target="detail" data-run-id="xiaohongshu-20260523-132544-29e428" data-run-short="xiaohongshu-132544" data-run-title="采集器已退出" data-run-note="已失败，不占用采集器。可重新运行生成新任务。" data-run-status="failed" data-run-status-label="失败" data-run-action="重新运行">查看</button></td>
+                </tr>
+                <tr class="run-row complete">
+                  <td><span class="run-id">xiaohongshu-20260523-114233-c51392</span><span class="subtext">profile: default</span></td>
+                  <td><span class="primary-text">小红书</span><span class="subtext">副业</span></td>
+                  <td><span class="status-badge complete">已完成</span></td>
+                  <td><span class="primary-text">100%</span></td>
+                  <td>19:42:33</td>
+                  <td>48 秒</td>
+                  <td><span class="primary-text">不占用</span></td>
+                  <td><span class="primary-text">采集结果已入库</span><span class="subtext">可查看样本和证据链</span></td>
+                  <td><button class="button small" type="button" data-view-target="detail" data-run-id="xiaohongshu-20260523-114233-c51392" data-run-short="xiaohongshu-114233" data-run-title="采集结果已入库" data-run-note="已完成，不占用采集器。可以查看采集样本和证据链。" data-run-status="complete" data-run-status-label="已完成" data-run-action="查看样本">查看</button></td>
+                </tr>
+                <tr class="run-row manual">
+                  <td><span class="run-id">xiaohongshu-20260523-081407-3d0f9c</span><span class="subtext">profile: creator</span></td>
+                  <td><span class="primary-text">小红书</span><span class="subtext">小红书封面</span></td>
+                  <td><span class="status-badge manual">需人工</span></td>
+                  <td><span class="primary-text">已暂停</span></td>
+                  <td>16:14:07</td>
+                  <td>23 分 56 秒</td>
+                  <td><span class="primary-text">不占用</span></td>
+                  <td><span class="primary-text">平台提示扫码查看</span><span class="subtext">打开处理窗口后继续</span></td>
+                  <td><button class="button small primary" type="button" data-view-target="detail" data-run-id="xiaohongshu-20260523-081407-3d0f9c" data-run-short="xiaohongshu-081407" data-run-title="平台提示扫码查看" data-run-note="任务已暂停，不占用采集器。完成人工处理后可重新运行生成新任务。" data-run-status="manual" data-run-status-label="需人工处理" data-run-action="打开处理窗口">处理</button></td>
+                </tr>
+                <tr class="run-row complete">
+                  <td><span class="run-id">xiaohongshu-20260523-111119-335f6c</span><span class="subtext">profile: default</span></td>
+                  <td><span class="primary-text">小红书</span><span class="subtext">副业</span></td>
+                  <td><span class="status-badge complete">已完成</span></td>
+                  <td><span class="primary-text">100%</span></td>
+                  <td>19:11:19</td>
+                  <td>33 秒</td>
+                  <td><span class="primary-text">不占用</span></td>
+                  <td><span class="primary-text">采集结果已入库</span><span class="subtext">可查看样本和证据链</span></td>
+                  <td><button class="button small" type="button" data-view-target="detail" data-run-id="xiaohongshu-20260523-111119-335f6c" data-run-short="xiaohongshu-111119" data-run-title="采集结果已入库" data-run-note="已完成，不占用采集器。可以查看采集样本和证据链。" data-run-status="complete" data-run-status-label="已完成" data-run-action="查看样本">查看</button></td>
+                </tr>
+                <tr class="run-row complete">
+                  <td><span class="run-id">xiaohongshu-20260523-110454-bcac43</span><span class="subtext">profile: default</span></td>
+                  <td><span class="primary-text">小红书</span><span class="subtext">副业</span></td>
+                  <td><span class="status-badge complete">已完成</span></td>
+                  <td><span class="primary-text">100%</span></td>
+                  <td>19:04:54</td>
+                  <td>31 秒</td>
+                  <td><span class="primary-text">不占用</span></td>
+                  <td><span class="primary-text">采集结果已入库</span><span class="subtext">可查看样本和证据链</span></td>
+                  <td><button class="button small" type="button" data-view-target="detail" data-run-id="xiaohongshu-20260523-110454-bcac43" data-run-short="xiaohongshu-110454" data-run-title="采集结果已入库" data-run-note="已完成，不占用采集器。可以查看采集样本和证据链。" data-run-status="complete" data-run-status-label="已完成" data-run-action="查看样本">查看</button></td>
+                </tr>
+                <tr class="run-row failed">
+                  <td><span class="run-id">xiaohongshu-20260523-110058-f11368</span><span class="subtext">profile: default</span></td>
+                  <td><span class="primary-text">小红书</span><span class="subtext">副业</span></td>
+                  <td><span class="status-badge failed">失败</span></td>
+                  <td><span class="primary-text">已停止</span></td>
+                  <td>19:00:58</td>
+                  <td>2 小时 24 分</td>
+                  <td><span class="primary-text">不占用</span><span class="subtext">可重新运行</span></td>
+                  <td><span class="primary-text">采集器已退出</span><span class="subtext">重新运行会生成新任务</span></td>
+                  <td><button class="button small" type="button" data-view-target="detail" data-run-id="xiaohongshu-20260523-110058-f11368" data-run-short="xiaohongshu-110058" data-run-title="采集器已退出" data-run-note="已失败，不占用采集器。可重新运行生成新任务。" data-run-status="failed" data-run-status-label="失败" data-run-action="重新运行">查看</button></td>
+                </tr>
+                <tr class="run-row failed">
+                  <td><span class="run-id">xiaohongshu-20260523-104133-dd683e</span><span class="subtext">profile: default</span></td>
+                  <td><span class="primary-text">小红书</span><span class="subtext">副业</span></td>
+                  <td><span class="status-badge failed">失败</span></td>
+                  <td><span class="primary-text">已停止</span></td>
+                  <td>18:41:33</td>
+                  <td>26 秒</td>
+                  <td><span class="primary-text">不占用</span><span class="subtext">可重新运行</span></td>
+                  <td><span class="primary-text">采集器已退出</span><span class="subtext">重新运行会生成新任务</span></td>
+                  <td><button class="button small" type="button" data-view-target="detail" data-run-id="xiaohongshu-20260523-104133-dd683e" data-run-short="xiaohongshu-104133" data-run-title="采集器已退出" data-run-note="已失败，不占用采集器。可重新运行生成新任务。" data-run-status="failed" data-run-status-label="失败" data-run-action="重新运行">查看</button></td>
+                </tr>
+                <tr class="run-row failed">
+                  <td><span class="run-id">xiaohongshu-20260523-103754-cc75f6</span><span class="subtext">profile: default</span></td>
+                  <td><span class="primary-text">小红书</span><span class="subtext">副业</span></td>
+                  <td><span class="status-badge failed">失败</span></td>
+                  <td><span class="primary-text">已停止</span></td>
+                  <td>18:37:54</td>
+                  <td>7 秒</td>
+                  <td><span class="primary-text">不占用</span><span class="subtext">可重新运行</span></td>
+                  <td><span class="primary-text">采集器已退出</span><span class="subtext">重新运行会生成新任务</span></td>
+                  <td><button class="button small" type="button" data-view-target="detail" data-run-id="xiaohongshu-20260523-103754-cc75f6" data-run-short="xiaohongshu-103754" data-run-title="采集器已退出" data-run-note="已失败，不占用采集器。可重新运行生成新任务。" data-run-status="failed" data-run-status-label="失败" data-run-action="重新运行">查看</button></td>
+                </tr>
+                <tr class="run-row failed">
+                  <td><span class="run-id">xiaohongshu-20260523-102841-8cd92b</span><span class="subtext">profile: default</span></td>
+                  <td><span class="primary-text">小红书</span><span class="subtext">副业</span></td>
+                  <td><span class="status-badge failed">失败</span></td>
+                  <td><span class="primary-text">已停止</span></td>
+                  <td>18:28:41</td>
+                  <td>14 分 54 秒</td>
+                  <td><span class="primary-text">不占用</span><span class="subtext">可重新运行</span></td>
+                  <td><span class="primary-text">采集器已退出</span><span class="subtext">重新运行会生成新任务</span></td>
+                  <td><button class="button small" type="button" data-view-target="detail" data-run-id="xiaohongshu-20260523-102841-8cd92b" data-run-short="xiaohongshu-102841" data-run-title="采集器已退出" data-run-note="已失败，不占用采集器。可重新运行生成新任务。" data-run-status="failed" data-run-status-label="失败" data-run-action="重新运行">查看</button></td>
+                </tr>
+                <tr class="run-row failed">
+                  <td><span class="run-id">xiaohongshu-20260523-095839-2fe48e</span><span class="subtext">profile: default</span></td>
+                  <td><span class="primary-text">小红书</span><span class="subtext">封面设计</span></td>
+                  <td><span class="status-badge failed">失败</span></td>
+                  <td><span class="primary-text">已停止</span></td>
+                  <td>17:58:39</td>
+                  <td>29 分 53 秒</td>
+                  <td><span class="primary-text">不占用</span><span class="subtext">可重新运行</span></td>
+                  <td><span class="primary-text">采集器已退出</span><span class="subtext">重新运行会生成新任务</span></td>
+                  <td><button class="button small" type="button" data-view-target="detail" data-run-id="xiaohongshu-20260523-095839-2fe48e" data-run-short="xiaohongshu-095839" data-run-title="采集器已退出" data-run-note="已失败，不占用采集器。可重新运行生成新任务。" data-run-status="failed" data-run-status-label="失败" data-run-action="重新运行">查看</button></td>
+                </tr>
+                <tr class="run-row failed">
+                  <td><span class="run-id">xiaohongshu-20260523-081206-654d2f</span><span class="subtext">profile: creator</span></td>
+                  <td><span class="primary-text">小红书</span><span class="subtext">小红书封面</span></td>
+                  <td><span class="status-badge failed">失败</span></td>
+                  <td><span class="primary-text">已停止</span></td>
+                  <td>16:12:06</td>
+                  <td>26 分 3 秒</td>
+                  <td><span class="primary-text">不占用</span><span class="subtext">可重新运行</span></td>
+                  <td><span class="primary-text">采集器已退出</span><span class="subtext">重新运行会生成新任务</span></td>
+                  <td><button class="button small" type="button" data-view-target="detail" data-run-id="xiaohongshu-20260523-081206-654d2f" data-run-short="xiaohongshu-081206" data-run-title="采集器已退出" data-run-note="已失败，不占用采集器。可重新运行生成新任务。" data-run-status="failed" data-run-status-label="失败" data-run-action="重新运行">查看</button></td>
+                </tr>
+                <tr class="run-row complete">
+                  <td><span class="run-id">xiaohongshu-20260523-075104-8e68e8</span><span class="subtext">profile: default</span></td>
+                  <td><span class="primary-text">小红书</span><span class="subtext">小红书封面</span></td>
+                  <td><span class="status-badge complete">已完成</span></td>
+                  <td><span class="primary-text">100%</span></td>
+                  <td>15:51:04</td>
+                  <td>15 秒</td>
+                  <td><span class="primary-text">不占用</span></td>
+                  <td><span class="primary-text">采集结果已入库</span><span class="subtext">可查看样本和证据链</span></td>
+                  <td><button class="button small" type="button" data-view-target="detail" data-run-id="xiaohongshu-20260523-075104-8e68e8" data-run-short="xiaohongshu-075104" data-run-title="采集结果已入库" data-run-note="已完成，不占用采集器。可以查看采集样本和证据链。" data-run-status="complete" data-run-status-label="已完成" data-run-action="查看样本">查看</button></td>
+                </tr>
+                <tr class="run-row complete">
+                  <td><span class="run-id">xiaohongshu-20260523-072912-ef0019</span><span class="subtext">profile: backup</span></td>
+                  <td><span class="primary-text">小红书</span><span class="subtext">AI 封面</span></td>
+                  <td><span class="status-badge complete">已完成</span></td>
+                  <td><span class="primary-text">100%</span></td>
+                  <td>15:29:12</td>
+                  <td>41 秒</td>
+                  <td><span class="primary-text">不占用</span></td>
+                  <td><span class="primary-text">采集结果已入库</span><span class="subtext">可查看样本和证据链</span></td>
+                  <td><button class="button small" type="button" data-view-target="detail" data-run-id="xiaohongshu-20260523-072912-ef0019" data-run-short="xiaohongshu-072912" data-run-title="采集结果已入库" data-run-note="已完成，不占用采集器。可以查看采集样本和证据链。" data-run-status="complete" data-run-status-label="已完成" data-run-action="查看样本">查看</button></td>
+                </tr>
+              </tbody>
+            </table>
+            <div class="queue-empty" id="queue-empty" hidden>暂无匹配任务，调整平台或开启时间范围后再筛选。</div>
+          </div>
+        </section>
+        </div>
+      </section>
+
+      <section class="view" id="view-create" data-view="create">
+        <header class="topbar">
+          <div>
+            <div class="eyebrow">create collector run</div>
+            <h1>创建采集任务</h1>
+            <p class="hero-copy">把平台、账号、关键词、采样范围和产物预估放在同一张任务板里；提交后只进入队列，不启动 sidecar。</p>
+          </div>
+          <div class="actions">
+            <button class="button" type="button" data-view-target="overview">返回总览</button>
+            <button class="button primary" type="button">加入队列</button>
+          </div>
+        </header>
+
+        <div class="form-layout">
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <h2>任务配置</h2>
+                <p>用可见选择卡替代孤立下拉，操作员能先确认能力边界再入队。</p>
+              </div>
+              <span class="chip">不会自动启动</span>
+            </div>
+            <div class="panel-body">
+              <div class="field wide">
+                <div class="field-title">
+                  <span>平台</span>
+                  <button class="help-dot" type="button" aria-label="平台参数说明" data-tip="选择采集适配器。当前只有小红书可运行，其他平台保留入口但不会入队。">?</button>
+                </div>
+                <div class="platform-picker">
+                  <div class="option-card selected">
+                    <strong>小红书 <span class="status-badge complete">当前开发</span></strong>
+                    <p>关键词搜索、瀑布流快照、详情页证据、人工恢复。</p>
+                  </div>
+                  <div class="option-card">
+                    <strong>抖音 <span class="chip dim">待接入</span></strong>
+                    <p>保留入口，不允许误判为可运行。</p>
+                  </div>
+                </div>
+              </div>
+              <div class="field-grid" style="margin-top: 12px;">
+                <div class="field">
+                  <div class="field-title">
+                    <span>Profile</span>
+                    <button class="help-dot" type="button" aria-label="Profile 参数说明" data-tip="绑定本机浏览器资料目录。同一 profile 同一时间只执行一个采集任务。">?</button>
+                  </div>
+                  <input value="default" aria-label="Profile">
+                  <span class="subtext">本机已创建，可串行执行任务</span>
+                </div>
+                <div class="field wide">
+                  <div class="field-title">
+                    <span>关键词组</span>
+                    <button class="help-dot" type="button" aria-label="关键词组参数说明" data-tip="支持多个关键词。按 Enter、逗号或点击添加生成标签；入队后按关键词拆成可追踪的子采集单元。">?</button>
+                  </div>
+                  <div class="keyword-builder">
+                    <div class="keyword-tags" id="keyword-tags" aria-label="已添加关键词">
+                      <span class="keyword-chip" data-keyword="小红书封面">小红书封面 <button type="button" aria-label="移除 小红书封面">×</button></span>
+                      <span class="keyword-chip" data-keyword="AI 封面">AI 封面 <button type="button" aria-label="移除 AI 封面">×</button></span>
+                      <span class="keyword-chip" data-keyword="副业">副业 <button type="button" aria-label="移除 副业">×</button></span>
+                    </div>
+                    <div class="keyword-entry">
+                      <input id="keyword-input" placeholder="输入关键词，按 Enter 或逗号添加" aria-label="添加关键词">
+                      <button class="button small" type="button" id="keyword-add">添加</button>
+                    </div>
+                    <div class="keyword-plan">
+                      <span class="chip" id="keyword-count-chip">3 个关键词</span>
+                      <span>入队后生成 3 个子采集单元，共用 profile、帖子数和评论数参数。</span>
+                    </div>
+                  </div>
+                </div>
+                <div class="field">
+                  <div class="field-title">
+                    <span>最大帖子数</span>
+                    <button class="help-dot" type="button" aria-label="最大帖子数参数说明" data-tip="限制详情页抓取数量。数值越大，采集时间和平台风控概率越高。">?</button>
+                  </div>
+                  <input value="20" aria-label="最大帖子数">
+                  <span class="subtext">原型建议值：20</span>
+                </div>
+                <div class="field">
+                  <div class="field-title">
+                    <span>每帖评论数</span>
+                    <button class="help-dot" type="button" aria-label="每帖评论数参数说明" data-tip="每个帖子最多保留的评论数量。填 0 表示只采集帖子主体。">?</button>
+                  </div>
+                  <input value="10" aria-label="每帖评论数">
+                  <span class="subtext">原型建议值：10</span>
+                </div>
+                <div class="field wide">
+                  <div class="field-title">
+                    <span>采集备注</span>
+                    <button class="help-dot" type="button" aria-label="采集备注参数说明" data-tip="只写入任务备注，用于人工复盘和交接，不参与平台搜索。">?</button>
+                  </div>
+                  <textarea rows="4">优先验证封面类帖子详情页截图、真实图片资产和热评提取。</textarea>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <aside class="summary-card">
+            <h3>入队前摘要</h3>
+            <div class="summary-row"><span>平台</span><strong>小红书 / xiaohongshu</strong></div>
+            <div class="summary-row"><span>Profile</span><strong>default</strong></div>
+            <div class="summary-row"><span>关键词组</span><strong id="keyword-summary">小红书封面 / AI 封面 / 副业</strong></div>
+            <div class="summary-row"><span>任务拆分</span><strong id="keyword-split-summary">3 个子采集单元</strong></div>
+            <div class="summary-row"><span>预计产物</span><strong>帖子、评论、媒体、证据</strong></div>
+            <div class="summary-row"><span>执行策略</span><strong>入队后手动启动</strong></div>
+            <button class="button primary" type="button" style="width: 100%; margin-top: 12px;">加入队列</button>
+          </aside>
+        </div>
+      </section>
+
+      <section class="view" id="view-accounts" data-view="accounts">
+        <header class="topbar">
+          <div>
+            <div class="eyebrow">profile matrix</div>
+            <h1>账号管理</h1>
+            <p class="hero-copy">平台和 profile 的对应关系直接展开显示，不用下拉遮挡信息；登录态、任务锁和操作入口都在卡片里。</p>
+          </div>
+          <div class="actions">
+            <button class="button" type="button" data-view-target="overview">返回总览</button>
+            <button class="button primary" type="button">打开登录窗口</button>
+          </div>
+        </header>
+
+        <section class="panel">
+          <div class="panel-header">
+            <div>
+              <h2>平台 / Profile 矩阵</h2>
+              <p>同一 profile 后续按串行任务锁执行，不同平台或不同 profile 可作为并行调度单元。</p>
+            </div>
+            <div class="inline-metrics">
+              <span class="chip good">1 个可登录</span>
+              <span class="chip warn">1 个需检查</span>
+              <span class="chip dim">3 个待接入</span>
+            </div>
+          </div>
+          <div class="panel-body">
+            <div class="account-board">
+              <section class="account-column">
+                <div class="account-head">
+                  <h2>小红书</h2>
+                  <span class="chip good">可运行</span>
+                </div>
+                <div class="account-list">
+                  <article class="account-card live">
+                    <h3>default <span class="status-badge complete">本地已创建</span></h3>
+                    <div class="account-meta">
+                      <div><span>账户键</span><strong>xiaohongshu/default</strong></div>
+                      <div><span>目录</span><strong>browser-profiles/.../default</strong></div>
+                      <div><span>任务锁</span><strong>运行 0 / 排队 0 / 人工 0</strong></div>
+                      <div><span>操作</span><strong>登录/检查</strong></div>
+                    </div>
+                  </article>
+                  <article class="account-card">
+                    <h3>creator <span class="status-badge manual">需检查</span></h3>
+                    <div class="account-meta">
+                      <div><span>账户键</span><strong>xiaohongshu/creator</strong></div>
+                      <div><span>目录</span><strong>browser-profiles/.../creator</strong></div>
+                      <div><span>任务锁</span><strong>人工 1</strong></div>
+                      <div><span>操作</span><strong>打开处理窗口</strong></div>
+                    </div>
+                  </article>
+                </div>
+              </section>
+              <section class="account-column">
+                <div class="account-head">
+                  <h2>抖音</h2>
+                  <span class="chip dim">待接入</span>
+                </div>
+                <div class="account-list">
+                  <article class="account-card">
+                    <h3>creator <span class="chip dim">adapter 空</span></h3>
+                    <div class="account-meta">
+                      <div><span>账户键</span><strong>douyin/creator</strong></div>
+                      <div><span>目录</span><strong>未创建</strong></div>
+                      <div><span>任务锁</span><strong>不可调度</strong></div>
+                      <div><span>操作</span><strong>待接入</strong></div>
+                    </div>
+                  </article>
+                </div>
+              </section>
+              <section class="account-column">
+                <div class="account-head">
+                  <h2>微博</h2>
+                  <span class="chip dim">待接入</span>
+                </div>
+                <div class="account-list">
+                  <article class="account-card">
+                    <h3>default <span class="chip dim">未创建</span></h3>
+                    <div class="account-meta">
+                      <div><span>账户键</span><strong>weibo/default</strong></div>
+                      <div><span>目录</span><strong>未创建</strong></div>
+                      <div><span>任务锁</span><strong>不可调度</strong></div>
+                      <div><span>操作</span><strong>待接入</strong></div>
+                    </div>
+                  </article>
+                </div>
+              </section>
+              <section class="account-column">
+                <div class="account-head">
+                  <h2>闲鱼</h2>
+                  <span class="chip dim">待接入</span>
+                </div>
+                <div class="account-list">
+                  <article class="account-card">
+                    <h3>default <span class="chip dim">未创建</span></h3>
+                    <div class="account-meta">
+                      <div><span>账户键</span><strong>xianyu/default</strong></div>
+                      <div><span>目录</span><strong>未创建</strong></div>
+                      <div><span>任务锁</span><strong>不可调度</strong></div>
+                      <div><span>操作</span><strong>待接入</strong></div>
+                    </div>
+                  </article>
+                </div>
+              </section>
+            </div>
+          </div>
+        </section>
+      </section>
+
+      <section class="view" id="view-detail" data-view="detail">
+        <header class="topbar">
+          <div>
+            <div class="breadcrumb" aria-label="目录路径">
+              <button type="button" data-view-target="overview">采集总览</button>
+              <span>-&gt;</span>
+              <strong>任务详情(<span id="detail-breadcrumb-id">xiaohongshu-20260523-081407-3d0f9c</span>)</strong>
+            </div>
+            <div class="eyebrow">run detail</div>
+            <h1>任务详情</h1>
+            <p class="hero-copy">围绕单个 run 的生命周期展示状态、阻塞点、样本、事件链和证据摘要。</p>
+          </div>
+          <div class="actions">
+            <button class="button" type="button" data-view-target="overview">返回总览</button>
+            <button class="button primary" type="button" id="detail-primary-action">打开处理窗口</button>
+          </div>
+        </header>
+
+        <section class="run-hero">
+          <div>
+            <h2 id="detail-run-title">平台提示扫码查看</h2>
+            <p id="detail-run-note">任务已暂停，不占用采集器。完成人工处理后可重新运行生成新任务。</p>
+          </div>
+          <div class="inline-metrics">
+            <span class="pulse-dot" aria-hidden="true"></span>
+            <span class="status-badge manual" id="detail-status-badge">需人工处理</span>
+          </div>
+        </section>
+
+        <div class="detail-layout">
+          <div>
+            <section class="status-strip">
+              <div class="status-cell lead">
+                <span>Run</span>
+                <strong id="detail-run-short">xiaohongshu-081407</strong>
+                <p>profile: creator</p>
+              </div>
+              <div class="status-cell"><span>阶段</span><strong>暂停</strong></div>
+              <div class="status-cell"><span>样本</span><strong>1</strong></div>
+              <div class="status-cell"><span>事件</span><strong>8</strong></div>
+              <div class="status-cell"><span>资产</span><strong>2</strong></div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-header">
+                <div>
+                  <h2>采集样本</h2>
+                  <p>先看样本，再排查事件链；可用样本入口保持明显。</p>
+                </div>
+                <span class="chip">local preview</span>
+              </div>
+              <div class="panel-body">
+                <div class="sample-grid">
+                  <article class="sample-card">
+                    <span class="meta-label">样本 01</span>
+                    <h3>12 种小红书爆款封面设计</h3>
+                    <p>作者：何花说升学04-04 · 点赞 0 · 评论 0</p>
+                  </article>
+                  <article class="sample-card">
+                    <span class="meta-label">媒体资产</span>
+                    <h3>详情截图 + JSON 占位</h3>
+                    <p>JSON 不进入轮播，截图作为本地证据预览。</p>
+                  </article>
+                  <article class="sample-card">
+                    <span class="meta-label">下一步</span>
+                    <h3>等待人工恢复</h3>
+                    <p>扫码通过后重新运行，验证真实图片/视频入库。</p>
+                  </article>
+                </div>
+              </div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-header">
+                <div>
+                  <h2>事件链</h2>
+                  <p>时间作为次级信息，事件和后果作为主信息。</p>
+                </div>
+              </div>
+              <div class="panel-body">
+                <div class="timeline">
+                  <article class="timeline-item">
+                    <span class="timeline-time">16:14:07</span>
+                    <div><strong>采集任务已启动</strong><span class="subtext">准备搜索关键词：小红书封面</span></div>
+                  </article>
+                  <article class="timeline-item">
+                    <span class="timeline-time">16:15:12</span>
+                    <div><strong>进入搜索页并保存截图</strong><span class="subtext">已写入 evidence/search.png</span></div>
+                  </article>
+                  <article class="timeline-item">
+                    <span class="timeline-time">16:17:58</span>
+                    <div><strong>平台要求人工处理</strong><span class="subtext">当前笔记暂时无法浏览，请打开 App 扫码查看</span></div>
+                  </article>
+                </div>
+              </div>
+            </section>
+          </div>
+
+          <aside class="panel">
+            <div class="panel-header">
+              <div>
+                <h2>资产 / 证据</h2>
+                <p>只展示安全摘要，不暴露本机完整路径。</p>
+              </div>
+            </div>
+            <div class="panel-body">
+              <div class="resource-stack">
+                <article class="resource-card">
+                  <strong>详情页截图 <span class="chip good">可预览</span></strong>
+                  <p>作为样本首屏预览和故障排查证据。</p>
+                </article>
+                <article class="resource-card">
+                  <strong>媒体资产 <span class="chip warn">待复跑</span></strong>
+                  <p>旧 run 中可能仍是 JSON 占位，需要新采集验证。</p>
+                </article>
+                <article class="resource-card">
+                  <strong>恢复动作 <span class="chip">人工确认</span></strong>
+                  <p>打开处理窗口，扫码通过后重新运行。</p>
+                </article>
+              </div>
+            </div>
+          </aside>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    const viewButtons = Array.from(document.querySelectorAll("[data-view-target]"));
+    const views = Array.from(document.querySelectorAll("[data-view]"));
+    const platformFilters = Array.from(document.querySelectorAll("[data-platform-filter]"));
+    const queueRows = Array.from(document.querySelectorAll(".queue-wrap tbody .run-row"));
+    const queueEmpty = document.getElementById("queue-empty");
+    const queueStartFrom = document.getElementById("queue-start-from");
+    const queueStartTo = document.getElementById("queue-start-to");
+    const queueFilterApply = document.getElementById("queue-filter-apply");
+    const queueCalendarToggle = document.getElementById("queue-calendar-toggle");
+    const queueCalendarPanel = document.getElementById("queue-calendar-panel");
+    const queueCalendarDays = Array.from(document.querySelectorAll("[data-date]"));
+    const queueCalendarPresets = Array.from(document.querySelectorAll("[data-date-preset]"));
+    const queueDateLabel = document.getElementById("queue-date-label");
+    const queueDateMeta = document.getElementById("queue-date-meta");
+    const queueCalendarSelected = document.getElementById("queue-calendar-selected");
+    const keywordTags = document.getElementById("keyword-tags");
+    const keywordInput = document.getElementById("keyword-input");
+    const keywordAdd = document.getElementById("keyword-add");
+    const keywordSummary = document.getElementById("keyword-summary");
+    const keywordSplitSummary = document.getElementById("keyword-split-summary");
+    const keywordCountChip = document.getElementById("keyword-count-chip");
+
+    function getKeywords() {
+      return Array.from(keywordTags?.querySelectorAll(".keyword-chip") || [])
+        .map((chip) => chip.dataset.keyword || chip.firstChild?.textContent?.trim())
+        .filter(Boolean);
+    }
+
+    function updateKeywordSummary() {
+      const keywords = getKeywords();
+      const count = keywords.length;
+      if (keywordSummary) {
+        keywordSummary.textContent = count ? keywords.join(" / ") : "未添加";
+      }
+      if (keywordSplitSummary) {
+        keywordSplitSummary.textContent = count ? `${count} 个子采集单元` : "待添加关键词";
+      }
+      if (keywordCountChip) {
+        keywordCountChip.textContent = `${count} 个关键词`;
+      }
+    }
+
+    function createKeywordChip(keyword) {
+      const chip = document.createElement("span");
+      chip.className = "keyword-chip";
+      chip.dataset.keyword = keyword;
+      chip.append(document.createTextNode(`${keyword} `));
+
+      const removeButton = document.createElement("button");
+      removeButton.type = "button";
+      removeButton.setAttribute("aria-label", `移除 ${keyword}`);
+      removeButton.textContent = "×";
+      removeButton.addEventListener("click", () => {
+        chip.remove();
+        updateKeywordSummary();
+      });
+
+      chip.append(removeButton);
+      return chip;
+    }
+
+    function addKeywordsFromInput() {
+      if (!keywordInput || !keywordTags) {
+        return;
+      }
+      const existing = new Set(getKeywords());
+      const values = keywordInput.value
+        .split(/[,，\n]/)
+        .map((value) => value.trim())
+        .filter(Boolean);
+
+      values.forEach((keyword) => {
+        if (!existing.has(keyword)) {
+          keywordTags.append(createKeywordChip(keyword));
+          existing.add(keyword);
+        }
+      });
+
+      keywordInput.value = "";
+      updateKeywordSummary();
+    }
+
+    function parseQueueDate(value) {
+      if (!value) {
+        return null;
+      }
+      if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+        const [year, month, day] = value.split("-").map(Number);
+        return new Date(year, month - 1, day);
+      }
+      const date = new Date(value);
+      return Number.isNaN(date.getTime()) ? null : date;
+    }
+
+    function getDayEnd(value) {
+      const date = parseQueueDate(value);
+      if (!date) {
+        return null;
+      }
+      date.setHours(23, 59, 59, 999);
+      return date;
+    }
+
+    function getRangeDays(start, end) {
+      const startDate = parseQueueDate(start);
+      const endDate = parseQueueDate(end);
+      if (!startDate || !endDate) {
+        return 0;
+      }
+      return Math.round((endDate - startDate) / 86400000) + 1;
+    }
+
+    function normalizeDateRange(start, end) {
+      return start <= end ? [start, end] : [end, start];
+    }
+
+    function updateCalendarDisplay() {
+      const start = queueStartFrom?.value || "";
+      const end = queueStartTo?.value || start;
+      const label = start === end ? start : `${start} 至 ${end}`;
+      const days = getRangeDays(start, end);
+
+      if (queueDateLabel) {
+        queueDateLabel.textContent = label;
+      }
+      if (queueDateMeta) {
+        queueDateMeta.textContent = days > 1 ? `已选择 ${days} 天 · 点击日历重新选择` : "已选择 1 天 · 点击日历重新选择";
+      }
+      if (queueCalendarSelected) {
+        queueCalendarSelected.textContent = label;
+      }
+
+      queueCalendarDays.forEach((button) => {
+        const date = button.dataset.date;
+        const isSelected = date === start || date === end;
+        const isInRange = date >= start && date <= end;
+        button.classList.toggle("is-selected", isSelected);
+        button.classList.toggle("is-in-range", isInRange);
+        button.setAttribute("aria-pressed", String(isSelected));
+      });
+    }
+
+    function setQueueDateRange(start, end) {
+      const [rangeStart, rangeEnd] = normalizeDateRange(start, end);
+      if (queueStartFrom) {
+        queueStartFrom.value = rangeStart;
+      }
+      if (queueStartTo) {
+        queueStartTo.value = rangeEnd;
+      }
+      updateCalendarDisplay();
+      applyQueueFilters();
+    }
+
+    function getRowStartedAt(row) {
+      const timeText = row.querySelector("td:nth-child(5)")?.textContent?.trim();
+      return parseQueueDate(timeText ? `2026-05-23T${timeText}` : "");
+    }
+
+    function applyQueueFilters() {
+      const activePlatform = platformFilters.find((button) => button.classList.contains("active"))?.dataset.platformFilter || "all";
+      const startFrom = parseQueueDate(queueStartFrom?.value || "");
+      const startTo = getDayEnd(queueStartTo?.value || "");
+      let visibleCount = 0;
+
+      queueRows.forEach((row) => {
+        const platform = row.querySelector("td:nth-child(2) .primary-text")?.textContent?.trim() || "";
+        const startedAt = getRowStartedAt(row);
+        const matchesPlatform = activePlatform === "all" || platform === activePlatform;
+        const matchesStart = !startFrom || (startedAt && startedAt >= startFrom);
+        const matchesEnd = !startTo || (startedAt && startedAt <= startTo);
+        const isVisible = matchesPlatform && matchesStart && matchesEnd;
+        row.hidden = !isVisible;
+        visibleCount += isVisible ? 1 : 0;
+      });
+
+      if (queueEmpty) {
+        queueEmpty.hidden = visibleCount > 0;
+      }
+    }
+
+    function showView(viewName, options = {}) {
+      if (viewName === "detail" && options.runId) {
+        const breadcrumbId = document.getElementById("detail-breadcrumb-id");
+        if (breadcrumbId) {
+          breadcrumbId.textContent = options.runId;
+        }
+        const runShort = document.getElementById("detail-run-short");
+        if (runShort && options.runShort) {
+          runShort.textContent = options.runShort;
+        }
+        const runTitle = document.getElementById("detail-run-title");
+        if (runTitle && options.runTitle) {
+          runTitle.textContent = options.runTitle;
+        }
+        const runNote = document.getElementById("detail-run-note");
+        if (runNote && options.runNote) {
+          runNote.textContent = options.runNote;
+        }
+        const runAction = document.getElementById("detail-primary-action");
+        if (runAction && options.runAction) {
+          runAction.textContent = options.runAction;
+        }
+        const statusBadge = document.getElementById("detail-status-badge");
+        if (statusBadge && options.runStatus && options.runStatusLabel) {
+          statusBadge.className = `status-badge ${options.runStatus}`;
+          statusBadge.textContent = options.runStatusLabel;
+        }
+      }
+      views.forEach((view) => {
+        view.classList.toggle("active", view.dataset.view === viewName);
+      });
+      const activeNavTarget = viewName === "detail" ? "overview" : viewName;
+      viewButtons.forEach((button) => {
+        if (!button.disabled) {
+          button.classList.toggle("active", button.dataset.viewTarget === activeNavTarget && button.classList.contains("nav-link"));
+        }
+      });
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+
+    viewButtons.forEach((button) => {
+      button.addEventListener("click", () => {
+        const target = button.dataset.viewTarget;
+        if (target) {
+          showView(target, {
+            runId: button.dataset.runId,
+            runShort: button.dataset.runShort,
+            runTitle: button.dataset.runTitle,
+            runNote: button.dataset.runNote,
+            runStatus: button.dataset.runStatus,
+            runStatusLabel: button.dataset.runStatusLabel,
+            runAction: button.dataset.runAction,
+          });
+        }
+      });
+    });
+
+    platformFilters.forEach((button) => {
+      button.addEventListener("click", () => {
+        platformFilters.forEach((item) => {
+          const isActive = item === button;
+          item.classList.toggle("active", isActive);
+          item.setAttribute("aria-pressed", String(isActive));
+        });
+        applyQueueFilters();
+      });
+    });
+
+    [queueStartFrom, queueStartTo].forEach((input) => {
+      input?.addEventListener("change", applyQueueFilters);
+    });
+
+    let calendarAnchorDate = null;
+
+    queueCalendarToggle?.addEventListener("click", () => {
+      const isOpening = Boolean(queueCalendarPanel?.hidden);
+      if (queueCalendarPanel) {
+        queueCalendarPanel.hidden = !isOpening;
+      }
+      queueCalendarToggle.setAttribute("aria-expanded", String(isOpening));
+    });
+
+    queueCalendarDays.forEach((button) => {
+      button.addEventListener("click", () => {
+        const date = button.dataset.date;
+        if (!date) {
+          return;
+        }
+        if (!calendarAnchorDate) {
+          calendarAnchorDate = date;
+          setQueueDateRange(date, date);
+          if (queueDateMeta) {
+            queueDateMeta.textContent = "已选择开始日，再点一次选择结束日";
+          }
+        } else {
+          setQueueDateRange(calendarAnchorDate, date);
+          calendarAnchorDate = null;
+        }
+      });
+    });
+
+    queueCalendarPresets.forEach((button) => {
+      button.addEventListener("click", () => {
+        calendarAnchorDate = null;
+        const preset = button.dataset.datePreset;
+        if (preset === "sample-day") {
+          setQueueDateRange("2026-05-23", "2026-05-23");
+        } else if (preset === "three-days") {
+          setQueueDateRange("2026-05-21", "2026-05-23");
+        } else if (preset === "all") {
+          setQueueDateRange("2026-05-01", "2026-05-31");
+        }
+      });
+    });
+
+    queueFilterApply?.addEventListener("click", () => {
+      calendarAnchorDate = null;
+      if (queueCalendarPanel) {
+        queueCalendarPanel.hidden = true;
+        queueCalendarToggle?.setAttribute("aria-expanded", "false");
+      }
+      applyQueueFilters();
+    });
+    updateCalendarDisplay();
+    applyQueueFilters();
+
+    keywordTags?.querySelectorAll(".keyword-chip button").forEach((button) => {
+      button.addEventListener("click", () => {
+        button.closest(".keyword-chip")?.remove();
+        updateKeywordSummary();
+      });
+    });
+
+    keywordAdd?.addEventListener("click", addKeywordsFromInput);
+    keywordInput?.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === "," || event.key === "，") {
+        event.preventDefault();
+        addKeywordsFromInput();
+      }
+    });
+
+    updateKeywordSummary();
+  </script>
+</body>
+</html>

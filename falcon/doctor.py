@@ -153,7 +153,7 @@ def _check_purpose(key: str) -> str:
         "python": "运行 Falcon CLI、Web 工作台和本地 SQLite 调度。",
         "node": "运行 Node Playwright sidecar，承接真实浏览器采集动作。",
         "npm": "安装并锁定 sidecar 的 Node 依赖。",
-        "sidecar_package": "定义采集 sidecar 的入口、依赖和 dry-run 合同。",
+        "sidecar_package": "定义采集 sidecar 的入口、依赖和采集合同。",
         "node_playwright": "提供浏览器自动化能力，用于打开、搜索、滚动和读取页面。",
         "playwright_chromium": "提供受控 Chromium 浏览器实例，承载小红书采集会话。",
         "data_dir": "保存本地 SQLite 数据库和项目运行数据。",

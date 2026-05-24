@@ -1,0 +1,96 @@
+<form id="collector-create-form" method="post" action="/collector/create" class="collector-create-form">
+  <input type="hidden" name="keyword" value="">
+  <section class="panel create-task-panel" id="create-task">
+    <div class="section-head">
+      <div>
+        <h2>任务配置</h2>
+        <p class="muted">先选已有 Profile，再添加关键词组；提交后只进入队列，不自动启动 sidecar。</p>
+      </div>
+      <button class="button small primary" type="submit"{% if not profile_options %} disabled{% endif %}>加入队列</button>
+    </div>
+
+    <div class="field wide">
+      <div class="field-title">
+        <span>平台</span>
+        <button class="help-dot" type="button" aria-label="平台参数说明" data-tip="选择采集适配器。当前只有小红书可运行，其他平台保留入口但不会入队。">?</button>
+      </div>
+      <div class="platform-picker">
+        {% for platform in platforms %}
+        <label class="option-card {{ 'selected' if platform.key == defaults.platform else '' }}">
+          <input type="radio" name="platform" value="{{ platform.key }}" {{ "checked" if platform.key == defaults.platform else "" }} {{ "disabled" if platform.key != "xiaohongshu" else "" }}>
+          <strong>{{ platform.name }} <span class="status-badge {{ 'status-completed' if platform.key == 'xiaohongshu' else 'status-cancelled' }}"><i></i>{{ platform.status }}</span></strong>
+          <p>{{ "关键词搜索、瀑布流快照、详情页证据、人工恢复。" if platform.key == "xiaohongshu" else "保留入口，不允许误判为可运行。" }}</p>
+        </label>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="field-grid task-config-grid">
+      <div class="field profile-field">
+        <div class="field-title">
+          <span>Profile</span>
+          <button class="help-dot" type="button" aria-label="Profile 参数说明" data-tip="只能选择账号管理里已有的 Profile。同一 profile 同一时间只执行一个采集任务。">?</button>
+        </div>
+        <select id="profile-select" name="profile" required{% if not profile_options %} disabled{% endif %}>
+          {% if profile_options %}
+          {% for profile in profile_options %}
+          <option value="{{ profile.profile }}" {{ "selected" if profile.profile == defaults.profile else "" }}>{{ profile.profile }}</option>
+          {% endfor %}
+          {% else %}
+          <option value="" selected>请先在账号管理创建 Profile</option>
+          {% endif %}
+        </select>
+        {% if profile_options %}
+        <span class="subtext">只能选择账号管理里已有的 Profile，可按 profile 串行执行任务。</span>
+        {% else %}
+        <span class="subtext">请先在 <a class="inline-link" href="/collector/accounts">账号管理</a> 创建 Profile，再回来加入队列。</span>
+        {% endif %}
+      </div>
+
+      <div class="field keyword-field">
+        <div class="field-title">
+          <span>关键词组</span>
+          <button class="help-dot" type="button" aria-label="关键词组参数说明" data-tip="支持多个关键词。按 Enter、逗号或点击添加生成标签；提交后按关键词拆成独立 queued run。">?</button>
+        </div>
+        <div class="keyword-builder">
+          <div class="keyword-tags" id="keyword-tags" aria-label="已添加关键词"></div>
+          <div class="keyword-entry">
+            <input id="keyword-input" placeholder="输入关键词，按 Enter 或逗号添加" aria-label="添加关键词">
+            <button class="button small" type="button" id="keyword-add">添加</button>
+          </div>
+          <input type="hidden" id="keywords-hidden" name="keywords" value="">
+          <div class="keyword-plan">
+            <span class="pill" id="keyword-count-chip">0 个关键词</span>
+            <span>添加关键词后入队，每个关键词生成 1 个独立 run，共用 profile、帖子数和评论数参数。</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="field compact-field">
+        <div class="field-title">
+          <span>最大帖子数</span>
+          <button class="help-dot" type="button" aria-label="最大帖子数参数说明" data-tip="限制详情页抓取数量。数值越大，采集时间和平台风控概率越高。">?</button>
+        </div>
+        <input name="max_posts" type="number" min="1" max="200" value="{{ defaults.max_posts }}">
+        <span class="subtext">原型建议值：20</span>
+      </div>
+      <div class="field compact-field">
+        <div class="field-title">
+          <span>每帖评论数</span>
+          <button class="help-dot" type="button" aria-label="每帖评论数参数说明" data-tip="每个帖子最多保留的评论数量。填 0 表示只采集帖子主体。">?</button>
+        </div>
+        <input name="max_comments_per_post" type="number" min="0" max="100" value="{{ defaults.max_comments_per_post }}">
+        <span class="subtext">原型建议值：10</span>
+      </div>
+    </div>
+
+    <div class="create-summary-grid" aria-label="入队前摘要">
+      <div class="summary-row"><span>平台</span><strong>小红书 / xiaohongshu</strong></div>
+      <div class="summary-row"><span>Profile</span><strong id="profile-summary">{{ defaults.profile or '未选择' }}</strong></div>
+      <div class="summary-row"><span>关键词组</span><strong id="keyword-summary">未添加</strong></div>
+      <div class="summary-row"><span>任务拆分</span><strong id="keyword-split-summary">待添加关键词</strong></div>
+      <div class="summary-row"><span>预计产物</span><strong>帖子、评论、媒体、证据</strong></div>
+      <div class="summary-row"><span>执行策略</span><strong>入队后由队列 worker 或手动启动</strong></div>
+    </div>
+  </section>
+</form>

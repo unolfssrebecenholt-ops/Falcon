@@ -1,3 +1,4 @@
+import json
 import sqlite3
 import tempfile
 import unittest
@@ -11,6 +12,7 @@ from falcon.cli import build_parser
 from falcon.db import FalconRepository
 from falcon.doctor import DoctorCheck, DoctorReport
 from falcon.models import (
+    CollectedComment,
     CollectedPost,
     CollectionEvent,
     CollectionRun,
@@ -190,13 +192,282 @@ class WebAppTest(unittest.TestCase):
             self.assertIn("xhs-queued", response.text)
             assert_no_legacy_collection_markers(self, response.text)
 
-    def test_collector_overview_shows_environment_doctor_panel(self):
+    def test_collector_overview_uses_huashu_queue_components(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "falcon.sqlite3"
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            for index in range(12):
+                repo.create_collection_run(
+                    CollectionRun(
+                        run_id=f"xhs-list-{index}",
+                        platform="xiaohongshu",
+                        keyword=f"keyword-{index}",
+                        profile="default",
+                        status="completed" if index % 2 else "failed",
+                        created_at=f"2026-05-23T0{index % 9}:00:00+00:00",
+                    )
+                )
+            client = TestClient(create_app(db_path))
+
+            response = client.get("/collector")
+
+            self.assertEqual(response.status_code, 200)
+            self.assertIn("采集作战台", response.text)
+            self.assertIn('class="overview-grid"', response.text)
+            self.assertIn("队列健康", response.text)
+            self.assertIn("任务开启日期范围", response.text)
+            self.assertIn('id="queue-calendar-panel"', response.text)
+            self.assertIn('data-platform-filter="xiaohongshu"', response.text)
+            self.assertIn('class="queue-wrap"', response.text)
+
+    def test_collector_overview_compacts_cards_and_removes_queue_horizontal_scroll(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "falcon.sqlite3"
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="xhs-compact-manual",
+                    platform="xiaohongshu",
+                    keyword="AI cover",
+                    profile="creator",
+                    status="manual_action_required",
+                )
+            )
+            client = TestClient(create_app(db_path))
+
+            response = client.get("/collector")
+            css = (Path(__file__).resolve().parents[1] / "falcon" / "web" / "static" / "app.css").read_text(
+                encoding="utf-8"
+            )
+
+            self.assertEqual(response.status_code, 200)
+            self.assertIn('class="overview-column overview-column-left"', response.text)
+            self.assertIn('class="overview-column overview-column-right"', response.text)
+            self.assertIn('class="queue-action-primary"', response.text)
+            self.assertIn('class="queue-action-more"', response.text)
+            self.assertIn("align-items: stretch", css)
+            self.assertIn(".overview-column-left", css)
+            self.assertIn("grid-template-rows: auto auto minmax(0, 1fr)", css)
+            self.assertIn("table-layout: fixed", css)
+            self.assertIn(".queue-wrap td:nth-child(9) {\n  overflow: visible;", css)
+            self.assertNotIn("min-width: 1240px", css)
+
+    def test_collector_overview_links_to_environment_page_without_inline_doctor(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "falcon.sqlite3"
+            client = TestClient(create_app(db_path))
+
+            response = client.get("/collector")
+
+            self.assertEqual(response.status_code, 200)
+            self.assertIn('href="/collector/environment"', response.text)
+            self.assertIn("环境自检", response.text)
+            self.assertNotIn('class="panel environment-panel"', response.text)
+            self.assertNotIn('aria-label="Falcon environment doctor"', response.text)
+
+    def test_collector_environment_page_renders_expanded_doctor(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "falcon.sqlite3"
+            client = TestClient(create_app(db_path))
+
+            response = client.get("/collector/environment")
+
+            self.assertEqual(response.status_code, 200)
+            self.assertIn("环境自检", response.text)
+            self.assertIn('class="nav-link active" href="/collector/environment"', response.text)
+            self.assertIn('<details class="panel environment-panel environment-page-panel" open>', response.text)
+            self.assertIn('aria-label="Falcon environment doctor"', response.text)
+
+    def test_collector_overview_embeds_create_task_form_after_focus_panel(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            db_path = tmp_path / "falcon.sqlite3"
+            profile_root = tmp_path / "browser-profiles"
+            (profile_root / "xiaohongshu" / "default").mkdir(parents=True)
+            client = TestClient(create_app(db_path, profile_root=profile_root))
+
+            response = client.get("/collector")
+
+            self.assertEqual(response.status_code, 200)
+            self.assertIn('id="collector-create-form"', response.text)
+            self.assertIn('id="create-task"', response.text)
+            self.assertIn('action="/collector/create"', response.text)
+            self.assertIn('class="field-grid task-config-grid"', response.text)
+            self.assertLess(response.text.index('class="panel focus-panel"'), response.text.index('id="collector-create-form"'))
+            self.assertLess(response.text.index('id="collector-create-form"'), response.text.index('class="panel queue-panel"'))
+            self.assertNotIn('href="/collector/create"', response.text)
+
+    def test_collector_create_get_redirects_to_overview_form_anchor(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "falcon.sqlite3"
+            client = TestClient(create_app(db_path))
+
+            response = client.get("/collector/create", follow_redirects=False)
+
+            self.assertEqual(response.status_code, 303)
+            self.assertEqual(response.headers["location"], "/collector#collector-create-form")
+
+    def test_collector_overview_exposes_inline_archive_button_contract(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "falcon.sqlite3"
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="xhs-inline-archive",
+                    platform="xiaohongshu",
+                    keyword="AI cover",
+                    profile="default",
+                    status="completed",
+                )
+            )
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="xhs-inline-archived",
+                    platform="xiaohongshu",
+                    keyword="AI archived",
+                    profile="default",
+                    status="cancelled",
+                )
+            )
+            client = TestClient(create_app(db_path))
+
+            response = client.get("/collector")
+
+            self.assertEqual(response.status_code, 200)
+            self.assertIn('data-run-id="xhs-inline-archive"', response.text)
+            self.assertIn('data-queue-archive-form', response.text)
+            self.assertIn('action="/collector/runs/xhs-inline-archive/archive"', response.text)
+            self.assertIn('class="button small archive"', response.text)
+            self.assertIn('class="button small archived"', response.text)
+            self.assertNotIn('class="queue-action-more"', response.text)
+            self.assertIn("fetch(form.action", response.text)
+            self.assertIn("/static/app.css?v=", response.text)
+            css = (Path(__file__).resolve().parents[1] / "falcon" / "web" / "static" / "app.css").read_text(
+                encoding="utf-8"
+            )
+            self.assertIn("flex-wrap: nowrap", css)
+            self.assertIn(".queue-action-primary .inline-form:not(.queue-archive-form)", css)
+            self.assertIn("flex: 0 0 auto", css)
+            self.assertIn("flex: 0 0 104px", css)
+            self.assertIn("flex: 0 0 62px", css)
+            self.assertIn(".button.archived", css)
+            self.assertIn(".queue-action-primary .button.archived", css)
+
+    def test_collector_archive_supports_inline_json_refresh(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "falcon.sqlite3"
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="xhs-inline-json",
+                    platform="xiaohongshu",
+                    keyword="AI cover",
+                    profile="default",
+                    status="completed",
+                )
+            )
+            client = TestClient(create_app(db_path))
+
+            response = client.post(
+                "/collector/runs/xhs-inline-json/archive",
+                headers={"Accept": "application/json", "X-Requested-With": "fetch"},
+                follow_redirects=False,
+            )
+
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json()["run_id"], "xhs-inline-json")
+            self.assertEqual(response.json()["status"], "cancelled")
+            self.assertEqual(response.json()["status_label"], "已归档")
+            self.assertEqual(repo.get_collection_run("xhs-inline-json").status, "cancelled")
+
+    def test_collector_archive_releases_profile_and_dispatches_next_queued_run(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "falcon.sqlite3"
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="xhs-manual-release",
+                    platform="xiaohongshu",
+                    keyword="blocked",
+                    profile="default",
+                    status="manual_action_required",
+                    created_at="2026-05-23T00:00:00+00:00",
+                )
+            )
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="xhs-next-after-release",
+                    platform="xiaohongshu",
+                    keyword="next",
+                    profile="default",
+                    status="queued",
+                    created_at="2026-05-23T00:01:00+00:00",
+                )
+            )
+            launches = []
+            client = TestClient(create_app(db_path, collector_run_launcher=lambda run_id: launches.append(run_id)))
+
+            response = client.post("/collector/runs/xhs-manual-release/archive", follow_redirects=False)
+
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            released = repo.get_collection_run("xhs-manual-release")
+            next_run = repo.get_collection_run("xhs-next-after-release")
+            next_events = {event.event for event in repo.list_collection_events("xhs-next-after-release")}
+            self.assertEqual(response.status_code, 303)
+            self.assertEqual(released.status, "cancelled")
+            self.assertEqual(next_run.status, "running")
+            self.assertEqual(launches, ["xhs-next-after-release"])
+            self.assertIn("queue_worker_dispatched", next_events)
+
+    def test_collector_overview_shows_actionable_focus_panel(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "falcon.sqlite3"
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            for run_id, status in [
+                ("xhs-focus-manual", "manual_action_required"),
+                ("xhs-focus-failed", "failed"),
+                ("xhs-focus-queued", "queued"),
+            ]:
+                repo.create_collection_run(
+                    CollectionRun(
+                        run_id=run_id,
+                        platform="xiaohongshu",
+                        keyword=f"keyword-{status}",
+                        profile="default",
+                        status=status,
+                    )
+                )
+            client = TestClient(create_app(db_path))
+
+            response = client.get("/collector")
+
+            self.assertEqual(response.status_code, 200)
+            self.assertIn('class="panel focus-panel"', response.text)
+            self.assertIn("待处理焦点", response.text)
+            self.assertIn("xhs-focus-manual", response.text)
+            self.assertIn("xhs-focus-failed", response.text)
+            self.assertIn("xhs-focus-queued", response.text)
+            self.assertIn('action="/collector/runs/xhs-focus-manual/open-manual-action"', response.text)
+            self.assertIn('action="/collector/runs/xhs-focus-failed/rerun"', response.text)
+            self.assertIn('action="/collector/runs/xhs-focus-queued/start"', response.text)
+
+    def test_collector_environment_page_shows_blocked_doctor_details(self):
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "falcon.sqlite3"
             report = DoctorReport(
                 [
                     DoctorCheck("python", "Python", "ok", "3.11", True),
                     DoctorCheck("node", "Node.js", "missing", "not found", True, "node --version"),
+                    DoctorCheck("sidecar_package", "Collector sidecar package", "ok", "package.json", True),
                     DoctorCheck(
                         "playwright_chromium",
                         "Playwright Chromium",
@@ -209,14 +480,15 @@ class WebAppTest(unittest.TestCase):
             )
             client = TestClient(create_app(db_path, doctor_report_builder=lambda _root: report))
 
-            response = client.get("/collector")
+            response = client.get("/collector/environment")
 
             self.assertEqual(response.status_code, 200)
-            self.assertIn('<details class="panel environment-panel" open>', response.text)
+            self.assertIn('<details class="panel environment-panel environment-page-panel" open>', response.text)
             self.assertIn("<summary", response.text)
             self.assertIn("展开明细", response.text)
             self.assertIn("收起明细", response.text)
             self.assertIn("环境自检", response.text)
+            self.assertIn("ACTION", response.text)
             self.assertIn("状态", response.text)
             self.assertIn("作用", response.text)
             self.assertIn("路径 / 版本", response.text)
@@ -224,9 +496,11 @@ class WebAppTest(unittest.TestCase):
             self.assertIn("Node.js", response.text)
             self.assertIn("Playwright Chromium", response.text)
             self.assertIn("运行 Node Playwright sidecar", response.text)
+            self.assertIn("采集合同", response.text)
+            self.assertNotIn("dry-run", response.text)
             self.assertIn("node --version", response.text)
 
-    def test_collector_environment_doctor_collapses_when_ready(self):
+    def test_collector_environment_page_keeps_doctor_expanded_when_ready(self):
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "falcon.sqlite3"
             report = DoctorReport(
@@ -237,14 +511,14 @@ class WebAppTest(unittest.TestCase):
             )
             client = TestClient(create_app(db_path, doctor_report_builder=lambda _root: report))
 
-            response = client.get("/collector")
+            response = client.get("/collector/environment")
 
             self.assertEqual(response.status_code, 200)
-            self.assertIn('<details class="panel environment-panel">', response.text)
-            self.assertNotIn('<details class="panel environment-panel" open>', response.text)
+            self.assertIn('<details class="panel environment-panel environment-page-panel" open>', response.text)
+            self.assertIn("READY", response.text)
             self.assertIn("2/2 项就绪", response.text)
 
-    def test_collector_overview_shows_profile_workspace_by_platform_account(self):
+    def test_collector_account_management_is_separate_from_overview(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             db_path = tmp_path / "falcon.sqlite3"
@@ -272,15 +546,63 @@ class WebAppTest(unittest.TestCase):
             )
             client = TestClient(create_app(db_path, profile_root=profile_root))
 
-            response = client.get("/collector")
+            overview = client.get("/collector")
+            accounts = client.get("/collector/accounts")
+
+            self.assertEqual(overview.status_code, 200)
+            self.assertEqual(accounts.status_code, 200)
+            self.assertIn('href="/collector/accounts"', overview.text)
+            self.assertNotIn('action="/collector/profiles/open-login"', overview.text)
+            self.assertNotIn("平台账号 / Profile", overview.text)
+            self.assertIn("账号管理", accounts.text)
+            self.assertIn('action="/collector/profiles/open-login"', accounts.text)
+            self.assertIn("platform/profile", accounts.text)
+            self.assertIn("xiaohongshu/default", accounts.text)
+            self.assertIn("xiaohongshu/backup", accounts.text)
+            self.assertIn("douyin/creator", accounts.text)
+            self.assertIn("browser-profiles", accounts.text)
+
+    def test_collector_accounts_render_platform_profile_matrix_without_select_entry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            db_path = tmp_path / "falcon.sqlite3"
+            profile_root = tmp_path / "browser-profiles"
+            (profile_root / "xiaohongshu" / "backup").mkdir(parents=True)
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="xhs-manual-account",
+                    platform="xiaohongshu",
+                    keyword="AI cover",
+                    profile="creator",
+                    status="manual_action_required",
+                )
+            )
+            client = TestClient(create_app(db_path, profile_root=profile_root))
+
+            response = client.get("/collector/accounts")
 
             self.assertEqual(response.status_code, 200)
-            self.assertIn('action="/collector/profiles/open-login"', response.text)
-            self.assertIn("platform/profile", response.text)
+            self.assertIn('class="account-board"', response.text)
+            self.assertIn('class="account-column"', response.text)
             self.assertIn("xiaohongshu/default", response.text)
             self.assertIn("xiaohongshu/backup", response.text)
-            self.assertIn("douyin/creator", response.text)
-            self.assertIn("browser-profiles", response.text)
+            self.assertIn("xiaohongshu/creator", response.text)
+            self.assertIn("等待人工", response.text)
+            self.assertNotIn("<select", response.text)
+
+    def test_desktop_sidebar_is_fixed_while_content_scrolls(self):
+        css = (Path(__file__).resolve().parents[1] / "falcon" / "web" / "static" / "app.css").read_text(
+            encoding="utf-8"
+        )
+
+        sidebar_rule = css[css.index(".sidebar {") : css.index(".brand {")]
+        main_rule = css[css.index(".main {") : css.index(".page-header {")]
+
+        self.assertIn("position: fixed", sidebar_rule)
+        self.assertIn("height: 100vh", sidebar_rule)
+        self.assertIn("margin-left: 232px", main_rule)
 
     def test_collector_profile_login_launches_supported_platform_profile(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -304,11 +626,12 @@ class WebAppTest(unittest.TestCase):
             )
 
             self.assertEqual(response.status_code, 303)
-            self.assertTrue(response.headers["location"].startswith("/collector?profile_action=opened"))
+            self.assertTrue(response.headers["location"].startswith("/collector/accounts?profile_action=opened"))
             self.assertEqual(len(launches), 1)
             self.assertEqual(launches[0]["platform"], "xiaohongshu")
             self.assertEqual(launches[0]["profile"], "creator")
             self.assertEqual(launches[0]["profile_path"], profile_root / "xiaohongshu" / "creator")
+            self.assertEqual(launches[0]["url"], "https://www.xiaohongshu.com/")
 
     def test_collector_profile_login_rejects_unsupported_or_unsafe_profile(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -346,13 +669,101 @@ class WebAppTest(unittest.TestCase):
             db_path = Path(tmp) / "falcon.sqlite3"
             client = TestClient(create_app(db_path))
 
-            response = client.get("/collector/create")
+            response = client.get("/collector")
 
             self.assertEqual(response.status_code, 200)
-            self.assertIn("创建任务", response.text)
+            self.assertIn("任务配置", response.text)
             self.assertIn('name="keyword"', response.text)
             self.assertIn('name="max_posts"', response.text)
             assert_no_legacy_collection_markers(self, response.text)
+
+    def test_collector_create_get_renders_huashu_keyword_group_builder(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "falcon.sqlite3"
+            client = TestClient(create_app(db_path))
+
+            response = client.get("/collector")
+
+            self.assertEqual(response.status_code, 200)
+            self.assertIn("任务配置", response.text)
+            self.assertIn("关键词组", response.text)
+            self.assertIn('name="keywords"', response.text)
+            self.assertIn('class="help-dot"', response.text)
+            self.assertIn("任务拆分", response.text)
+
+    def test_collector_create_get_starts_with_blank_keyword_group(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "falcon.sqlite3"
+            client = TestClient(create_app(db_path))
+
+            response = client.get("/collector")
+
+            self.assertEqual(response.status_code, 200)
+            self.assertIn('id="keywords-hidden"', response.text)
+            self.assertIn('name="keywords"', response.text)
+            self.assertIn('value=""', response.text)
+            self.assertIn("待添加关键词", response.text)
+            self.assertIn("未添加", response.text)
+            self.assertNotIn('data-keyword="小红书封面"', response.text)
+            self.assertNotIn('data-keyword="AI 封面"', response.text)
+            self.assertNotIn('data-keyword="副业"', response.text)
+
+    def test_collector_create_get_uses_existing_profile_select(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            db_path = tmp_path / "falcon.sqlite3"
+            profile_root = tmp_path / "browser-profiles"
+            (profile_root / "xiaohongshu" / "default").mkdir(parents=True)
+            (profile_root / "xiaohongshu" / "creator").mkdir(parents=True)
+            client = TestClient(create_app(db_path, profile_root=profile_root))
+
+            response = client.get("/collector")
+
+            self.assertEqual(response.status_code, 200)
+            self.assertIn('<select id="profile-select" name="profile" required>', response.text)
+            self.assertIn('<option value="default" selected>', response.text)
+            self.assertIn('<option value="creator" >', response.text)
+            self.assertIn("只能选择账号管理里已有的 Profile", response.text)
+            self.assertNotIn('<input name="profile"', response.text)
+
+    def test_collector_create_get_hides_profiles_without_local_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            db_path = tmp_path / "falcon.sqlite3"
+            profile_root = tmp_path / "browser-profiles"
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="xhs-old-profile",
+                    platform="xiaohongshu",
+                    keyword="AI cover",
+                    profile="legacy",
+                    status="completed",
+                )
+            )
+            client = TestClient(create_app(db_path, profile_root=profile_root))
+
+            response = client.get("/collector")
+
+            self.assertEqual(response.status_code, 200)
+            self.assertNotIn('<option value="default"', response.text)
+            self.assertNotIn('<option value="legacy"', response.text)
+            self.assertIn("请先在账号管理创建 Profile", response.text)
+            self.assertIn('href="/collector/accounts"', response.text)
+
+    def test_collector_create_get_uses_compact_task_parameter_fields(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "falcon.sqlite3"
+            client = TestClient(create_app(db_path))
+
+            response = client.get("/collector")
+
+            self.assertEqual(response.status_code, 200)
+            self.assertIn('class="field profile-field"', response.text)
+            self.assertIn('class="field keyword-field"', response.text)
+            self.assertIn('class="field compact-field"', response.text)
+            self.assertIn('class="field-grid task-config-grid"', response.text)
 
     def test_collector_create_post_queues_run_and_redirects_to_detail(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -386,6 +797,39 @@ class WebAppTest(unittest.TestCase):
             request_path = tmp_path / "runtime" / "collector" / runs[0].run_id / "request.json"
             self.assertTrue(request_path.exists())
             self.assertIn('"platform": "xiaohongshu"', request_path.read_text(encoding="utf-8"))
+
+    def test_collector_create_post_splits_multiple_keywords_into_runs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            db_path = tmp_path / "falcon.sqlite3"
+            client = TestClient(create_app(db_path))
+
+            response = client.post(
+                "/collector/create",
+                data={
+                    "platform": "xiaohongshu",
+                    "profile": "creator",
+                    "keywords": "小红书封面\nAI 封面，副业",
+                    "max_posts": "7",
+                    "max_comments_per_post": "3",
+                },
+                follow_redirects=False,
+            )
+
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            runs = sorted(repo.list_collection_runs(), key=lambda run: run.keyword)
+            self.assertEqual(response.status_code, 303)
+            self.assertEqual(response.headers["location"], "/collector")
+            self.assertEqual([run.keyword for run in runs], ["AI 封面", "副业", "小红书封面"])
+            for run in runs:
+                self.assertEqual(run.status, "queued")
+                self.assertEqual(run.platform, "xiaohongshu")
+                self.assertEqual(run.profile, "creator")
+                self.assertEqual(run.max_posts, 7)
+                request_path = tmp_path / "runtime" / "collector" / run.run_id / "request.json"
+                self.assertTrue(request_path.exists())
+                self.assertIn(f'"keyword": "{run.keyword}"', request_path.read_text(encoding="utf-8"))
 
     def test_collector_create_rejects_unknown_platform_and_path_profile(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -488,7 +932,30 @@ class WebAppTest(unittest.TestCase):
             self.assertIn("Cover prompt ideas", response.text)
             self.assertIn("cover.jpg", response.text)
             self.assertIn("search.png", response.text)
+            self.assertLess(response.text.index("采集样本"), response.text.index("事件链"))
             assert_no_legacy_collection_markers(self, response.text)
+
+    def test_collector_run_detail_uses_overview_breadcrumb_without_sidebar_entry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "falcon.sqlite3"
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="xhs-breadcrumb",
+                    platform="xiaohongshu",
+                    keyword="AI cover",
+                    profile="default",
+                    status="manual_action_required",
+                )
+            )
+            client = TestClient(create_app(db_path))
+
+            response = client.get("/collector/runs/xhs-breadcrumb")
+
+            self.assertEqual(response.status_code, 200)
+            self.assertIn("采集总览 -&gt; 任务详情(xhs-breadcrumb)", response.text)
+            self.assertNotIn('href="/collector/runs/xhs-breadcrumb">任务详情</a>', response.text)
 
     def test_collector_overview_shows_lifecycle_columns_operations_and_duration(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -519,12 +986,362 @@ class WebAppTest(unittest.TestCase):
             self.assertIn("操作", response.text)
             self.assertIn("需人工处理", response.text)
             self.assertIn("已暂停", response.text)
-            self.assertIn("无占用", response.text)
+            self.assertIn("不占用采集器", response.text)
             self.assertIn("2026-05-23 16:14:07", response.text)
             self.assertIn("20 秒", response.text)
+            self.assertIn('action="/collector/runs/xhs-manual/open-manual-action"', response.text)
             self.assertIn('action="/collector/runs/xhs-manual/rerun"', response.text)
             self.assertIn('action="/collector/runs/xhs-manual/mark-failed"', response.text)
             self.assertIn('action="/collector/runs/xhs-manual/archive"', response.text)
+
+    def test_collector_queued_run_has_obvious_waiting_state_and_start_action(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "falcon.sqlite3"
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="xhs-queued",
+                    platform="xiaohongshu",
+                    keyword="side hustle",
+                    profile="default",
+                    status="queued",
+                    progress=0,
+                    current_step="等待浏览器采集调度",
+                )
+            )
+            client = TestClient(create_app(db_path))
+
+            overview = client.get("/collector")
+            detail = client.get("/collector/runs/xhs-queued")
+
+            self.assertEqual(overview.status_code, 200)
+            self.assertIn('class="run-row status-queued"', overview.text)
+            self.assertIn('class="status-badge status-queued"', overview.text)
+            self.assertIn('action="/collector/runs/xhs-queued/start"', overview.text)
+            self.assertIn("未启动，不占用资源", overview.text)
+            self.assertEqual(detail.status_code, 200)
+            self.assertIn('class="run-state-banner status-queued"', detail.text)
+            self.assertIn('action="/collector/runs/xhs-queued/start"', detail.text)
+
+    def test_collector_start_marks_run_running_and_dispatches_background_launcher(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "falcon.sqlite3"
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="xhs-start",
+                    platform="xiaohongshu",
+                    keyword="AI cover",
+                    profile="default",
+                    status="queued",
+                    progress=0,
+                    current_step="等待浏览器采集调度",
+                )
+            )
+            launches = []
+
+            def fake_launcher(run_id):
+                launches.append(run_id)
+
+            client = TestClient(create_app(db_path, collector_run_launcher=fake_launcher))
+
+            response = client.post("/collector/runs/xhs-start/start", follow_redirects=False)
+
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            run = repo.get_collection_run("xhs-start")
+            events = repo.list_collection_events("xhs-start")
+            self.assertEqual(response.status_code, 303)
+            self.assertEqual(response.headers["location"], "/collector/runs/xhs-start")
+            self.assertEqual(run.status, "running")
+            self.assertGreaterEqual(run.progress, 5)
+            self.assertIn("启动", run.current_step)
+            self.assertEqual(launches, ["xhs-start"])
+            self.assertIn("run_start_requested", {event.event for event in events})
+
+    def test_collector_start_rejects_run_when_profile_is_already_busy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "falcon.sqlite3"
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="xhs-running-profile",
+                    platform="xiaohongshu",
+                    keyword="AI cover",
+                    profile="default",
+                    status="running",
+                    progress=40,
+                    current_step="采集器运行中",
+                )
+            )
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="xhs-waiting-same-profile",
+                    platform="xiaohongshu",
+                    keyword="AI title",
+                    profile="default",
+                    status="queued",
+                    progress=0,
+                    current_step="等待浏览器采集调度",
+                )
+            )
+            launches = []
+            client = TestClient(create_app(db_path, collector_run_launcher=lambda run_id: launches.append(run_id)))
+
+            response = client.post("/collector/runs/xhs-waiting-same-profile/start", follow_redirects=False)
+
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            run = repo.get_collection_run("xhs-waiting-same-profile")
+            self.assertEqual(response.status_code, 400)
+            self.assertIn("profile is already busy", response.text)
+            self.assertEqual(run.status, "queued")
+            self.assertEqual(launches, [])
+
+    def test_collector_queue_start_dispatches_one_run_per_available_profile(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "falcon.sqlite3"
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="xhs-default-old",
+                    platform="xiaohongshu",
+                    keyword="小红书封面",
+                    profile="default",
+                    status="queued",
+                    current_step="等待浏览器采集调度",
+                    created_at="2026-05-23T00:00:00+00:00",
+                    updated_at="2026-05-23T00:00:00+00:00",
+                )
+            )
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="xhs-default-new",
+                    platform="xiaohongshu",
+                    keyword="AI 封面",
+                    profile="default",
+                    status="queued",
+                    current_step="等待浏览器采集调度",
+                    created_at="2026-05-23T00:01:00+00:00",
+                    updated_at="2026-05-23T00:01:00+00:00",
+                )
+            )
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="xhs-creator-old",
+                    platform="xiaohongshu",
+                    keyword="副业",
+                    profile="creator",
+                    status="queued",
+                    current_step="等待浏览器采集调度",
+                    created_at="2026-05-23T00:02:00+00:00",
+                    updated_at="2026-05-23T00:02:00+00:00",
+                )
+            )
+            launches = []
+            client = TestClient(create_app(db_path, collector_run_launcher=lambda run_id: launches.append(run_id)))
+
+            response = client.post("/collector/queue/start", follow_redirects=False)
+
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            default_old = repo.get_collection_run("xhs-default-old")
+            default_new = repo.get_collection_run("xhs-default-new")
+            creator_old = repo.get_collection_run("xhs-creator-old")
+            default_events = {event.event for event in repo.list_collection_events("xhs-default-old")}
+            creator_events = {event.event for event in repo.list_collection_events("xhs-creator-old")}
+            self.assertEqual(response.status_code, 303)
+            self.assertEqual(response.headers["location"], "/collector")
+            self.assertEqual(default_old.status, "running")
+            self.assertEqual(default_new.status, "queued")
+            self.assertEqual(creator_old.status, "running")
+            self.assertEqual(launches, ["xhs-default-old", "xhs-creator-old"])
+            self.assertIn("queue_worker_dispatched", default_events)
+            self.assertIn("queue_worker_dispatched", creator_events)
+
+    def test_collector_manual_action_opens_matching_profile_window(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "falcon.sqlite3"
+            profile_root = Path(tmp) / "browser-profiles"
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="xhs-manual-open",
+                    platform="xiaohongshu",
+                    keyword="AI cover",
+                    profile="creator",
+                    status="manual_action_required",
+                    progress=50,
+                    current_step="检测到 手机扫码查看，需要人工处理后再继续。",
+                )
+            )
+            launches = []
+
+            def fake_launcher(**kwargs):
+                launches.append(kwargs)
+
+            client = TestClient(create_app(db_path, profile_root=profile_root, profile_login_launcher=fake_launcher))
+
+            detail = client.get("/collector/runs/xhs-manual-open")
+            response = client.post("/collector/runs/xhs-manual-open/open-manual-action", follow_redirects=False)
+
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            events = repo.list_collection_events("xhs-manual-open")
+            self.assertEqual(detail.status_code, 200)
+            self.assertIn('action="/collector/runs/xhs-manual-open/open-manual-action"', detail.text)
+            self.assertEqual(response.status_code, 303)
+            self.assertEqual(response.headers["location"], "/collector/runs/xhs-manual-open?manual_action=opened")
+            self.assertEqual(len(launches), 1)
+            self.assertEqual(launches[0]["platform"], "xiaohongshu")
+            self.assertEqual(launches[0]["profile"], "creator")
+            self.assertEqual(launches[0]["profile_path"], profile_root / "xiaohongshu" / "creator")
+            self.assertEqual(launches[0]["url"], "https://www.xiaohongshu.com/")
+            self.assertIn("manual_action_window_opened", {event.event for event in events})
+
+    def test_collector_manual_action_window_does_not_reopen_blocked_post_url(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "falcon.sqlite3"
+            profile_root = Path(tmp) / "browser-profiles"
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="xhs-manual-post-url",
+                    platform="xiaohongshu",
+                    keyword="AI cover",
+                    profile="default",
+                    status="manual_action_required",
+                    progress=50,
+                    current_step="检测到 手机扫码查看，需要人工处理后再继续。",
+                )
+            )
+            repo.append_collection_event(
+                CollectionEvent(
+                    run_id="xhs-manual-post-url",
+                    sequence=1,
+                    scope="xiaohongshu",
+                    event="manual_action_required",
+                    message="blocked",
+                    payload_json='{"url": "https://www.xiaohongshu.com/explore/65abc123"}',
+                )
+            )
+            launches = []
+
+            def fake_launcher(**kwargs):
+                launches.append(kwargs)
+
+            client = TestClient(create_app(db_path, profile_root=profile_root, profile_login_launcher=fake_launcher))
+
+            response = client.post("/collector/runs/xhs-manual-post-url/open-manual-action", follow_redirects=False)
+
+            self.assertEqual(response.status_code, 303)
+            self.assertEqual(len(launches), 1)
+            self.assertEqual(launches[0]["url"], "https://www.xiaohongshu.com/")
+
+    def test_collector_manual_action_can_resume_same_run_after_user_finishes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "falcon.sqlite3"
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="xhs-manual-resume",
+                    platform="xiaohongshu",
+                    keyword="AI cover",
+                    profile="default",
+                    status="manual_action_required",
+                    progress=50,
+                    current_step="检测到 手机扫码查看，需要人工处理后再继续。",
+                )
+            )
+            launches = []
+            client = TestClient(create_app(db_path, collector_run_launcher=lambda run_id: launches.append(run_id)))
+
+            detail = client.get("/collector/runs/xhs-manual-resume")
+            response = client.post("/collector/runs/xhs-manual-resume/resume", follow_redirects=False)
+
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            run = repo.get_collection_run("xhs-manual-resume")
+            events = {event.event for event in repo.list_collection_events("xhs-manual-resume")}
+            self.assertEqual(detail.status_code, 200)
+            self.assertIn('action="/collector/runs/xhs-manual-resume/resume"', detail.text)
+            self.assertIn("继续采集", detail.text)
+            self.assertEqual(response.status_code, 303)
+            self.assertEqual(response.headers["location"], "/collector/runs/xhs-manual-resume")
+            self.assertEqual(run.status, "running")
+            self.assertEqual(run.current_step, "人工处理已完成，继续采集器")
+            self.assertEqual(launches, ["xhs-manual-resume"])
+            self.assertIn("manual_action_resumed", events)
+            self.assertEqual(len(repo.list_collection_runs(limit=100)), 1)
+
+    def test_collector_running_detail_auto_refreshes_and_ingests_streaming_events(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            db_path = tmp_path / "falcon.sqlite3"
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="xhs-streaming",
+                    platform="xiaohongshu",
+                    keyword="AI cover",
+                    profile="default",
+                    status="running",
+                    progress=5,
+                    current_step="采集器启动中",
+                )
+            )
+            run_dir = tmp_path / "runtime" / "collector" / "xhs-streaming"
+            run_dir.mkdir(parents=True)
+            (run_dir / "events.jsonl").write_text(
+                "\n".join(
+                    json.dumps(event, ensure_ascii=False)
+                    for event in [
+                        {
+                            "sequence": 1,
+                            "time": "2026-05-23T10:00:00+00:00",
+                            "level": "info",
+                            "scope": "collector",
+                            "event": "run_started",
+                            "message": "采集任务已启动",
+                            "payload": {},
+                        },
+                        {
+                            "sequence": 2,
+                            "time": "2026-05-23T10:00:03+00:00",
+                            "level": "info",
+                            "scope": "xiaohongshu",
+                            "event": "browser_launching",
+                            "message": "小红书浏览器采集已启动",
+                            "payload": {},
+                        },
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            client = TestClient(create_app(db_path))
+
+            response = client.get("/collector/runs/xhs-streaming")
+
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            run = repo.get_collection_run("xhs-streaming")
+            events = repo.list_collection_events("xhs-streaming")
+            self.assertEqual(response.status_code, 200)
+            self.assertIn('data-auto-refresh="3000"', response.text)
+            self.assertIn("自动刷新", response.text)
+            self.assertEqual(len(events), 2)
+            self.assertEqual(run.status, "running")
+            self.assertGreaterEqual(run.progress, 15)
+            self.assertEqual(run.current_step, "小红书浏览器采集已启动")
 
     def test_collector_run_actions_mark_failed_archive_and_rerun(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -639,6 +1456,613 @@ class WebAppTest(unittest.TestCase):
             self.assertIn("https://www.xiaohongshu.com/explore/abc123", preview.text)
             self.assertNotIn('target="_blank"', preview.text)
 
+    def test_collector_post_preview_renders_local_image_video_carousel_and_asset_list(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            db_path = tmp_path / "falcon.sqlite3"
+            asset_root = tmp_path / "runtime" / "collector" / "xhs-assets" / "assets"
+            asset_root.mkdir(parents=True)
+            (asset_root / "cover.jpg").write_bytes(b"fake image")
+            (asset_root / "clip.mp4").write_bytes(b"fake video")
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="xhs-assets",
+                    platform="xiaohongshu",
+                    keyword="AI cover",
+                    profile="default",
+                    status="completed",
+                )
+            )
+            post_id = repo.save_collected_post(
+                CollectedPost(
+                    run_id="xhs-assets",
+                    platform="xiaohongshu",
+                    keyword="AI cover",
+                    title="Carousel sample",
+                    content="Preview local files.",
+                    url="https://www.xiaohongshu.com/explore/carousel",
+                    author="creator",
+                    detail_fingerprint="carousel",
+                )
+            )
+            image_id = repo.save_media_asset(
+                MediaAsset(
+                    run_id="xhs-assets",
+                    post_id=post_id,
+                    path="runtime/collector/xhs-assets/assets/cover.jpg",
+                    asset_type="image",
+                    sha256="imagehash",
+                )
+            )
+            video_id = repo.save_media_asset(
+                MediaAsset(
+                    run_id="xhs-assets",
+                    post_id=post_id,
+                    path="runtime/collector/xhs-assets/assets/clip.mp4",
+                    asset_type="video",
+                    sha256="videohash",
+                )
+            )
+            client = TestClient(create_app(db_path))
+
+            response = client.get(f"/collector/runs/xhs-assets/posts/{post_id}")
+
+            self.assertEqual(response.status_code, 200)
+            self.assertIn('class="sample-carousel"', response.text)
+            self.assertIn("第 1 / 2 张", response.text)
+            self.assertIn(f'src="/collector/runs/xhs-assets/assets/{image_id}"', response.text)
+            self.assertIn(f'src="/collector/runs/xhs-assets/assets/{video_id}"', response.text)
+            self.assertIn("<img", response.text)
+            self.assertIn("<video", response.text)
+            self.assertIn("controls", response.text)
+            self.assertIn('class="thumbnail-track"', response.text)
+            self.assertNotIn("imagehash", response.text)
+            self.assertNotIn("videohash", response.text)
+            self.assertNotIn("runtime/collector/xhs-assets/assets/cover.jpg", response.text)
+            self.assertNotIn("runtime/collector/xhs-assets/assets/clip.mp4", response.text)
+            self.assertIn("https://www.xiaohongshu.com/explore/carousel", response.text)
+            self.assertNotIn('href="https://www.xiaohongshu.com/explore/carousel"', response.text)
+
+    def test_collector_post_preview_replaces_asset_path_panel_with_body_and_comments(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            db_path = tmp_path / "falcon.sqlite3"
+            asset_root = tmp_path / "runtime" / "collector" / "xhs-readable-preview" / "assets"
+            asset_root.mkdir(parents=True)
+            (asset_root / "cover.jpg").write_bytes(b"fake image")
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="xhs-readable-preview",
+                    platform="xiaohongshu",
+                    keyword="AI cover",
+                    profile="default",
+                    status="completed",
+                )
+            )
+            post_id = repo.save_collected_post(
+                CollectedPost(
+                    run_id="xhs-readable-preview",
+                    platform="xiaohongshu",
+                    keyword="AI cover",
+                    title="Readable sample",
+                    content="Main body should sit beside the preview.",
+                    url="https://www.xiaohongshu.com/explore/readable",
+                    author="creator",
+                    detail_fingerprint="readable",
+                )
+            )
+            repo.save_collected_comment(
+                CollectedComment(
+                    run_id="xhs-readable-preview",
+                    post_id=post_id,
+                    commenter="reader",
+                    content="Useful comment should replace asset paths.",
+                    like_count="8",
+                    comment_rank="1",
+                )
+            )
+            repo.save_media_asset(
+                MediaAsset(
+                    run_id="xhs-readable-preview",
+                    post_id=post_id,
+                    path="runtime/collector/xhs-readable-preview/assets/cover.jpg",
+                    asset_type="image",
+                    sha256="assetsha",
+                )
+            )
+            client = TestClient(create_app(db_path))
+
+            response = client.get(f"/collector/runs/xhs-readable-preview/posts/{post_id}")
+
+            self.assertEqual(response.status_code, 200)
+            self.assertIn("Main body should sit beside the preview.", response.text)
+            self.assertIn("Useful comment should replace asset paths.", response.text)
+            self.assertIn(f'src="/collector/runs/xhs-readable-preview/assets/', response.text)
+            self.assertNotIn("runtime/collector/xhs-readable-preview/assets/cover.jpg", response.text)
+            self.assertNotIn("assetsha", response.text)
+            self.assertNotIn("图片 / 视频资产", response.text)
+
+    def test_collector_post_preview_marks_missing_assets_and_falls_back_to_detail_screenshot(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            db_path = tmp_path / "falcon.sqlite3"
+            evidence_root = tmp_path / "runtime" / "collector" / "xhs-fallback" / "evidence"
+            evidence_root.mkdir(parents=True)
+            (evidence_root / "detail.png").write_bytes(b"fake screenshot")
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="xhs-fallback",
+                    platform="xiaohongshu",
+                    keyword="AI cover",
+                    profile="default",
+                    status="completed",
+                )
+            )
+            post_id = repo.save_collected_post(
+                CollectedPost(
+                    run_id="xhs-fallback",
+                    platform="xiaohongshu",
+                    keyword="AI cover",
+                    title="Fallback sample",
+                    content="Preview fallback.",
+                    url="https://www.xiaohongshu.com/explore/fallback",
+                    author="creator",
+                    detail_fingerprint="fallback",
+                )
+            )
+            missing_id = repo.save_media_asset(
+                MediaAsset(
+                    run_id="xhs-fallback",
+                    post_id=post_id,
+                    path="runtime/collector/xhs-fallback/assets/missing.jpg",
+                    asset_type="image",
+                    sha256="missinghash",
+                )
+            )
+            evidence_id = repo.save_evidence(
+                Evidence(
+                    run_id="xhs-fallback",
+                    evidence_type="detail_screenshot",
+                    path="runtime/collector/xhs-fallback/evidence/detail.png",
+                    scope="detail_screenshot",
+                    payload_json='{"post_id": "fallback"}',
+                )
+            )
+            client = TestClient(create_app(db_path))
+
+            response = client.get(f"/collector/runs/xhs-fallback/posts/{post_id}")
+
+            self.assertEqual(response.status_code, 200)
+            self.assertIn(f'src="/collector/runs/xhs-fallback/evidences/{evidence_id}"', response.text)
+            self.assertNotIn(f'src="/collector/runs/xhs-fallback/assets/{missing_id}"', response.text)
+            self.assertIn("详情页截图", response.text)
+            self.assertNotIn("missinghash", response.text)
+
+    def test_collector_post_preview_allows_project_runtime_asset_paths(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            db_path = tmp_path / "data" / "falcon.sqlite3"
+            asset_root = tmp_path / "runtime" / "collector" / "xhs-project-runtime" / "assets"
+            asset_root.mkdir(parents=True)
+            (asset_root / "cover.jpg").write_bytes(b"fake image")
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="xhs-project-runtime",
+                    platform="xiaohongshu",
+                    keyword="AI cover",
+                    profile="default",
+                    status="completed",
+                )
+            )
+            post_id = repo.save_collected_post(
+                CollectedPost(
+                    run_id="xhs-project-runtime",
+                    platform="xiaohongshu",
+                    keyword="AI cover",
+                    title="Project runtime sample",
+                    content="Preview project runtime file.",
+                    url="https://www.xiaohongshu.com/explore/project-runtime",
+                    author="creator",
+                    detail_fingerprint="project-runtime",
+                )
+            )
+            asset_id = repo.save_media_asset(
+                MediaAsset(
+                    run_id="xhs-project-runtime",
+                    post_id=post_id,
+                    path="runtime/collector/xhs-project-runtime/assets/cover.jpg",
+                    asset_type="image",
+                    sha256="projecthash",
+                )
+            )
+            app = create_app(db_path)
+            app.state.project_root = tmp_path
+            client = TestClient(app)
+
+            response = client.get(f"/collector/runs/xhs-project-runtime/posts/{post_id}")
+            file_response = client.get(f"/collector/runs/xhs-project-runtime/assets/{asset_id}")
+
+            self.assertEqual(response.status_code, 200)
+            self.assertIn(f'src="/collector/runs/xhs-project-runtime/assets/{asset_id}"', response.text)
+            self.assertNotIn("projecthash", response.text)
+            self.assertEqual(file_response.status_code, 200)
+            self.assertEqual(file_response.content, b"fake image")
+
+    def test_collector_post_preview_does_not_render_json_placeholder_or_search_screenshot_as_image(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            db_path = tmp_path / "falcon.sqlite3"
+            asset_root = tmp_path / "runtime" / "collector" / "xhs-json-placeholder" / "assets"
+            asset_root.mkdir(parents=True)
+            (asset_root / "image-placeholder.json").write_text('{"url":"https://example.test/image"}', encoding="utf-8")
+            (asset_root / "search.png").write_bytes(b"fake screenshot")
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="xhs-json-placeholder",
+                    platform="xiaohongshu",
+                    keyword="AI cover",
+                    profile="default",
+                    status="completed",
+                )
+            )
+            post_id = repo.save_collected_post(
+                CollectedPost(
+                    run_id="xhs-json-placeholder",
+                    platform="xiaohongshu",
+                    keyword="AI cover",
+                    title="JSON placeholder sample",
+                    content="Preview screenshot instead.",
+                    url="https://www.xiaohongshu.com/explore/json-placeholder",
+                    author="creator",
+                    detail_fingerprint="json-placeholder",
+                )
+            )
+            asset_id = repo.save_media_asset(
+                MediaAsset(
+                    run_id="xhs-json-placeholder",
+                    post_id=post_id,
+                    path="runtime/collector/xhs-json-placeholder/assets/image-placeholder.json",
+                    asset_type="image",
+                    sha256="jsonhash",
+                )
+            )
+            evidence_id = repo.save_evidence(
+                Evidence(
+                    run_id="xhs-json-placeholder",
+                    evidence_type="search_results_screenshot",
+                    path="runtime/collector/xhs-json-placeholder/assets/search.png",
+                    scope="search_results_screenshot",
+                )
+            )
+            client = TestClient(create_app(db_path))
+
+            response = client.get(f"/collector/runs/xhs-json-placeholder/posts/{post_id}")
+
+            self.assertEqual(response.status_code, 200)
+            self.assertNotIn("jsonhash", response.text)
+            self.assertNotIn(f'src="/collector/runs/xhs-json-placeholder/assets/{asset_id}"', response.text)
+            self.assertNotIn(f'src="/collector/runs/xhs-json-placeholder/evidences/{evidence_id}"', response.text)
+
+    def test_collector_post_preview_only_uses_matching_detail_screenshot_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            db_path = tmp_path / "falcon.sqlite3"
+            evidence_root = tmp_path / "runtime" / "collector" / "xhs-detail-match" / "assets"
+            evidence_root.mkdir(parents=True)
+            (evidence_root / "search.png").write_bytes(b"search list screenshot")
+            (evidence_root / "post-2-detail.png").write_bytes(b"post 2 detail screenshot")
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="xhs-detail-match",
+                    platform="xiaohongshu",
+                    keyword="AI cover",
+                    profile="default",
+                    status="completed",
+                )
+            )
+            post_1_id = repo.save_collected_post(
+                CollectedPost(
+                    run_id="xhs-detail-match",
+                    platform="xiaohongshu",
+                    keyword="AI cover",
+                    title="Post without detail screenshot",
+                    content="This post should not fall back to the search page.",
+                    url="https://www.xiaohongshu.com/explore/post-1",
+                    author="creator one",
+                    detail_fingerprint="xiaohongshu:post-1",
+                )
+            )
+            post_2_id = repo.save_collected_post(
+                CollectedPost(
+                    run_id="xhs-detail-match",
+                    platform="xiaohongshu",
+                    keyword="AI cover",
+                    title="Post with detail screenshot",
+                    content="This post has a matching detail screenshot.",
+                    url="https://www.xiaohongshu.com/explore/post-2",
+                    author="creator two",
+                    detail_fingerprint="xiaohongshu:post-2",
+                )
+            )
+            search_evidence_id = repo.save_evidence(
+                Evidence(
+                    run_id="xhs-detail-match",
+                    evidence_type="search_results_screenshot",
+                    path="runtime/collector/xhs-detail-match/assets/search.png",
+                    scope="search_results_screenshot",
+                    payload_json='{"keyword": "AI cover"}',
+                )
+            )
+            detail_evidence_id = repo.save_evidence(
+                Evidence(
+                    run_id="xhs-detail-match",
+                    evidence_type="detail_screenshot",
+                    path="runtime/collector/xhs-detail-match/assets/post-2-detail.png",
+                    scope="detail_screenshot",
+                    payload_json='{"post_id": "xiaohongshu:post-2"}',
+                )
+            )
+            client = TestClient(create_app(db_path))
+
+            post_1_response = client.get(f"/collector/runs/xhs-detail-match/posts/{post_1_id}")
+            post_2_response = client.get(f"/collector/runs/xhs-detail-match/posts/{post_2_id}")
+
+            self.assertEqual(post_1_response.status_code, 200)
+            self.assertNotIn(
+                f'src="/collector/runs/xhs-detail-match/evidences/{search_evidence_id}"',
+                post_1_response.text,
+            )
+            self.assertNotIn(
+                f'src="/collector/runs/xhs-detail-match/evidences/{detail_evidence_id}"',
+                post_1_response.text,
+            )
+            self.assertEqual(post_2_response.status_code, 200)
+            self.assertIn(
+                f'src="/collector/runs/xhs-detail-match/evidences/{detail_evidence_id}"',
+                post_2_response.text,
+            )
+            self.assertNotIn(
+                f'src="/collector/runs/xhs-detail-match/evidences/{search_evidence_id}"',
+                post_2_response.text,
+            )
+
+    def test_collector_post_preview_prioritizes_detail_screenshot_before_assets(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            db_path = tmp_path / "falcon.sqlite3"
+            asset_root = tmp_path / "runtime" / "collector" / "xhs-detail-first" / "assets"
+            asset_root.mkdir(parents=True)
+            (asset_root / "detail.png").write_bytes(b"detail screenshot")
+            (asset_root / "cover.jpg").write_bytes(b"downloaded cover")
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="xhs-detail-first",
+                    platform="xiaohongshu",
+                    keyword="AI cover",
+                    profile="default",
+                    status="completed",
+                )
+            )
+            post_id = repo.save_collected_post(
+                CollectedPost(
+                    run_id="xhs-detail-first",
+                    platform="xiaohongshu",
+                    keyword="AI cover",
+                    title="Detail first sample",
+                    content="Detail screenshot should be the first preview item.",
+                    url="https://www.xiaohongshu.com/explore/detail-first",
+                    author="creator",
+                    detail_fingerprint="xiaohongshu:detail-first",
+                )
+            )
+            asset_id = repo.save_media_asset(
+                MediaAsset(
+                    run_id="xhs-detail-first",
+                    post_id=post_id,
+                    path="runtime/collector/xhs-detail-first/assets/cover.jpg",
+                    asset_type="image",
+                    sha256="coverhash",
+                )
+            )
+            evidence_id = repo.save_evidence(
+                Evidence(
+                    run_id="xhs-detail-first",
+                    evidence_type="detail_screenshot",
+                    path="runtime/collector/xhs-detail-first/assets/detail.png",
+                    scope="detail_screenshot",
+                    payload_json='{"post_id": "xiaohongshu:detail-first"}',
+                )
+            )
+            repo.save_evidence(
+                Evidence(
+                    run_id="xhs-detail-first",
+                    evidence_type="field_snapshot",
+                    path="runtime/collector/xhs-detail-first/assets/detail-snapshot.json",
+                    scope="field_snapshot",
+                    payload_json='{"post_id": "xiaohongshu:detail-first", "media_scope": "detail_container"}',
+                )
+            )
+            client = TestClient(create_app(db_path))
+
+            response = client.get(f"/collector/runs/xhs-detail-first/posts/{post_id}")
+
+            self.assertEqual(response.status_code, 200)
+            detail_src = f'src="/collector/runs/xhs-detail-first/evidences/{evidence_id}"'
+            asset_src = f'src="/collector/runs/xhs-detail-first/assets/{asset_id}"'
+            self.assertIn(detail_src, response.text)
+            self.assertIn(asset_src, response.text)
+            self.assertLess(response.text.index(detail_src), response.text.index(asset_src))
+
+    def test_collector_post_preview_dedupes_media_and_shows_collects_and_reply_context(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            db_path = tmp_path / "falcon.sqlite3"
+            asset_root = tmp_path / "runtime" / "collector" / "xhs-preview-dedupe" / "assets"
+            asset_root.mkdir(parents=True)
+            (asset_root / "detail.png").write_bytes(b"detail screenshot")
+            (asset_root / "cover-detail.webp").write_bytes(b"detail cover")
+            (asset_root / "cover-card.webp").write_bytes(b"card cover")
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="xhs-preview-dedupe",
+                    platform="xiaohongshu",
+                    keyword="AI cover",
+                    profile="default",
+                    status="completed",
+                )
+            )
+            post_id = repo.save_collected_post(
+                CollectedPost(
+                    run_id="xhs-preview-dedupe",
+                    platform="xiaohongshu",
+                    keyword="AI cover",
+                    title="Preview metrics sample",
+                    content="Preview body.",
+                    url="https://www.xiaohongshu.com/explore/preview-dedupe",
+                    author="creator",
+                    like_count="24",
+                    collect_count="10",
+                    comment_count="37",
+                    detail_fingerprint="xiaohongshu:preview-dedupe",
+                )
+            )
+            first_asset_id = repo.save_media_asset(
+                MediaAsset(
+                    run_id="xhs-preview-dedupe",
+                    post_id=post_id,
+                    path="runtime/collector/xhs-preview-dedupe/assets/cover-detail.webp",
+                    asset_type="image",
+                    url="https://sns-webpic-qc.xhscdn.com/202605231943/da4f44570b3b857d293582c72529419e/notes_pre_post/1040g3k031ig9al7jns005nqfivhg9ckarv489h0!nd_dft_wlteh_webp_3",
+                    sha256="detailcover",
+                )
+            )
+            duplicate_asset_id = repo.save_media_asset(
+                MediaAsset(
+                    run_id="xhs-preview-dedupe",
+                    post_id=post_id,
+                    path="runtime/collector/xhs-preview-dedupe/assets/cover-card.webp",
+                    asset_type="image",
+                    url="https://sns-webpic-qc.xhscdn.com/202605231942/108d1b1f65ce49c82955b43c18a5a9fc/notes_pre_post/1040g3k031ig9al7jns005nqfivhg9ckarv489h0!nc_n_webp_mw_1",
+                    sha256="cardcover",
+                )
+            )
+            repo.save_collected_comment(
+                CollectedComment(
+                    post_id=post_id,
+                    run_id="xhs-preview-dedupe",
+                    commenter="replyer",
+                    content="nested reply",
+                    comment_rank="2",
+                    comment_type="reply",
+                    reply_to="target user",
+                )
+            )
+            evidence_id = repo.save_evidence(
+                Evidence(
+                    run_id="xhs-preview-dedupe",
+                    evidence_type="detail_screenshot",
+                    path="runtime/collector/xhs-preview-dedupe/assets/detail.png",
+                    scope="detail_screenshot",
+                    payload_json='{"post_id": "xiaohongshu:preview-dedupe"}',
+                )
+            )
+            repo.save_evidence(
+                Evidence(
+                    run_id="xhs-preview-dedupe",
+                    evidence_type="field_snapshot",
+                    path="runtime/collector/xhs-preview-dedupe/assets/detail-snapshot.json",
+                    scope="field_snapshot",
+                    payload_json='{"post_id": "xiaohongshu:preview-dedupe", "media_scope": "detail_container"}',
+                )
+            )
+            client = TestClient(create_app(db_path))
+
+            response = client.get(f"/collector/runs/xhs-preview-dedupe/posts/{post_id}")
+
+            self.assertEqual(response.status_code, 200)
+            self.assertIn(f'src="/collector/runs/xhs-preview-dedupe/evidences/{evidence_id}"', response.text)
+            self.assertIn(f'src="/collector/runs/xhs-preview-dedupe/assets/{first_asset_id}"', response.text)
+            self.assertNotIn(f'src="/collector/runs/xhs-preview-dedupe/assets/{duplicate_asset_id}"', response.text)
+            self.assertIn("点赞 24", response.text)
+            self.assertIn("收藏 10", response.text)
+            self.assertIn("评论 37", response.text)
+            self.assertIn("回复", response.text)
+            self.assertIn("回复给 target user", response.text)
+
+    def test_collector_post_preview_hides_untrusted_media_when_detail_screenshot_exists(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            db_path = tmp_path / "falcon.sqlite3"
+            asset_root = tmp_path / "runtime" / "collector" / "xhs-untrusted-media" / "assets"
+            asset_root.mkdir(parents=True)
+            (asset_root / "detail.png").write_bytes(b"detail screenshot")
+            (asset_root / "background-card.jpg").write_bytes(b"wrong background card")
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="xhs-untrusted-media",
+                    platform="xiaohongshu",
+                    keyword="AI cover",
+                    profile="default",
+                    status="completed",
+                )
+            )
+            post_id = repo.save_collected_post(
+                CollectedPost(
+                    run_id="xhs-untrusted-media",
+                    platform="xiaohongshu",
+                    keyword="AI cover",
+                    title="Untrusted media sample",
+                    content="Use the detail screenshot only.",
+                    url="https://www.xiaohongshu.com/explore/untrusted-media",
+                    author="creator",
+                    detail_fingerprint="xiaohongshu:untrusted-media",
+                )
+            )
+            asset_id = repo.save_media_asset(
+                MediaAsset(
+                    run_id="xhs-untrusted-media",
+                    post_id=post_id,
+                    path="runtime/collector/xhs-untrusted-media/assets/background-card.jpg",
+                    asset_type="image",
+                    sha256="wrongmedia",
+                )
+            )
+            evidence_id = repo.save_evidence(
+                Evidence(
+                    run_id="xhs-untrusted-media",
+                    evidence_type="detail_screenshot",
+                    path="runtime/collector/xhs-untrusted-media/assets/detail.png",
+                    scope="detail_screenshot",
+                    payload_json='{"post_id": "xiaohongshu:untrusted-media"}',
+                )
+            )
+            client = TestClient(create_app(db_path))
+
+            response = client.get(f"/collector/runs/xhs-untrusted-media/posts/{post_id}")
+
+            self.assertEqual(response.status_code, 200)
+            self.assertIn(f'src="/collector/runs/xhs-untrusted-media/evidences/{evidence_id}"', response.text)
+            self.assertNotIn(f'src="/collector/runs/xhs-untrusted-media/assets/{asset_id}"', response.text)
+            self.assertNotIn("wrongmedia", response.text)
+
     def test_collector_pages_display_chinese_status_and_event_vocabulary(self):
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "falcon.sqlite3"
@@ -665,6 +2089,24 @@ class WebAppTest(unittest.TestCase):
                     message="Collector run completed",
                 )
             )
+            repo.append_collection_event(
+                CollectionEvent(
+                    run_id="xhs-localized",
+                    sequence=2,
+                    scope="dry_run_fixture",
+                    event="record_collected",
+                    level="info",
+                    message="Collected fixture record",
+                )
+            )
+            repo.save_evidence(
+                Evidence(
+                    run_id="xhs-localized",
+                    evidence_type="dry_run_fixture",
+                    path="runtime/collector/xhs-localized/evidence.json",
+                    scope="dry_run_fixture",
+                )
+            )
             client = TestClient(create_app(db_path))
 
             overview = client.get("/collector")
@@ -679,6 +2121,9 @@ class WebAppTest(unittest.TestCase):
             self.assertIn("任务完成", detail.text)
             self.assertIn("信息", detail.text)
             self.assertIn("采集任务已完成", detail.text)
+            self.assertIn("采集合同", detail.text)
+            self.assertIn("已生成采集合同记录", detail.text)
+            self.assertNotIn("测试合同", detail.text)
             for raw in [
                 ">completed<",
                 "sidecar completed",

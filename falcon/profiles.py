@@ -87,6 +87,7 @@ def launch_profile_login(
     profile_root: Path,
     profile_path: Path,
     project_root: Path,
+    url: str = "",
     node_executable: str = "node",
 ):
     platform = safe_collector_identifier(platform, "platform")
@@ -115,6 +116,9 @@ def launch_profile_login(
         "--profile-path",
         str(profile_path),
     ]
+    target_url = url or SUPPORTED_PROFILE_LOGIN_PLATFORMS[platform]
+    if target_url:
+        command.extend(["--url", target_url])
     process = subprocess.Popen(
         command,
         cwd=str(project_root),
@@ -127,6 +131,7 @@ def launch_profile_login(
         "platform": platform,
         "profile": profile,
         "profile_path": profile_path,
+        "url": target_url,
         "command": command,
     }
 

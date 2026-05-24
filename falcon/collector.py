@@ -29,6 +29,17 @@ COLLECTOR_STATUSES = {
 }
 COLLECTOR_IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 METRIC_NUMBER_PATTERN = re.compile(r"(\d+(?:\.\d+)?)\s*([万萬wW千kK]?)")
+TERMINAL_EVENTS = {"run_failed", "manual_action_required", "run_completed"}
+PROGRESS_EVENTS = {
+    "records_collected",
+    "record_collected",
+    "detail_collected",
+    "detail_screenshot_captured",
+    "detail_opening",
+    "browser_launching",
+    "profile_loaded",
+    "run_started",
+}
 
 
 def safe_collector_identifier(value: str, field_name: str) -> str:
@@ -63,6 +74,17 @@ def metric_value(metrics: Dict[str, object], *names: str) -> str:
             if cleaned:
                 return cleaned
     return ""
+
+
+def _event_order_key(event: CollectionEvent) -> tuple[int, str, int]:
+    return (event.event_id or 0, event.created_at or "", event.sequence)
+
+
+def _latest_event(events: List[CollectionEvent], names: Optional[set[str]] = None) -> Optional[CollectionEvent]:
+    candidates = [event for event in events if names is None or event.event in names]
+    if not candidates:
+        return None
+    return max(candidates, key=_event_order_key)
 
 
 @dataclass
@@ -160,17 +182,16 @@ class CollectorService:
         )
         self.ingest_outputs(run_id, paths.events_path, paths.records_path)
         events = self.repo.list_collection_events(run_id)
-        failed_event = next((event for event in reversed(events) if event.event == "run_failed"), None)
-        manual_event = next((event for event in reversed(events) if event.event == "manual_action_required"), None)
+        latest_terminal = _latest_event(events, TERMINAL_EVENTS)
 
-        if manual_event:
+        if latest_terminal and latest_terminal.event == "manual_action_required":
             self.repo.update_collection_run(
                 run_id,
                 status="manual_action_required",
                 progress=50,
-                current_step=manual_event.message,
+                current_step=latest_terminal.message,
             )
-        elif result.returncode == 0 and not failed_event:
+        elif result.returncode == 0 and (latest_terminal is None or latest_terminal.event == "run_completed"):
             self.repo.update_collection_run(
                 run_id,
                 status="completed",
@@ -179,7 +200,83 @@ class CollectorService:
                 completed_at=utc_now_iso(),
             )
         else:
-            reason = failed_event.message if failed_event else (result.stderr.strip() or f"sidecar exited {result.returncode}")
+            reason = (
+                latest_terminal.message
+                if latest_terminal and latest_terminal.event == "run_failed"
+                else (result.stderr.strip() or f"sidecar exited {result.returncode}")
+            )
+            self.repo.update_collection_run(
+                run_id,
+                status="failed",
+                current_step="采集器失败",
+                failed_reason=reason,
+            )
+        current = self.repo.get_collection_run(run_id)
+        if current is None:
+            raise RuntimeError(f"Collector run disappeared: {run_id}")
+        return current
+
+    def start_prepared_run(self, run_id: str, headed: bool = True, dry_run: bool = False) -> CollectionRun:
+        run_id = safe_collector_identifier(run_id, "run_id")
+        run = self.repo.get_collection_run(run_id)
+        if run is None:
+            raise ValueError(f"Unknown collector run: {run_id}")
+        if run.status in {"completed", "cancelled"}:
+            raise ValueError(f"Collector run cannot be started from status: {run.status}")
+
+        paths = self.prepare_run_request(run, headed=headed, dry_run=dry_run)
+        self.repo.update_collection_run(
+            run_id,
+            status="running",
+            progress=max(run.progress, 5),
+            current_step="采集器已启动",
+        )
+
+        result = subprocess.run(
+            [
+                self.node_executable,
+                str(self.sidecar_script),
+                "--request",
+                str(paths.request_path),
+                "--events",
+                str(paths.events_path),
+                "--output",
+                str(paths.records_path),
+                "--assets",
+                str(paths.assets_dir),
+                "--profile",
+                str(paths.profile_dir),
+            ],
+            cwd=self._project_root(),
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.ingest_outputs(run_id, paths.events_path, paths.records_path)
+        events = self.repo.list_collection_events(run_id)
+        latest_terminal = _latest_event(events, TERMINAL_EVENTS)
+
+        if latest_terminal and latest_terminal.event == "manual_action_required":
+            self.repo.update_collection_run(
+                run_id,
+                status="manual_action_required",
+                progress=50,
+                current_step=latest_terminal.message,
+            )
+        elif result.returncode == 0 and (latest_terminal is None or latest_terminal.event == "run_completed"):
+            self.repo.update_collection_run(
+                run_id,
+                status="completed",
+                progress=100,
+                current_step="采集器已完成",
+                completed_at=utc_now_iso(),
+            )
+        else:
+            reason = (
+                latest_terminal.message
+                if latest_terminal and latest_terminal.event == "run_failed"
+                else (result.stderr.strip() or f"sidecar exited {result.returncode}")
+            )
             self.repo.update_collection_run(
                 run_id,
                 status="failed",
@@ -269,6 +366,25 @@ class CollectorService:
                         published_at=str(record.get("published_at", "")),
                         like_count=metric_value(metrics, "likes", "like_count", "likes_text", "like_text")
                         or clean_metric_count(record.get("like_count") or record.get("likes")),
+                        collect_count=metric_value(
+                            metrics,
+                            "collects",
+                            "collect_count",
+                            "collects_text",
+                            "collect_text",
+                            "favorites",
+                            "favorite_count",
+                            "favorite_text",
+                            "stars",
+                            "saves",
+                            "save_count",
+                        )
+                        or clean_metric_count(
+                            record.get("collect_count")
+                            or record.get("collects")
+                            or record.get("favorite_count")
+                            or record.get("favorites")
+                        ),
                         comment_count=metric_value(metrics, "comments", "comment_count", "comments_text", "comment_text")
                         or clean_metric_count(record.get("comment_count") or record.get("comments")),
                         detail_fingerprint=str(record.get("detail_fingerprint") or external_id),
@@ -307,6 +423,8 @@ class CollectorService:
                     like_count=clean_metric_count(record.get("like_count") or record.get("likes"))
                     or metric_value(metrics, "likes", "like_count", "likes_text", "like_text"),
                     comment_rank=clean_metric_count(record.get("comment_rank")) or str(record.get("comment_rank", "")),
+                    comment_type=str(record.get("comment_type") or "comment"),
+                    reply_to=str(record.get("reply_to") or ""),
                 )
             )
 
@@ -340,39 +458,44 @@ class CollectorService:
         if not events:
             return
 
-        failed_event = next((event for event in reversed(events) if event.event == "run_failed"), None)
-        manual_event = next((event for event in reversed(events) if event.event == "manual_action_required"), None)
-        completed_event = next((event for event in reversed(events) if event.event == "run_completed"), None)
-        started_event = next((event for event in reversed(events) if event.event == "run_started"), None)
+        latest_event = _latest_event(events)
+        latest_progress_event = _latest_event(events, PROGRESS_EVENTS)
 
-        if failed_event:
+        if latest_event and latest_event.event == "run_failed":
+            progress = run.progress
+            if latest_progress_event:
+                progress = max(progress, _progress_for_event(latest_progress_event, run))
             self.repo.update_collection_run(
                 run_id,
                 status="failed",
-                current_step=failed_event.message,
-                failed_reason=failed_event.message,
+                progress=progress,
+                current_step=latest_event.message,
+                failed_reason=latest_event.message,
             )
-        elif manual_event:
+        elif latest_event and latest_event.event == "manual_action_required":
+            progress = run.progress
+            if latest_progress_event:
+                progress = max(progress, _progress_for_event(latest_progress_event, run))
             self.repo.update_collection_run(
                 run_id,
                 status="manual_action_required",
-                progress=max(run.progress, 50),
-                current_step=manual_event.message,
+                progress=max(progress, 50),
+                current_step=latest_event.message,
             )
-        elif completed_event:
+        elif latest_event and latest_event.event == "run_completed":
             self.repo.update_collection_run(
                 run_id,
                 status="completed",
                 progress=100,
-                current_step=completed_event.message or "采集器已完成",
+                current_step="采集器已完成",
                 completed_at=run.completed_at or utc_now_iso(),
             )
-        elif started_event:
+        elif latest_progress_event:
             self.repo.update_collection_run(
                 run_id,
                 status="running",
-                progress=max(run.progress, 5),
-                current_step=started_event.message or "采集器已启动",
+                progress=max(run.progress, _progress_for_event(latest_progress_event, run)),
+                current_step=latest_progress_event.message or "采集器已启动",
             )
 
     def _new_run_id(self, platform: str) -> str:
@@ -387,3 +510,58 @@ class CollectorService:
         child_resolved = Path(child).resolve()
         if child_resolved != root_resolved and root_resolved not in child_resolved.parents:
             raise ValueError(f"Collector path escapes root: {child}")
+
+
+def _progress_for_event(event: object, run: Optional[CollectionRun] = None) -> int:
+    event_name = getattr(event, "event", str(event))
+    payload = _payload_for_event(event)
+    if event_name in {"detail_opening", "detail_collected"}:
+        post_progress = _post_progress_for_payload(
+            payload,
+            fallback_total=run.max_posts if run else 0,
+            collected=event_name == "detail_collected",
+        )
+        if post_progress is not None:
+            return post_progress
+    return {
+        "run_started": 5,
+        "profile_loaded": 10,
+        "browser_launching": 15,
+        "detail_opening": 35,
+        "detail_collected": 65,
+        "detail_screenshot_captured": 55,
+        "record_collected": 65,
+        "records_collected": 95,
+    }.get(event_name, 5)
+
+
+def _payload_for_event(event: object) -> Dict[str, object]:
+    payload_json = getattr(event, "payload_json", "")
+    if not payload_json:
+        return {}
+    try:
+        payload = json.loads(payload_json)
+    except (TypeError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _post_progress_for_payload(
+    payload: Dict[str, object],
+    fallback_total: int = 0,
+    collected: bool = False,
+) -> Optional[int]:
+    try:
+        post_index = int(payload.get("post_index") or 0)
+    except (TypeError, ValueError):
+        post_index = 0
+    try:
+        post_total = int(payload.get("post_total") or fallback_total or 0)
+    except (TypeError, ValueError):
+        post_total = 0
+    if post_index <= 0 or post_total <= 0:
+        return None
+    post_index = min(post_index, post_total)
+    completed_posts = post_index if collected else max(0, post_index - 1)
+    progress = 15 + round((completed_posts / post_total) * 75)
+    return max(15, min(90, progress))

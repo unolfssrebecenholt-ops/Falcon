@@ -129,6 +129,7 @@ class FalconRepository:
                     author TEXT NOT NULL DEFAULT '',
                     published_at TEXT NOT NULL DEFAULT '',
                     like_count TEXT NOT NULL DEFAULT '',
+                    collect_count TEXT NOT NULL DEFAULT '',
                     comment_count TEXT NOT NULL DEFAULT '',
                     detail_fingerprint TEXT NOT NULL DEFAULT '',
                     collected_at TEXT NOT NULL
@@ -149,6 +150,8 @@ class FalconRepository:
                     content TEXT NOT NULL,
                     like_count TEXT NOT NULL DEFAULT '',
                     comment_rank TEXT NOT NULL DEFAULT '',
+                    comment_type TEXT NOT NULL DEFAULT 'comment',
+                    reply_to TEXT NOT NULL DEFAULT '',
                     collected_at TEXT NOT NULL
                 );
                 CREATE UNIQUE INDEX IF NOT EXISTS idx_collected_comments_run_post_content
@@ -187,8 +190,11 @@ class FalconRepository:
             self._ensure_column(conn, "raw_items", "comment_rank", "TEXT NOT NULL DEFAULT ''")
             self._ensure_column(conn, "collection_runs", "completed_at", "TEXT NOT NULL DEFAULT ''")
             self._ensure_column(conn, "collection_runs", "failed_reason", "TEXT NOT NULL DEFAULT ''")
+            self._ensure_column(conn, "collected_posts", "collect_count", "TEXT NOT NULL DEFAULT ''")
             self._ensure_column(conn, "collected_posts", "comment_count", "TEXT NOT NULL DEFAULT ''")
             self._ensure_column(conn, "collected_posts", "detail_fingerprint", "TEXT NOT NULL DEFAULT ''")
+            self._ensure_column(conn, "collected_comments", "comment_type", "TEXT NOT NULL DEFAULT 'comment'")
+            self._ensure_column(conn, "collected_comments", "reply_to", "TEXT NOT NULL DEFAULT ''")
 
     def create_collection_run(self, run: CollectionRun) -> str:
         with self._connect() as conn:
@@ -282,8 +288,8 @@ class FalconRepository:
                 """
                 INSERT OR IGNORE INTO collected_posts (
                     run_id, platform, keyword, title, content, url, author, published_at,
-                    like_count, comment_count, detail_fingerprint, collected_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    like_count, collect_count, comment_count, detail_fingerprint, collected_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     post.run_id,
@@ -295,6 +301,7 @@ class FalconRepository:
                     post.author,
                     post.published_at,
                     post.like_count,
+                    post.collect_count,
                     post.comment_count,
                     post.detail_fingerprint,
                     post.collected_at,
@@ -323,8 +330,9 @@ class FalconRepository:
             cursor = conn.execute(
                 """
                 INSERT OR IGNORE INTO collected_comments (
-                    post_id, run_id, commenter, content, like_count, comment_rank, collected_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    post_id, run_id, commenter, content, like_count, comment_rank,
+                    comment_type, reply_to, collected_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     comment.post_id,
@@ -333,6 +341,8 @@ class FalconRepository:
                     comment.content,
                     comment.like_count,
                     comment.comment_rank,
+                    comment.comment_type,
+                    comment.reply_to,
                     comment.collected_at,
                 ),
             )
@@ -796,6 +806,7 @@ class FalconRepository:
             author=row["author"],
             published_at=row["published_at"],
             like_count=row["like_count"],
+            collect_count=row["collect_count"],
             comment_count=row["comment_count"],
             detail_fingerprint=row["detail_fingerprint"],
             collected_at=row["collected_at"],
@@ -810,6 +821,8 @@ class FalconRepository:
             content=row["content"],
             like_count=row["like_count"],
             comment_rank=row["comment_rank"],
+            comment_type=row["comment_type"],
+            reply_to=row["reply_to"],
             collected_at=row["collected_at"],
         )
 
