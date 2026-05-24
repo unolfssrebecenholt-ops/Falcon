@@ -2,6 +2,22 @@
 
 本文件是 Windows 和 M1 Mac 双机开发的接手入口。每次提交前必须更新。
 
+## 2026-05-25 Chinese README handoff refresh
+
+- 本次结合当前项目目标和开发进度重写 `README.md`：
+  - README 改为中文项目入口，说明 Falcon Agent 的本地内容运营代理定位、人工确认执行边界、当前 `main` 单分支交接方式。
+  - 补充当前已落地能力：小红书优先采集、采集工作台页面、profile 登录与继续采集、样本预览、证据与资产、本地分析、审阅和执行预览基础模块。
+  - 同步说明最新相关性策略：采集样本默认视为优质数据并进入主分析，人工校准用于降级为参考或跳过。
+  - 更新 Windows PowerShell 和 macOS 的启动、doctor、数据库初始化、Web 工作台、关键词、分析报告、profile 登录和 sidecar 检查命令。
+  - 明确 `.env`、cookies、tokens、验证码、browser profile、runtime 数据和生成报告不进入 Git。
+- 验证结果：
+  - `py -3 -m unittest discover -s tests`：158 tests passed。
+  - `py -3 -m compileall falcon`：passed。
+  - `node --check sidecar\collector\index.mjs`、`node --check sidecar\collector\xiaohongshu.mjs`、`node --check sidecar\collector\xiaohongshu-normalize.mjs`、`node --check sidecar\collector\profile-login.mjs`：passed。
+  - `git diff --check`：无空白错误；Windows 下提示 README 工作区 LF 后续会被 Git 转为 CRLF。
+- Windows/Mac 接手说明：
+  - 本次只改 README 和进度文档，未新增依赖、schema、采集 sidecar 行为或运行数据。
+
 ## 2026-05-25 Default excellent relevance policy
 
 - 本次按用户要求清除采集相关性启发式评分：
