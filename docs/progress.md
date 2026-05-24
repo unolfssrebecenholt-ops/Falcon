@@ -2,6 +2,18 @@
 
 本文件是 Windows 和 M1 Mac 双机开发的接手入口。每次提交前必须更新。
 
+## 2026-05-24 Collector overview queue health polish
+
+- 本次微调采集总览的信息密度：
+  - 队列健康面板合并运行中、待人工、可复跑、待启动四个关键指标。
+  - 队列健康面板内补充“配置任务 / 启动队列 / 环境自检”三个直接动作，减少页面跳转和状态散落。
+  - 任务创建表单布局收紧为 Profile 与关键词两列；平台选择和汇总区域改为更稳的响应式网格，避免窄屏挤压。
+- 验证结果：
+  - `py -3 -m unittest tests.test_web_app.WebAppTest.test_collector_overview_merges_queue_health_and_collection_rhythm tests.test_web_app -v`：64 tests passed。
+  - `py -3 -m unittest discover -s tests`：135 tests passed。
+- Windows/Mac 接手说明：
+  - 本次只涉及 Web 模板、CSS 和 Web 单测；未引入依赖，也不涉及本地 runtime/profile 数据。
+
 ## 2026-05-24 Collector manual resume and profile dispatch closeout
 
 - 本次收口 1-5 项采集层目标：
@@ -271,6 +283,7 @@
 最近一次验证：
 
 ```powershell
+py -3 -m unittest tests.test_web_app.WebAppTest.test_collector_overview_merges_queue_health_and_collection_rhythm tests.test_web_app -v
 py -3 -m unittest discover -s tests
 py -3 -m compileall falcon
 node --check sidecar\collector\index.mjs
@@ -284,7 +297,7 @@ py -3 -m falcon --db data\falcon.sqlite3 collector-run --platform xiaohongshu --
 
 结果：
 
-- 2026-05-24 Windows PowerShell：134 tests passed.
+- 2026-05-24 Windows PowerShell：Web suite 64 tests passed；baseline 135 tests passed.
 - `py -3 -m compileall falcon` passed.
 - Node sidecar syntax checks passed for `index.mjs`、`xiaohongshu.mjs`、`xiaohongshu-normalize.mjs`、`profile-login.mjs`。
 - `falcon doctor` Required checks OK；GPT-5.5 relay / Image2 relay 仅为可选提醒。

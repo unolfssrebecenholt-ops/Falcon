@@ -107,14 +107,22 @@
       </div>
     </section>
 
-    <section class="panel">
+    <section class="panel queue-health-panel">
       <div class="section-head">
         <div>
           <h2>队列健康</h2>
-          <p class="muted">把可行动的阻塞点收进一张紧凑面板，避免状态数字散落。</p>
+          <p class="muted">队列态势、Profile 锁和启动候选集中判断。</p>
         </div>
         <span class="pill">{{ queue_health.manual_label }}</span>
       </div>
+
+      <div class="health-metrics" aria-label="队列健康指标">
+        <div><span>运行中</span><strong>{{ stats.running_runs }}</strong></div>
+        <div><span>待人工</span><strong>{{ queue_health.manual_count }}</strong></div>
+        <div><span>可复跑</span><strong>{{ queue_health.failed_count }}</strong></div>
+        <div><span>待启动</span><strong>{{ queue_health.queued_count }}</strong></div>
+      </div>
+
       <div class="health-list">
         <article class="health-item warn">
           <span class="health-mark" aria-hidden="true"></span>
@@ -131,6 +139,14 @@
           <div><strong>{{ queue_health.queued_label }}</strong><p>未启动任务不占用浏览器资源，可以按 profile 串行启动。</p></div>
           <span class="status-badge status-completed"><i></i>可用</span>
         </article>
+      </div>
+
+      <div class="health-actions">
+        <a class="health-action" href="#collector-create-form"><span>配置任务</span><strong>Profile + 关键词</strong></a>
+        <form class="health-action-form" action="/collector/queue/start" method="post">
+          <button class="health-action" type="submit"><span>启动队列</span><strong>{{ queue_health.queued_count }} 个候选</strong></button>
+        </form>
+        <a class="health-action" href="/collector/environment"><span>环境自检</span><strong>{{ 'READY' if environment_ready else 'ACTION' }}</strong></a>
       </div>
     </section>
   </div>

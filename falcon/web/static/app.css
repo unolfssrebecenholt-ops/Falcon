@@ -457,9 +457,9 @@ p {
 
 .overview-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1.08fr) minmax(340px, 0.92fr);
   gap: 18px;
-  align-items: stretch;
+  align-items: start;
 }
 
 .overview-column {
@@ -815,6 +815,77 @@ p {
 .health-item.failed .health-mark {
   color: var(--danger);
   box-shadow: 0 0 14px rgba(255, 107, 139, 0.42);
+}
+
+.queue-health-panel {
+  display: grid;
+  align-content: start;
+  gap: 16px;
+}
+
+.health-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.health-metrics div {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  background: rgba(7, 11, 9, 0.56);
+}
+
+.health-metrics span,
+.health-action span {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.health-metrics strong {
+  display: block;
+  margin-top: 5px;
+  color: var(--ink-strong);
+  font-size: 24px;
+  line-height: 1;
+}
+
+.health-action strong {
+  color: var(--ink-strong);
+}
+
+.health-actions {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+.health-action-form {
+  display: contents;
+}
+
+.health-action {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  min-height: 58px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  color: inherit;
+  background: rgba(8, 13, 10, 0.72);
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+  font: inherit;
+}
+
+.health-action:hover {
+  border-color: rgba(166, 255, 99, 0.38);
+  background: rgba(166, 255, 99, 0.08);
 }
 
 .focus-panel {
@@ -1575,7 +1646,7 @@ textarea:focus {
 }
 
 .task-config-grid {
-  grid-template-columns: repeat(12, minmax(0, 1fr));
+  grid-template-columns: minmax(170px, 0.75fr) minmax(240px, 1.25fr);
   align-items: start;
 }
 
@@ -1590,17 +1661,17 @@ textarea:focus {
 }
 
 .profile-field {
-  grid-column: span 4;
-  max-width: 360px;
+  grid-column: auto;
+  max-width: none;
 }
 
 .keyword-field {
-  grid-column: span 8;
-  max-width: 720px;
+  grid-column: auto;
+  max-width: none;
 }
 
 .compact-field {
-  grid-column: span 3;
+  grid-column: auto;
   max-width: 220px;
 }
 
@@ -1651,7 +1722,7 @@ textarea:focus {
 
 .platform-picker {
   display: grid;
-  grid-template-columns: repeat(4, minmax(160px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr));
   gap: 12px;
 }
 
@@ -1760,7 +1831,7 @@ textarea:focus {
 
 .create-summary-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0 18px;
   margin-top: 8px;
   border-top: 1px solid var(--line);
@@ -2323,7 +2394,6 @@ textarea:focus {
 }
 
 @media (max-width: 1180px) {
-  .overview-grid,
   .account-board,
   .platform-picker {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2331,6 +2401,16 @@ textarea:focus {
 
   .status-strip {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 1100px) {
+  .overview-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .overview-column-left {
+    grid-template-rows: none;
   }
 }
 
@@ -2416,6 +2496,10 @@ textarea:focus {
     max-width: none;
   }
 
+  .health-actions {
+    grid-template-columns: 1fr;
+  }
+
   .page-header,
   .section-head,
   .run-state-banner,
@@ -2447,6 +2531,10 @@ textarea:focus {
   .queue-filters,
   .keyword-entry {
     display: grid;
+  }
+
+  .health-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .date-picker,

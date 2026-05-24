@@ -299,6 +299,52 @@ class WebAppTest(unittest.TestCase):
             self.assertLess(response.text.index('id="collector-create-form"'), response.text.index('class="panel queue-panel"'))
             self.assertNotIn('href="/collector/create"', response.text)
 
+    def test_collector_overview_merges_queue_health_and_collection_rhythm(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "falcon.sqlite3"
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            for run_id, status in [
+                ("xhs-rhythm-running", "running"),
+                ("xhs-rhythm-manual", "manual_action_required"),
+                ("xhs-rhythm-failed", "failed"),
+                ("xhs-rhythm-queued", "queued"),
+            ]:
+                repo.create_collection_run(
+                    CollectionRun(
+                        run_id=run_id,
+                        platform="xiaohongshu",
+                        keyword=f"keyword-{status}",
+                        profile="default",
+                        status=status,
+                    )
+                )
+            client = TestClient(create_app(db_path))
+
+            response = client.get("/collector")
+            css = (Path(__file__).resolve().parents[1] / "falcon" / "web" / "static" / "app.css").read_text(
+                encoding="utf-8"
+            )
+
+            self.assertEqual(response.status_code, 200)
+            self.assertIn('class="panel queue-health-panel"', response.text)
+            self.assertIn('class="health-metrics"', response.text)
+            self.assertIn('class="health-actions"', response.text)
+            self.assertNotIn('class="panel rhythm-panel"', response.text)
+            self.assertNotIn("采集节奏", response.text)
+            self.assertIn("运行中", response.text)
+            self.assertIn("待人工", response.text)
+            self.assertIn("待启动", response.text)
+            self.assertIn('href="#collector-create-form"', response.text)
+            self.assertIn('action="/collector/queue/start"', response.text)
+            self.assertLess(response.text.index("队列健康"), response.text.index('class="panel queue-panel"'))
+            self.assertIn(".queue-health-panel", css)
+            self.assertIn(".health-metrics", css)
+            self.assertIn("grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr))", css)
+            self.assertIn("grid-template-columns: minmax(170px, 0.75fr) minmax(240px, 1.25fr)", css)
+            self.assertIn(".health-actions {\n  display: grid;\n  grid-template-columns: 1fr;", css)
+            self.assertNotIn("grid-template-columns: repeat(4, minmax(160px, 1fr));", css)
+
     def test_collector_create_get_redirects_to_overview_form_anchor(self):
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "falcon.sqlite3"
