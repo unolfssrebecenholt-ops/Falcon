@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-const DATE_PATTERN = /(?:^|\s)(今天|昨天|前天|\d{1,2}[-/.]\d{1,2}|\d+\s*(?:秒|分钟|小时|天|周|个月|年)前)(?:\s|$)/;
+const DATE_PATTERN = /(?:^|\s)(今天|昨天|前天|\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2}|\d+\s*(?:秒|分钟|小时|天|周|个月|年)前)(?:\s|$)/;
 const METRIC_HINT_PATTERN = /(赞|点赞|喜欢|收藏|评论|like|likes|comment|comments)/i;
 
 export function normalizeWhitespace(value) {

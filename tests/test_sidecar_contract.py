@@ -88,6 +88,41 @@ console.log(JSON.stringify({
         self.assertEqual(payload["likes"], 12000)
         self.assertEqual(payload["duplicateCount"], 1)
 
+    def test_xiaohongshu_normalizer_preserves_full_search_card_dates(self):
+        script = r"""
+import { normalizeSearchCard } from "./sidecar/collector/xiaohongshu-normalize.mjs";
+
+const card = normalizeSearchCard({
+  href: "https://www.xiaohongshu.com/explore/68c66840000000001c03f6ef",
+  text: "AI头像制作的一些靠谱的风格【附提示词】\nAILong人工智能工具箱\n2025-09-14\n162",
+  title: "AI头像制作的一些靠谱的风格【附提示词】",
+  author: "AILong人工智能工具箱",
+  likesText: "162",
+});
+
+console.log(JSON.stringify({
+  title: card.title,
+  author: card.author,
+  publishedAt: card.published_at,
+  likes: card.metrics.likes,
+}));
+"""
+        result = subprocess.run(
+            ["node", "--input-type=module", "-e", script],
+            cwd=ROOT,
+            text=True,
+            encoding="utf-8",
+            capture_output=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["title"], "AI头像制作的一些靠谱的风格【附提示词】")
+        self.assertEqual(payload["author"], "AILong人工智能工具箱")
+        self.assertEqual(payload["publishedAt"], "2025-09-14")
+        self.assertEqual(payload["likes"], 162)
+
     def test_xiaohongshu_detail_screenshot_uses_viewport_fallback_not_full_page(self):
         script = r"""
 import { captureDetailScreenshot } from "./sidecar/collector/xiaohongshu.mjs";

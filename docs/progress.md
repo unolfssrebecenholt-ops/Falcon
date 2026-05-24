@@ -2,6 +2,24 @@
 
 本文件是 Windows 和 M1 Mac 双机开发的接手入口。每次提交前必须更新。
 
+## 2026-05-24 AI avatar live collection quality pass
+
+- 本次按用户确认的登录态，用关键词 `AI头像` 做真实采集质量闭环：
+  - 第一轮真实采集：`max-posts 8 --max-comments-per-post 5`，run id `xiaohongshu-20260524-085639-d8740b`，采到 8 posts、39 comments、50 media assets、18 evidences，资产目录 68 个文件。
+  - 审计发现 8 条帖子中 6 条 `published_at` 为空；根因是搜索卡片 normalizer 只识别 `03-12` 这类月日，未识别 `2025-09-14` 这类完整日期。
+  - 新增 sidecar 合约测试覆盖完整日期，并修正小红书搜索卡片日期模式。
+  - 第二轮真实采集：`max-posts 5 --max-comments-per-post 5`，run id `xiaohongshu-20260524-090257-c0f4a4`，采到 5 posts、23 comments、34 media assets、12 evidences，资产目录 46 个文件；5 条帖子全部保留发布时间，正文、作者、互动数、媒体、详情截图和字段快照均齐。
+  - 本地样本预览路由 `/collector/runs/xiaohongshu-20260524-090257-c0f4a4/posts/65` 返回 200，能渲染轮播和资产清单。
+- 验证结果：
+  - `py -3 -m unittest tests.test_sidecar_contract.SidecarContractTests.test_xiaohongshu_normalizer_preserves_full_search_card_dates -v`：先失败，修复后通过。
+  - `py -3 -m unittest tests.test_sidecar_contract -v`：21 tests passed。
+  - `py -3 -m unittest discover -s tests`：136 tests passed。
+  - `py -3 -m compileall falcon`：passed。
+  - `node --check sidecar\collector\xiaohongshu-normalize.mjs`、`node --check sidecar\collector\xiaohongshu.mjs`：passed。
+- 已知问题：
+  - `AI头像` 搜索结果中仍会混入“AI插画/宇宙艺术/像素风咒语”等邻近内容；采集层已能保留结构化数据，下一步应在分析层或采集后过滤中做相关性评分。
+  - 真实 run 产物仍只作为本机验证证据，`runtime/collector/` 与 `data/` 不进入 Git。
+
 ## 2026-05-24 Collector overview queue health polish
 
 - 本次微调采集总览的信息密度：
@@ -283,6 +301,8 @@
 最近一次验证：
 
 ```powershell
+py -3 -m unittest tests.test_sidecar_contract.SidecarContractTests.test_xiaohongshu_normalizer_preserves_full_search_card_dates -v
+py -3 -m unittest tests.test_sidecar_contract -v
 py -3 -m unittest tests.test_web_app.WebAppTest.test_collector_overview_merges_queue_health_and_collection_rhythm tests.test_web_app -v
 py -3 -m unittest discover -s tests
 py -3 -m compileall falcon
@@ -291,16 +311,20 @@ node --check sidecar\collector\xiaohongshu.mjs
 node --check sidecar\collector\xiaohongshu-normalize.mjs
 node --check sidecar\collector\profile-login.mjs
 py -3 -m falcon doctor --project-root . --ensure-dirs
+py -3 -m falcon --db data\falcon.sqlite3 collector-run --platform xiaohongshu --profile default --keyword "AI头像" --max-posts 8 --max-comments-per-post 5
+py -3 -m falcon --db data\falcon.sqlite3 collector-run --platform xiaohongshu --profile default --keyword "AI头像" --max-posts 5 --max-comments-per-post 5
 py -3 -m falcon --db data\falcon.sqlite3 collector-dry-run --platform xiaohongshu --profile default --keyword "小红书封面" --max-posts 1 --max-comments-per-post 1
 py -3 -m falcon --db data\falcon.sqlite3 collector-run --platform xiaohongshu --profile default --keyword "小红书封面" --max-posts 1 --max-comments-per-post 1
 ```
 
 结果：
 
-- 2026-05-24 Windows PowerShell：Web suite 64 tests passed；baseline 135 tests passed.
+- 2026-05-24 Windows PowerShell：sidecar contract 21 tests passed；baseline 136 tests passed.
 - `py -3 -m compileall falcon` passed.
 - Node sidecar syntax checks passed for `index.mjs`、`xiaohongshu.mjs`、`xiaohongshu-normalize.mjs`、`profile-login.mjs`。
 - `falcon doctor` Required checks OK；GPT-5.5 relay / Image2 relay 仅为可选提醒。
+- `AI头像` real browser smoke completed：`xiaohongshu-20260524-085639-d8740b` 产出 8 posts / 39 comments / 50 media assets / 18 evidences；发现完整日期缺口。
+- `AI头像` fixed real browser smoke completed：`xiaohongshu-20260524-090257-c0f4a4` 产出 5 posts / 23 comments / 34 media assets / 12 evidences；发布时间、正文、作者、互动数、媒体、截图、字段快照均齐。
 - dry-run smoke completed：`xiaohongshu-20260524-080533-0018fc`。
 - real browser smoke completed：`xiaohongshu-20260524-080555-34ce2d`，`records.jsonl` 14 行，资产目录 12 个文件。
 
