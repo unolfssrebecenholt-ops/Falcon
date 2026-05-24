@@ -25,6 +25,77 @@
   </dl>
 </section>
 
+<section class="panel relevance-detail-panel">
+  <div class="section-head">
+    <div>
+      <h2>相关性评估</h2>
+      <p class="muted">采集样本默认视为优质并进入主分析；人工校准会优先生效，但不覆盖默认记录。</p>
+    </div>
+    <span class="relevance-badge relevance-{{ relevance.effective_level }}">{{ relevance.effective_label }} {% if relevance.score >= 0 %}{{ relevance.score }}{% endif %}</span>
+  </div>
+  {% set effective_score = relevance.score if relevance.score >= 0 else 0 %}
+  <div class="relevance-score-meter" style="--score: {{ effective_score }}%;">
+    <div>
+      <span>当前有效评分</span>
+      <strong>{{ relevance.score if relevance.score >= 0 else "待评分" }}</strong>
+    </div>
+    <div class="score-track" aria-hidden="true"><span></span></div>
+    <small>{{ relevance.effective_label }} · {{ relevance.role_label }}</small>
+  </div>
+  <div class="relevance-detail-grid">
+    <div class="relevance-verdict">
+      <strong>默认判定</strong>
+      <span>{{ relevance.default_level|relevance_label }}</span>
+      <p>{{ relevance.reason }}</p>
+    </div>
+    <div class="relevance-verdict">
+      <strong>人工修正</strong>
+      {% if relevance.has_manual %}
+      <span>{{ relevance.manual_level|relevance_label }}</span>
+      <p>{{ relevance.manual_note or "已人工调整等级。" }}</p>
+      {% else %}
+      <span>未修正</span>
+      <p>当前采用默认优质。需要降级或剔除时，在这里人工校准。</p>
+      {% endif %}
+    </div>
+    <div class="relevance-verdict">
+      <strong>下游处理</strong>
+      <span>{{ relevance.role_label }}</span>
+      <p>优质进入主分析；人工改为中等后作为参考，改为劣质后只保留证据。</p>
+    </div>
+  </div>
+  <div class="relevance-breakdown" aria-label="相关性分数拆解">
+    {% for part in relevance.breakdown %}
+    <div class="relevance-breakdown-item">
+      <span>{{ part.label }}</span>
+      <strong>{{ part.value }}</strong>
+    </div>
+    {% endfor %}
+  </div>
+  <div class="manual-correction-bar">
+    <div class="manual-correction-copy">
+      <strong>人工校准</strong>
+      <span>人工纠正用于调整默认判定，保存后会优先生效。</span>
+    </div>
+    <form class="relevance-override-form" method="post" action="/collector/runs/{{ run.run_id }}/posts/{{ post.post_id }}/relevance">
+      <label>
+        <span>纠正为</span>
+        <select class="compact-select" name="manual_relevance_level">
+          <option value="">清除修正</option>
+          <option value="excellent" {% if relevance.manual_level == "excellent" %}selected{% endif %}>优质</option>
+          <option value="medium" {% if relevance.manual_level == "medium" %}selected{% endif %}>中等</option>
+          <option value="poor" {% if relevance.manual_level == "poor" %}selected{% endif %}>劣质</option>
+        </select>
+      </label>
+      <label>
+        <span>备注</span>
+        <input class="compact-note" name="manual_relevance_note" value="{{ relevance.manual_note }}" placeholder="判断依据">
+      </label>
+      <button class="button small primary" type="submit">保存纠正</button>
+    </form>
+  </div>
+</section>
+
 <section class="sample-preview-grid">
   <section class="panel sample-preview-panel">
     <div class="section-head">
@@ -82,32 +153,34 @@
         <p class="muted">聚焦当前帖子内容，不展示本地文件路径。</p>
       </div>
     </div>
-    <div class="preview-body">
-      <h3>正文</h3>
-      <p>{{ post.content or "暂无正文。" }}</p>
-    </div>
-    <div class="comment-preview-list">
-      <h3>热评</h3>
-      {% for comment in comments %}
-      <article class="comment-preview-item">
-        <div class="comment-preview-meta">
-          <strong>{{ comment.commenter or "-" }}</strong>
-          <span>第 {{ comment.comment_rank or loop.index }} 条 · 点赞 {{ comment.like_count or "0" }}</span>
-        </div>
-        {% if comment.comment_type == "reply" %}
-        <div class="comment-reply-context">
-          <span class="comment-type-badge">回复</span>
-          {% if comment.reply_to %}<span>回复给 {{ comment.reply_to }}</span>{% endif %}
-        </div>
-        {% endif %}
-        <p>{{ comment.content }}</p>
-      </article>
-      {% else %}
-      <div class="empty-state">
-        <strong>暂无热评</strong>
-        <span>当前样本没有采集到评论，或任务未配置评论采集。</span>
+    <div class="sample-copy-scroll">
+      <div class="preview-body">
+        <h3>正文</h3>
+        <p>{{ post.content or "暂无正文。" }}</p>
       </div>
-      {% endfor %}
+      <div class="comment-preview-list">
+        <h3>热评</h3>
+        {% for comment in comments %}
+        <article class="comment-preview-item">
+          <div class="comment-preview-meta">
+            <strong>{{ comment.commenter or "-" }}</strong>
+            <span>第 {{ comment.comment_rank or loop.index }} 条 · 点赞 {{ comment.like_count or "0" }}</span>
+          </div>
+          {% if comment.comment_type == "reply" %}
+          <div class="comment-reply-context">
+            <span class="comment-type-badge">回复</span>
+            {% if comment.reply_to %}<span>回复给 {{ comment.reply_to }}</span>{% endif %}
+          </div>
+          {% endif %}
+          <p>{{ comment.content }}</p>
+        </article>
+        {% else %}
+        <div class="empty-state">
+          <strong>暂无热评</strong>
+          <span>当前样本没有采集到评论，或任务未配置评论采集。</span>
+        </div>
+        {% endfor %}
+      </div>
     </div>
   </section>
 </section>

@@ -3,9 +3,11 @@
 {% block content %}
 <header class="page-header">
   <div>
-    <h1>执行总览</h1>
-    <p>查看待处理草稿、素材预览和人工确认队列。这里不自动发布、评论或私信。</p>
+    <div class="eyebrow">执行总览</div>
+    <h1>执行首页</h1>
+    <p>这里只做待确认草稿和优先级概览，完整状态管理放到触达任务页。</p>
   </div>
+  <a class="button primary" href="/tasks">进入触达任务</a>
 </header>
 
 <section class="metrics">
@@ -15,25 +17,51 @@
   <div class="metric"><span>最终动作</span><strong class="fit-text">人工确认</strong></div>
 </section>
 
-<section class="task-list">
-  {% for task in tasks %}
-  <article class="task-card">
-    <div class="task-head">
+<section class="execution-grid">
+  <section class="panel">
+    <div class="section-head">
       <div>
-        <strong>[{{ task.outreach_priority }}] {{ task.title }}</strong>
-        <p class="muted">{{ task.outreach_type }} · {{ task.url }}</p>
+        <h2>待确认草稿队列</h2>
+        <p class="muted">展示最需要处理的草稿，不在首页重复完整任务表。</p>
       </div>
-      <span class="pill">{{ task.task_status }}</span>
+      <a class="button small" href="/tasks">管理状态</a>
     </div>
-    {% for draft in task.drafts %}
-    <p><span class="tag">{{ draft.kind }}</span>{{ draft.text }}</p>
-    {% endfor %}
-    {% if task.risk_note %}
-    <p class="muted">确认提示：{{ task.risk_note }}</p>
-    {% endif %}
-  </article>
-  {% else %}
-  <section class="panel"><p class="muted">暂无待确认执行项。</p></section>
-  {% endfor %}
+    <div class="draft-queue">
+      {% for task in tasks %}
+      <article class="draft-item">
+        <div class="task-head">
+          <div>
+            <strong>[{{ task.outreach_priority }}] {{ task.title }}</strong>
+            <p class="muted">{{ task.outreach_type }} · {{ task.url }}</p>
+          </div>
+          <span class="pill">{{ task.task_status }}</span>
+        </div>
+        {% for draft in task.drafts %}
+        <p><span class="tag">{{ draft.kind }}</span>{{ draft.text }}</p>
+        {% endfor %}
+        {% if task.risk_note %}
+        <p class="muted">确认提示：{{ task.risk_note }}</p>
+        {% endif %}
+      </article>
+      {% else %}
+      <p class="muted">暂无待确认执行项。</p>
+      {% endfor %}
+    </div>
+  </section>
+
+  <aside class="panel">
+    <div class="section-head">
+      <div>
+        <h2>优先级概览</h2>
+        <p class="muted">执行动作始终需要人工确认。</p>
+      </div>
+    </div>
+    <dl class="compact-list priority-list">
+      <div><dt>高优先级</dt><dd>{{ stats.high_count }}</dd></div>
+      <div><dt>中优先级</dt><dd>{{ stats.medium_count }}</dd></div>
+      <div><dt>状态管理</dt><dd><a href="/tasks">触达任务</a></dd></div>
+      <div><dt>执行边界</dt><dd>不自动发布 / 评论 / 私信</dd></div>
+    </dl>
+  </aside>
 </section>
 {% endblock %}

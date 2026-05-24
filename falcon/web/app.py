@@ -17,8 +17,21 @@ from ..db import FalconRepository
 from ..doctor import build_doctor_report, checks_for_web
 from ..keyword_pool import load_keyword_tasks, write_default_keyword_pool
 from ..models import CollectionEvent, CollectionRun
-from ..profiles import SUPPORTED_PROFILE_LOGIN_PLATFORMS, launch_profile_login, list_profile_entries
-from ..workflows import promote_collected_posts
+from ..profiles import (
+    SUPPORTED_PROFILE_LOGIN_PLATFORMS,
+    clear_profile_directory,
+    launch_profile_login,
+    list_profile_entries,
+)
+from ..relevance import (
+    LEVEL_LABELS,
+    ROLE_LABELS,
+    effective_relevance_level,
+    effective_relevance_role,
+    relevance_label,
+    role_label,
+)
+from ..workflows import promote_collected_posts, score_collected_posts
 
 
 WEB_DIR = Path(__file__).parent
@@ -146,6 +159,10 @@ def evidence_scope_label(value: str) -> str:
     return EVIDENCE_SCOPE_LABELS.get(str(value or ""), str(value or "-"))
 
 
+def basename_label(value: str) -> str:
+    return Path(value or "").name or "-"
+
+
 templates.env.filters["collector_status"] = collector_status_label
 templates.env.filters["collector_level"] = collector_level_label
 templates.env.filters["collector_scope"] = collector_scope_label
@@ -155,6 +172,9 @@ templates.env.filters["collector_step"] = collector_step_label
 templates.env.filters["platform_label"] = platform_label
 templates.env.filters["asset_type"] = asset_type_label
 templates.env.filters["evidence_scope"] = evidence_scope_label
+templates.env.filters["basename"] = basename_label
+templates.env.filters["relevance_label"] = relevance_label
+templates.env.filters["relevance_role_label"] = role_label
 SHANGHAI_TZ = timezone(timedelta(hours=8))
 
 
@@ -612,6 +632,66 @@ def create_app(
             deduped.append(item)
         return deduped
 
+    def relevance_breakdown(post):
+        labels = {
+            "default_quality": "默认质量",
+            "manual_override": "人工校准",
+        }
+        try:
+            payload = json.loads(post.relevance_breakdown_json or "{}")
+        except json.JSONDecodeError:
+            payload = {}
+        return [
+            {"key": key, "label": label, "value": int(payload.get(key) or 0)}
+            for key, label in labels.items()
+        ]
+
+    def post_relevance_view(post):
+        level = effective_relevance_level(post)
+        role = effective_relevance_role(post)
+        return {
+            "score": post.relevance_score,
+            "default_level": post.relevance_level or "unscored",
+            "effective_level": level,
+            "effective_label": relevance_label(level),
+            "role": role,
+            "role_label": role_label(role),
+            "reason": post.relevance_reason or "等待评分",
+            "breakdown": relevance_breakdown(post),
+            "manual_level": post.manual_relevance_level,
+            "manual_note": post.manual_relevance_note,
+            "has_manual": bool(post.manual_relevance_level),
+        }
+
+    def relevance_summary(posts):
+        counts = {level: 0 for level in LEVEL_LABELS}
+        role_counts = {role: 0 for role in ROLE_LABELS}
+        for post in posts:
+            level = effective_relevance_level(post)
+            role = effective_relevance_role(post)
+            counts[level] = counts.get(level, 0) + 1
+            role_counts[role] = role_counts.get(role, 0) + 1
+        return {
+            "counts": counts,
+            "roles": role_counts,
+            "promotable": role_counts.get("primary", 0) + role_counts.get("reference", 0),
+        }
+
+    def posts_with_relevance(posts):
+        order = {"excellent": 0, "medium": 1, "poor": 2, "unscored": 3}
+        enriched = [{"post": post, "relevance": post_relevance_view(post)} for post in posts]
+        return sorted(
+            enriched,
+            key=lambda item: (
+                order.get(item["relevance"]["effective_level"], 9),
+                -(item["relevance"]["score"] or -1),
+                item["post"].post_id or 0,
+            ),
+        )
+
+    def all_collected_relevance(repository: FalconRepository):
+        return relevance_summary(repository.list_collected_posts(limit=1000))
+
     @app.get("/")
     def dashboard(request: Request):
         repository = repo()
@@ -648,7 +728,7 @@ def create_app(
             request,
             "report.html",
             {
-                "active": "dashboard",
+                "active": "report",
                 "report_path": str(report_path),
                 "content": content,
             },
@@ -696,6 +776,33 @@ def create_app(
             },
         )
 
+    @app.get("/collector/runs")
+    def collector_runs_page(request: Request):
+        repository = repo()
+        runs = repository.list_collection_runs(limit=100)
+        runs = [refresh_running_run(repository, run) for run in runs]
+        posts = repository.list_collected_posts(limit=50)
+        default_status_filter = request.query_params.get("status", "all")
+        if default_status_filter not in {"all", "queued", "manual_action_required", "failed"}:
+            default_status_filter = "all"
+        try:
+            created_count = max(0, int(request.query_params.get("created", "0")))
+        except ValueError:
+            created_count = 0
+        return templates.TemplateResponse(
+            request,
+            "collector_runs.html",
+            {
+                "active": "collector_runs",
+                "platforms": _platform_cards(runs, posts),
+                "runs": runs,
+                "queued_count": sum(1 for run in runs if run.status == "queued"),
+                "default_status_filter": default_status_filter,
+                "created_count": created_count,
+                "calendar_state": _collector_calendar_state(runs),
+            },
+        )
+
     @app.get("/collector/environment")
     def collector_environment_page(request: Request):
         doctor_report = app.state.doctor_report_builder(app.state.project_root)
@@ -733,6 +840,7 @@ def create_app(
                 "platforms": _collector_platforms(),
                 "profile_entries": profile_entries,
                 "profile_groups": _profile_groups(profile_entries),
+                "profile_summary": _profile_command_summary(profile_entries),
                 "profile_notice": _profile_notice(profile_action, profile_platform, profile_name),
                 "profile_login_supported_platforms": SUPPORTED_PROFILE_LOGIN_PLATFORMS,
             },
@@ -772,9 +880,58 @@ def create_app(
             status_code=303,
         )
 
+    @app.post("/collector/profiles/logout")
+    def logout_collector_profile(platform: str = Form(...), profile: str = Form(...)):
+        clean_platform = platform.strip() or "xiaohongshu"
+        clean_profile = profile.strip() or "default"
+        allowed_platforms = {item["key"] for item in _collector_platforms()}
+        if clean_platform not in allowed_platforms:
+            raise HTTPException(status_code=400, detail="Unsupported collector platform")
+        try:
+            safe_collector_identifier(clean_platform, "platform")
+            clean_profile = safe_collector_identifier(clean_profile, "profile")
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        repository = repo()
+        locked = any(
+            run.platform == clean_platform
+            and run.profile == clean_profile
+            and run.status in {"running", "queued", "manual_action_required"}
+            for run in repository.list_collection_runs(limit=1000)
+        )
+        if locked:
+            raise HTTPException(status_code=400, detail="Collector profile has active or queued tasks")
+
+        profile_path = app.state.profile_root / clean_platform / clean_profile
+        try:
+            clear_profile_directory(
+                platform=clean_platform,
+                profile=clean_profile,
+                profile_root=app.state.profile_root,
+                profile_path=profile_path,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except OSError as exc:
+            raise HTTPException(status_code=500, detail=f"Could not clear profile directory: {exc}") from exc
+        return RedirectResponse(
+            f"/collector/accounts?profile_action=logged_out&profile_platform={clean_platform}&profile_name={clean_profile}",
+            status_code=303,
+        )
+
     @app.get("/collector/create")
     def collector_create_page(request: Request):
-        return RedirectResponse("/collector#collector-create-form", status_code=303)
+        repository = repo()
+        return templates.TemplateResponse(
+            request,
+            "collector_create.html",
+            {
+                "active": "collector_create",
+                "platforms": _collector_platforms(),
+                **collector_create_context(repository),
+            },
+        )
 
     @app.post("/collector/create")
     def create_collection_run(
@@ -825,9 +982,7 @@ def create_app(
                 )
             )
             created_runs.append(run)
-        if len(created_runs) == 1:
-            return RedirectResponse(f"/collector/runs/{created_runs[0].run_id}", status_code=303)
-        return RedirectResponse("/collector", status_code=303)
+        return RedirectResponse(f"/collector/runs?status=queued&created={len(created_runs)}", status_code=303)
 
     @app.get("/collector/runs/{run_id}")
     def collector_run_detail(request: Request, run_id: str):
@@ -836,6 +991,7 @@ def create_app(
         if run is None:
             raise HTTPException(status_code=404, detail="Collection run not found")
         run = refresh_running_run(repository, run)
+        collected_posts = repository.list_collected_posts(run_id=run_id)
         return templates.TemplateResponse(
             request,
             "collector_run.html",
@@ -844,11 +1000,21 @@ def create_app(
                 "current_run": run,
                 "run": run,
                 "events": repository.list_collection_events(run_id),
-                "posts": repository.list_collected_posts(run_id=run_id),
+                "posts": posts_with_relevance(collected_posts),
+                "relevance_summary": relevance_summary(collected_posts),
                 "assets": repository.list_media_assets(run_id),
                 "evidences": repository.list_evidences(run_id),
             },
         )
+
+    @app.post("/collector/runs/{run_id}/relevance/score")
+    def score_collection_run_relevance(run_id: str):
+        repository = repo()
+        run = repository.get_collection_run(run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="Collection run not found")
+        score_collected_posts(repository, run_id=run_id)
+        return RedirectResponse(f"/collector/runs/{run_id}", status_code=303)
 
     @app.post("/collector/runs/{run_id}/start")
     def start_collection_run(run_id: str, background_tasks: BackgroundTasks):
@@ -883,7 +1049,7 @@ def create_app(
     def start_collector_queue(background_tasks: BackgroundTasks):
         repository = repo()
         dispatch_queued_runs(repository, background_tasks=background_tasks)
-        return RedirectResponse("/collector", status_code=303)
+        return RedirectResponse("/collector/runs", status_code=303)
 
     @app.post("/collector/runs/{run_id}/open-manual-action")
     def open_collection_run_manual_action(run_id: str):
@@ -1078,8 +1244,25 @@ def create_app(
                 "asset_items": asset_items,
                 "preview_items": preview_items,
                 "primary_item": preview_items[0] if preview_items else None,
+                "relevance": post_relevance_view(post),
             },
         )
+
+    @app.post("/collector/runs/{run_id}/posts/{post_id}/relevance")
+    def override_collection_post_relevance(
+        run_id: str,
+        post_id: int,
+        manual_relevance_level: str = Form(...),
+        manual_relevance_note: str = Form(""),
+    ):
+        repository = repo()
+        post = repository.get_collected_post(post_id)
+        if post is None or post.run_id != run_id:
+            raise HTTPException(status_code=404, detail="Collected post not found")
+        if manual_relevance_level not in {"excellent", "medium", "poor", ""}:
+            raise HTTPException(status_code=400, detail="Invalid relevance level")
+        repository.override_collected_post_relevance(post_id, manual_relevance_level, manual_relevance_note)
+        return RedirectResponse(f"/collector/runs/{run_id}/posts/{post_id}", status_code=303)
 
     @app.get("/collector/runs/{run_id}/assets/{asset_id}")
     def collector_asset_file(run_id: str, asset_id: int):
@@ -1105,9 +1288,11 @@ def create_app(
 
     @app.get("/analysis")
     def analysis_page(request: Request):
-        scored_items = repo().list_scored_items(limit=100)
+        repository = repo()
+        scored_items = repository.list_scored_items(limit=100)
         keyword_stats = _keyword_stats(scored_items)
         high_intent = [item for item in scored_items if int(item.get("intent_score") or 0) >= 80]
+        quality_pool = all_collected_relevance(repository)
         return templates.TemplateResponse(
             request,
             "analysis.html",
@@ -1115,19 +1300,43 @@ def create_app(
                 "active": "analysis",
                 "items": scored_items,
                 "keyword_stats": keyword_stats,
+                "quality_pool": quality_pool,
+                "last_run": app.state.last_run,
                 "stats": {
                     "scored_count": len(scored_items),
                     "high_intent_count": len(high_intent),
                     "keyword_count": len(keyword_stats),
+                    "promotable_count": quality_pool["promotable"],
                 },
+            },
+        )
+
+    @app.get("/analysis/samples")
+    def analysis_samples_page(request: Request):
+        scored_items = repo().list_scored_items(limit=100)
+        keyword_stats = _keyword_stats(scored_items)
+        return templates.TemplateResponse(
+            request,
+            "analysis_samples.html",
+            {
+                "active": "analysis_samples",
+                "items": scored_items,
+                "keyword_stats": keyword_stats,
             },
         )
 
     @app.post("/analysis/promote")
     def promote_collector_samples():
         repository = repo()
-        promoted = promote_collected_posts(repository)
-        app.state.last_run = {"message": f"已送入分析队列 {promoted} 条采集样本", "report_path": ""}
+        promoted = promote_collected_posts(repository, return_summary=True)
+        app.state.last_run = {
+            "message": (
+                f"已送入分析队列 {promoted.promoted_count} 条采集样本："
+                f"优质 {promoted.primary_count} 条，中等 {promoted.reference_count} 条，"
+                f"劣质跳过 {promoted.discarded_count} 条，未评分 {promoted.unscored_count} 条。"
+            ),
+            "report_path": "",
+        }
         return RedirectResponse("/analysis", status_code=303)
 
     @app.get("/execution")
@@ -1193,6 +1402,7 @@ def _collector_platforms():
 
 def _platform_cards(runs, posts):
     run_counts = Counter(run.platform for run in runs)
+    running_counts = Counter(run.platform for run in runs if run.status == "running")
     post_counts = Counter(post.platform for post in posts)
     latest = {}
     for run in runs:
@@ -1204,6 +1414,7 @@ def _platform_cards(runs, posts):
             {
                 **platform,
                 "run_count": run_counts.get(key, 0),
+                "running_count": running_counts.get(key, 0),
                 "post_count": post_counts.get(key, 0),
                 "latest": latest.get(key),
             }
@@ -1219,6 +1430,17 @@ def _profile_groups(entries):
             continue
         platform["entries"].append(entry)
     return list(by_platform.values())
+
+
+def _profile_command_summary(entries):
+    entry_list = list(entries)
+    return {
+        "platform_count": len(_collector_platforms()),
+        "profile_count": len(entry_list),
+        "local_count": sum(1 for entry in entry_list if entry.path_exists),
+        "busy_count": sum(1 for entry in entry_list if entry.running_runs),
+        "manual_count": sum(1 for entry in entry_list if entry.manual_runs),
+    }
 
 
 def _queue_health(stats, queued_runs):
@@ -1355,4 +1577,6 @@ def _environment_summary(checks):
 def _profile_notice(action: str, platform: str, profile: str) -> str:
     if action == "opened" and platform and profile:
         return f"已打开 {platform}/{profile} 登录窗口。请在弹出的浏览器里完成登录，完成后关闭窗口。"
+    if action == "logged_out" and platform and profile:
+        return f"已退出 {platform}/{profile}，本机 Profile 目录已清除。需要再次使用时请重新登录。"
     return ""

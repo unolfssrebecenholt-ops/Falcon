@@ -1,0 +1,371 @@
+{% extends "base.html" %}
+{% block title %}任务队列 - Falcon{% endblock %}
+{% block content %}
+<header class="page-header">
+  <div>
+    <div class="eyebrow">collector runs</div>
+    <h1>任务队列</h1>
+    <p>独立承载筛选器、批量操作、任务表格和单项操作；表格可更宽，但行高保持紧凑。</p>
+  </div>
+  <div class="action-row">
+    <form class="inline-form" action="/collector/queue/start" method="post">
+      <button class="button" type="submit">批量启动</button>
+    </form>
+    <a class="button primary" href="/collector/create">创建任务</a>
+  </div>
+</header>
+
+<section class="panel queue-panel standalone-queue-panel">
+  {% if queued_count %}
+  <div class="queue-attention-banner">
+    <div class="queue-attention-copy">
+      <strong>{{ queued_count }} 个待启动任务</strong>
+      <span>{% if created_count %}刚加入 {{ created_count }} 个任务，{% endif %}待启动任务不占用资源，确认后可手动启动或批量启动。</span>
+    </div>
+    <div class="queue-attention-actions">
+      <form class="inline-form" action="/collector/queue/start" method="post">
+        <button class="button small primary" type="submit">批量启动</button>
+      </form>
+      <a class="button small" href="/collector/runs?status=queued">只看待启动</a>
+    </div>
+  </div>
+  {% endif %}
+  <div class="queue-filters" aria-label="任务队列筛选">
+    <div class="filter-group">
+      <span class="filter-label">平台</span>
+      <div class="segmented" role="group" aria-label="平台筛选">
+        <button class="segment active" type="button" data-platform-filter="all" aria-pressed="true">全部</button>
+        {% for platform in platforms %}
+        <button class="segment" type="button" data-platform-filter="{{ platform.key }}" aria-pressed="false">{{ platform.name }}</button>
+        {% endfor %}
+      </div>
+    </div>
+    <div class="filter-group">
+      <span class="filter-label">状态</span>
+      <div class="segmented" role="group" aria-label="状态筛选">
+        <button class="segment {{ 'active' if default_status_filter == 'all' else '' }}" type="button" data-status-filter="all" aria-pressed="{{ 'true' if default_status_filter == 'all' else 'false' }}">全部</button>
+        <button class="segment {{ 'active' if default_status_filter == 'queued' else '' }}" type="button" data-status-filter="queued" aria-pressed="{{ 'true' if default_status_filter == 'queued' else 'false' }}">待启动</button>
+        <button class="segment {{ 'active' if default_status_filter == 'manual_action_required' else '' }}" type="button" data-status-filter="manual_action_required" aria-pressed="{{ 'true' if default_status_filter == 'manual_action_required' else 'false' }}">需人工</button>
+        <button class="segment {{ 'active' if default_status_filter == 'failed' else '' }}" type="button" data-status-filter="failed" aria-pressed="{{ 'true' if default_status_filter == 'failed' else 'false' }}">失败</button>
+      </div>
+    </div>
+    <div class="filter-group">
+      <span class="filter-label">任务开启日期范围</span>
+      <div class="date-picker">
+        <button class="date-trigger" type="button" id="queue-calendar-toggle" aria-expanded="false" aria-controls="queue-calendar-panel">
+          <span class="date-trigger-label" id="queue-date-label">全部日期</span>
+          <span class="date-trigger-meta" id="queue-date-meta">点击打开日历，选择开始日和结束日</span>
+        </button>
+        <input id="queue-start-from" type="hidden" value="">
+        <input id="queue-start-to" type="hidden" value="">
+        <div class="calendar-panel" id="queue-calendar-panel" hidden>
+          <div class="calendar-head">
+            <strong>{{ calendar_state.month_label }}</strong>
+            <div class="calendar-presets" aria-label="快捷日期范围">
+              <button type="button" data-date-preset="clear">不限</button>
+              <button type="button" data-date-preset="sample-day">最新任务日</button>
+              <button type="button" data-date-preset="three-days">近 3 日</button>
+              <button type="button" data-date-preset="all">全月</button>
+            </div>
+          </div>
+          <div class="calendar-weekdays" aria-hidden="true">
+            <span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span>
+          </div>
+          <div class="calendar-grid" aria-label="{{ calendar_state.month_label }}日历">
+            {% for day in calendar_state.days %}
+            <button class="calendar-day {{ 'is-muted' if day.muted else '' }}" type="button" data-date="{{ day.date }}">{{ day.day }}</button>
+            {% endfor %}
+          </div>
+          <div class="calendar-foot">
+            <span>已选：<strong id="queue-calendar-selected">未限制</strong></span>
+            <span>按日期覆盖全天任务</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <button class="button small" type="button" id="queue-filter-apply">筛选</button>
+  </div>
+
+  <div class="queue-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Run</th>
+          <th>平台 / 关键词</th>
+          <th>状态</th>
+          <th>阶段</th>
+          <th>开启时间</th>
+          <th>运行时长</th>
+          <th>资源占用</th>
+          <th>当前步骤</th>
+          <th>操作</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for run in runs %}
+        <tr class="run-row status-{{ run.status }}{% if run.status == 'queued' %} is-attention{% endif %}" data-run-id="{{ run.run_id }}" data-platform="{{ run.platform }}" data-status="{{ run.status }}" data-start-date="{{ run.created_at|readable_day }}">
+          <td><a class="run-id" href="/collector/runs/{{ run.run_id }}">{{ run.run_id }}</a><span class="subtext">profile: {{ run.profile }}</span></td>
+          <td><span class="primary-text">{{ run.platform|platform_label }}</span><span class="subtext">{{ run.keyword }}</span></td>
+          <td><span class="status-badge status-{{ run.status }}"><i></i>{{ run.status|collector_status }}</span></td>
+          <td><span class="primary-text">{{ run|run_progress_stage }}</span></td>
+          <td><span class="primary-text">{{ run.created_at|readable_clock }}</span><span class="subtext">{{ run.created_at|readable_time }}</span></td>
+          <td>{{ run|run_duration }}</td>
+          <td><span class="primary-text">{{ run|run_resource }}</span></td>
+          <td><strong class="run-state-text">{{ run|run_state_title }}</strong><small>{{ run|run_state_detail }}</small></td>
+          <td>
+            <div class="queue-action-cell">
+              <div class="queue-action-primary">
+              {% if run|run_can_start %}
+              <form class="inline-form" action="/collector/runs/{{ run.run_id }}/start" method="post"><button class="button small primary run-start-action" type="submit">启动采集</button></form>
+              {% endif %}
+              {% if run.status == "running" %}<button class="button small" type="button" disabled>运行中</button>{% endif %}
+              {% if run.status == "manual_action_required" %}
+              <form class="inline-form" action="/collector/runs/{{ run.run_id }}/resume" method="post"><button class="button small primary" type="submit">继续采集</button></form>
+              {% endif %}
+              {% if run.status in ["failed", "completed"] %}
+              <form class="inline-form" action="/collector/runs/{{ run.run_id }}/rerun" method="post"><button class="button small primary" type="submit">重新运行</button></form>
+              {% endif %}
+              {% if run.status != "cancelled" %}
+              <form class="inline-form queue-archive-form" action="/collector/runs/{{ run.run_id }}/archive" method="post" data-queue-archive-form data-run-id="{{ run.run_id }}">
+                <input type="hidden" name="return_to" value="/collector/runs">
+                <button class="button small archive" type="submit">归档</button>
+              </form>
+              {% else %}
+              <button class="button small archived" type="button" disabled>已归档</button>
+              {% endif %}
+              </div>
+              {% if run.status == "manual_action_required" %}
+              <details class="queue-action-more">
+                <summary>更多</summary>
+                <div class="queue-action-menu">
+                  <form class="inline-form" action="/collector/runs/{{ run.run_id }}/open-manual-action" method="post"><button class="button small" type="submit">打开处理窗口</button></form>
+                  <form class="inline-form" action="/collector/runs/{{ run.run_id }}/rerun" method="post"><button class="button small" type="submit">重新运行新任务</button></form>
+                  <form class="inline-form" action="/collector/runs/{{ run.run_id }}/mark-failed" method="post"><button class="button small" type="submit">标记失败</button></form>
+                </div>
+              </details>
+              {% endif %}
+            </div>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="9" class="muted">还没有采集任务。</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <div class="queue-empty" id="queue-empty" hidden>暂无匹配任务，调整筛选后再试。</div>
+  </div>
+</section>
+
+<script>
+(() => {
+  const platformFilters = Array.from(document.querySelectorAll("[data-platform-filter]"));
+  const statusFilters = Array.from(document.querySelectorAll("[data-status-filter]"));
+  const queueEmpty = document.getElementById("queue-empty");
+  const queueStartFrom = document.getElementById("queue-start-from");
+  const queueStartTo = document.getElementById("queue-start-to");
+  const queueFilterApply = document.getElementById("queue-filter-apply");
+  const queueCalendarToggle = document.getElementById("queue-calendar-toggle");
+  const queueCalendarPanel = document.getElementById("queue-calendar-panel");
+  const queueCalendarDays = Array.from(document.querySelectorAll("[data-date]"));
+  const queueCalendarPresets = Array.from(document.querySelectorAll("[data-date-preset]"));
+  const queueDateLabel = document.getElementById("queue-date-label");
+  const queueDateMeta = document.getElementById("queue-date-meta");
+  const queueCalendarSelected = document.getElementById("queue-calendar-selected");
+  const queueDefaultDate = "{{ calendar_state.selected_day }}";
+  let calendarAnchorDate = null;
+
+  function queueRowsNow() {
+    return Array.from(document.querySelectorAll(".queue-wrap tbody .run-row"));
+  }
+
+  function parseDate(value) {
+    if (!value) return null;
+    const parts = value.split("-").map(Number);
+    if (parts.length !== 3) return null;
+    return new Date(parts[0], parts[1] - 1, parts[2]);
+  }
+
+  function formatLocalDate(date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
+
+  function normalizeRange(start, end) {
+    return start <= end ? [start, end] : [end, start];
+  }
+
+  function updateCalendarDisplay() {
+    const start = queueStartFrom?.value || "";
+    const end = queueStartTo?.value || start;
+    if (!start || !end) {
+      if (queueDateLabel) queueDateLabel.textContent = "全部日期";
+      if (queueDateMeta) queueDateMeta.textContent = "点击打开日历，选择开始日和结束日";
+      if (queueCalendarSelected) queueCalendarSelected.textContent = "未限制";
+      queueCalendarDays.forEach((button) => button.classList.remove("is-selected", "is-in-range"));
+      return;
+    }
+    const label = start === end ? start : `${start} 至 ${end}`;
+    if (queueDateLabel) queueDateLabel.textContent = label;
+    if (queueDateMeta) queueDateMeta.textContent = "已选择日期范围";
+    if (queueCalendarSelected) queueCalendarSelected.textContent = label;
+    queueCalendarDays.forEach((button) => {
+      const date = button.dataset.date;
+      button.classList.toggle("is-selected", date === start || date === end);
+      button.classList.toggle("is-in-range", date >= start && date <= end);
+    });
+  }
+
+  function activeValue(buttons, attr) {
+    return buttons.find((button) => button.classList.contains("active"))?.dataset[attr] || "all";
+  }
+
+  function applyQueueFilters() {
+    const activePlatform = activeValue(platformFilters, "platformFilter");
+    const activeStatus = activeValue(statusFilters, "statusFilter");
+    const start = queueStartFrom?.value || "";
+    const end = queueStartTo?.value || start;
+    let visibleCount = 0;
+    queueRowsNow().forEach((row) => {
+      const matchesPlatform = activePlatform === "all" || row.dataset.platform === activePlatform;
+      const matchesStatus = activeStatus === "all" || row.dataset.status === activeStatus;
+      const date = row.dataset.startDate || "";
+      const matchesDate = !start || !end || (date >= start && date <= end);
+      const visible = matchesPlatform && matchesStatus && matchesDate;
+      row.hidden = !visible;
+      visibleCount += visible ? 1 : 0;
+    });
+    if (queueEmpty) queueEmpty.hidden = visibleCount > 0;
+  }
+
+  function wireSegments(buttons, attr) {
+    buttons.forEach((button) => {
+      button.addEventListener("click", () => {
+        buttons.forEach((item) => {
+          const active = item === button;
+          item.classList.toggle("active", active);
+          item.setAttribute("aria-pressed", String(active));
+        });
+        applyQueueFilters();
+      });
+    });
+  }
+
+  function setQueueDateRange(start, end) {
+    if (!start || !end) {
+      if (queueStartFrom) queueStartFrom.value = "";
+      if (queueStartTo) queueStartTo.value = "";
+      updateCalendarDisplay();
+      applyQueueFilters();
+      return;
+    }
+    const range = normalizeRange(start, end);
+    if (queueStartFrom) queueStartFrom.value = range[0];
+    if (queueStartTo) queueStartTo.value = range[1];
+    updateCalendarDisplay();
+    applyQueueFilters();
+  }
+
+  function rowSelectorForRun(runId) {
+    if (window.CSS?.escape) return `.run-row[data-run-id="${CSS.escape(runId)}"]`;
+    return `.run-row[data-run-id="${String(runId).replace(/"/g, '\\"')}"]`;
+  }
+
+  async function refreshQueueRow(runId) {
+    const response = await fetch("/collector/runs", { headers: { "X-Requested-With": "fetch" } });
+    if (!response.ok) return;
+    const html = await response.text();
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const updated = doc.querySelector(rowSelectorForRun(runId));
+    const current = document.querySelector(rowSelectorForRun(runId));
+    if (updated && current) {
+      current.replaceWith(updated);
+      applyQueueFilters();
+    }
+  }
+
+  document.addEventListener("submit", async (event) => {
+    const form = event.target.closest("[data-queue-archive-form]");
+    if (!form) return;
+    event.preventDefault();
+    const button = form.querySelector("button[type='submit']");
+    const originalText = button?.textContent || "";
+    if (button) {
+      button.disabled = true;
+      button.textContent = "归档中";
+    }
+    try {
+      const response = await fetch(form.action, {
+        method: "POST",
+        headers: {
+          "Accept": "application/json",
+          "X-Requested-With": "fetch",
+        },
+        body: new FormData(form),
+      });
+      if (!response.ok) throw new Error(`Archive failed: ${response.status}`);
+      const payload = await response.json();
+      await refreshQueueRow(payload.run_id || form.dataset.runId);
+    } catch (error) {
+      if (button) {
+        button.disabled = false;
+        button.textContent = originalText || "归档";
+      }
+      console.error(error);
+    }
+  });
+
+  wireSegments(platformFilters, "platformFilter");
+  wireSegments(statusFilters, "statusFilter");
+  queueCalendarToggle?.addEventListener("click", () => {
+    const opening = Boolean(queueCalendarPanel?.hidden);
+    if (queueCalendarPanel) queueCalendarPanel.hidden = !opening;
+    queueCalendarToggle.setAttribute("aria-expanded", String(opening));
+  });
+  queueCalendarDays.forEach((button) => {
+    button.addEventListener("click", () => {
+      const date = button.dataset.date;
+      if (!date) return;
+      if (!calendarAnchorDate) {
+        calendarAnchorDate = date;
+        setQueueDateRange(date, date);
+        if (queueDateMeta) queueDateMeta.textContent = "已选择开始日，再点一次选择结束日";
+      } else {
+        setQueueDateRange(calendarAnchorDate, date);
+        calendarAnchorDate = null;
+      }
+    });
+  });
+  queueCalendarPresets.forEach((button) => {
+    button.addEventListener("click", () => {
+      calendarAnchorDate = null;
+      if (button.dataset.datePreset === "clear") return setQueueDateRange("", "");
+      const selected = queueStartFrom?.value || queueDefaultDate;
+      const selectedDate = parseDate(selected);
+      if (!selectedDate) return;
+      if (button.dataset.datePreset === "sample-day") setQueueDateRange(selected, selected);
+      if (button.dataset.datePreset === "three-days") {
+        const start = new Date(selectedDate);
+        start.setDate(start.getDate() - 2);
+        setQueueDateRange(formatLocalDate(start), selected);
+      }
+      if (button.dataset.datePreset === "all") {
+        setQueueDateRange(
+          formatLocalDate(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1)),
+          formatLocalDate(new Date(selectedDate.getFullYear(), selectedDate.getMonth() + 1, 0))
+        );
+      }
+    });
+  });
+  queueFilterApply?.addEventListener("click", () => {
+    calendarAnchorDate = null;
+    if (queueCalendarPanel) queueCalendarPanel.hidden = true;
+    queueCalendarToggle?.setAttribute("aria-expanded", "false");
+    applyQueueFilters();
+  });
+  updateCalendarDisplay();
+  applyQueueFilters();
+})();
+</script>
+{% endblock %}

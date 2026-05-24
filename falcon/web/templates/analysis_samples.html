@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}分析样本 - Falcon{% endblock %}
+{% block content %}
+<header class="page-header">
+  <div>
+    <div class="eyebrow">analysis samples</div>
+    <h1>分析样本</h1>
+    <p>承载高价值样本表格和筛选，分析首页只保留概况、趋势和入口。</p>
+  </div>
+  <div class="action-row">
+    <a class="button" href="/analysis">返回分析首页</a>
+    <a class="button primary" href="/review">批量送复核</a>
+  </div>
+</header>
+
+<section class="panel">
+  <div class="queue-filters" aria-label="分析样本筛选">
+    <div class="filter-group">
+      <span class="filter-label">关键词</span>
+      <select>
+        <option>全部关键词</option>
+        {% for item in keyword_stats %}
+        <option>{{ item.keyword }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="filter-group">
+      <span class="filter-label">意图分</span>
+      <select><option>全部</option><option>80 以上</option><option>60-79</option></select>
+    </div>
+    <a class="button small" href="/analysis/samples">筛选</a>
+  </div>
+
+  <div class="table-wrap analysis-sample-table">
+    <table>
+      <thead>
+        <tr><th>标题</th><th>关键词</th><th>意图</th><th>价值</th><th>建议选题</th><th>痛点</th><th>操作</th></tr>
+      </thead>
+      <tbody>
+        {% for item in items %}
+        <tr>
+          <td><div class="cell-main"><strong>{{ item.title }}</strong><small>{{ item.url }}</small></div></td>
+          <td>{{ item.keyword }}</td>
+          <td>{{ item.intent_score }}</td>
+          <td>{{ item.content_value_score }}</td>
+          <td>{{ item.suggested_topic }}</td>
+          <td>{{ item.pain_point }}</td>
+          <td><a class="button small primary" href="/review">送复核</a></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" class="muted">暂无分析结果。</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

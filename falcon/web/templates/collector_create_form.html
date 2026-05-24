@@ -84,13 +84,28 @@
       </div>
     </div>
 
-    <div class="create-summary-grid" aria-label="入队前摘要">
-      <div class="summary-row"><span>平台</span><strong>小红书 / xiaohongshu</strong></div>
-      <div class="summary-row"><span>Profile</span><strong id="profile-summary">{{ defaults.profile or '未选择' }}</strong></div>
-      <div class="summary-row"><span>关键词组</span><strong id="keyword-summary">未添加</strong></div>
-      <div class="summary-row"><span>任务拆分</span><strong id="keyword-split-summary">待添加关键词</strong></div>
-      <div class="summary-row"><span>预计产物</span><strong>帖子、评论、媒体、证据</strong></div>
-      <div class="summary-row"><span>执行策略</span><strong>入队后由队列 worker 或手动启动</strong></div>
-    </div>
   </section>
+  <dialog id="collector-create-confirm-dialog" class="create-confirm-dialog" aria-labelledby="create-confirm-title">
+    <div class="create-confirm-card">
+      <div class="section-head">
+        <div>
+          <h2 id="create-confirm-title">确认入队</h2>
+          <p class="muted">确认后任务只进入队列，不会立即占用浏览器资源。</p>
+        </div>
+      </div>
+      <div class="create-confirm-summary" aria-label="任务确认信息">
+        <div class="summary-row"><span>平台</span><strong id="confirm-platform">小红书 / xiaohongshu</strong></div>
+        <div class="summary-row"><span>Profile</span><strong id="confirm-profile">{{ defaults.profile or '未选择' }}</strong></div>
+        <div class="summary-row"><span>关键词组</span><strong id="confirm-keywords">待确认</strong></div>
+        <div class="summary-row"><span>将创建 run</span><strong id="confirm-run-count">0 个</strong></div>
+        <div class="summary-row"><span>最大帖子数</span><strong id="confirm-max-posts">{{ defaults.max_posts }}</strong></div>
+        <div class="summary-row"><span>每帖评论数</span><strong id="confirm-max-comments">{{ defaults.max_comments_per_post }}</strong></div>
+        <div class="summary-row"><span>执行策略</span><strong id="confirm-strategy">入队后在任务队列手动启动或批量启动</strong></div>
+      </div>
+      <div class="create-confirm-actions">
+        <button class="button" type="button" id="confirm-create-cancel">返回修改</button>
+        <button class="button primary" type="button" id="confirm-create-submit">确认入队</button>
+      </div>
+    </div>
+  </dialog>
 </form>

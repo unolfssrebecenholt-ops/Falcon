@@ -3,43 +3,72 @@
 {% block content %}
 <header class="page-header">
   <div>
-    <h1>人工复核</h1>
-    <p>优先复核 Top 20 样本，把判断写回 Falcon，后续用于调参。</p>
+    <div class="eyebrow">human review</div>
+    <h1>复核工作台</h1>
+    <p>表格负责扫描样本，右侧面板负责写回判断，避免操作控件挤进每一行。</p>
   </div>
 </header>
 
-<section class="panel">
-  <table>
-    <thead>
-      <tr><th>ID</th><th>关键词</th><th>标题</th><th>意图</th><th>价值</th><th>推荐选题</th><th>复核</th></tr>
-    </thead>
-    <tbody>
-      {% for item in items %}
-      <tr>
-        <td>{{ item.raw_id }}</td>
-        <td>{{ item.keyword }}</td>
-        <td><a href="{{ item.url }}" target="_blank">{{ item.title }}</a></td>
-        <td>{{ item.intent_score }}</td>
-        <td>{{ item.content_value_score }}</td>
-        <td>{{ item.suggested_topic }}</td>
-        <td>
-          <form method="post" action="/review/raw/{{ item.raw_id }}" class="row-form">
-            <select name="feedback">
-              <option>优秀</option>
-              <option>有用</option>
-              <option>一般</option>
-              <option>无用</option>
-              <option>噪音</option>
-            </select>
-            <input name="note" placeholder="备注">
-            <button class="button small" type="submit">保存</button>
-          </form>
-        </td>
-      </tr>
-      {% else %}
-      <tr><td colspan="7" class="muted">暂无已分析样本。</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
+<section class="review-workbench">
+  <section class="panel">
+    <div class="section-head">
+      <div>
+        <h2>高价值样本</h2>
+        <p class="muted">按意图和内容价值排序，优先看 Top 20。</p>
+      </div>
+      <a class="button small" href="/analysis/samples">查看全部样本</a>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>ID</th><th>关键词</th><th>标题</th><th>意图</th><th>价值</th><th>推荐选题</th></tr>
+        </thead>
+        <tbody>
+          {% for item in items %}
+          <tr>
+            <td>{{ item.raw_id }}</td>
+            <td>{{ item.keyword }}</td>
+            <td><a href="{{ item.url }}" target="_blank">{{ item.title }}</a></td>
+            <td>{{ item.intent_score }}</td>
+            <td>{{ item.content_value_score }}</td>
+            <td>{{ item.suggested_topic }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="6" class="muted">暂无已分析样本。</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <aside class="review-action-panel">
+    <div class="panel">
+      <div class="section-head">
+        <div>
+          <h2>复核操作</h2>
+          <p class="muted">判断会写入 review_feedback，用于后续调参和日报复盘。</p>
+        </div>
+      </div>
+      <div class="review-action-list">
+        {% for item in items %}
+        <form method="post" action="/review/raw/{{ item.raw_id }}" class="review-action-form">
+          <strong>#{{ item.raw_id }} {{ item.title }}</strong>
+          <span>{{ item.keyword }} · 意图 {{ item.intent_score }} / 价值 {{ item.content_value_score }}</span>
+          <select name="feedback">
+            <option>优秀</option>
+            <option>有用</option>
+            <option>一般</option>
+            <option>无用</option>
+            <option>噪音</option>
+          </select>
+          <input name="note" placeholder="备注">
+          <button class="button small primary" type="submit">保存复核</button>
+        </form>
+        {% else %}
+        <p class="muted">暂无可复核样本。</p>
+        {% endfor %}
+      </div>
+    </div>
+  </aside>
 </section>
 {% endblock %}

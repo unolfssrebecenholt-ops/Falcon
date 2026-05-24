@@ -1,0 +1,1004 @@
+<!doctype html>
+<!--
+Falcon Account Command Huashu Prototype v1
+
+Assumptions:
+- This is a design prototype only. It uses static sample data and does not call Falcon backend routes.
+- "User" in this screen maps to Falcon's platform/profile login environment.
+- The page should make creation obvious: entering a new profile name and opening login creates the local profile directory.
+- Task detail lists should expose only seven rows at once and scroll internally, using the collector overview queue density as reference.
+
+Design notes:
+- The account surface is organized by platform first, then user/profile rows, so operators can see which accounts are available before creating tasks.
+- User actions are stable across rows: login, check, logout. Disabled or redirected actions explain why.
+- Event and evidence summaries use ledger rows rather than large timeline cards to reduce vertical sprawl.
+-->
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Falcon 账号管理 Huashu 原型 v1</title>
+  <style>
+    :root {
+      --bg: #050807;
+      --panel: #0d1411;
+      --panel-2: #111b16;
+      --panel-3: #07100c;
+      --line: rgba(201, 255, 224, 0.14);
+      --line-strong: rgba(156, 255, 96, 0.36);
+      --text: #f3fff8;
+      --muted: #9db3aa;
+      --weak: #60756d;
+      --green: #9cff60;
+      --green-2: #42e884;
+      --cyan: #73ddff;
+      --amber: #ffbf63;
+      --red: #ff6f8a;
+      --blue: #9eb9ff;
+      --violet: #c4a3ff;
+      --shadow: 0 24px 70px rgba(0, 0, 0, 0.36);
+      --mono: "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
+      --sans: "Microsoft YaHei", "PingFang SC", "Segoe UI", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--text);
+      background:
+        linear-gradient(rgba(156, 255, 96, 0.05) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(156, 255, 96, 0.05) 1px, transparent 1px),
+        #050807;
+      background-size: 32px 32px;
+      font-family: var(--sans);
+      letter-spacing: 0;
+    }
+
+    button,
+    input {
+      font: inherit;
+    }
+
+    button {
+      cursor: pointer;
+    }
+
+    .shell {
+      display: grid;
+      grid-template-columns: 236px minmax(0, 1fr);
+      min-height: 100vh;
+    }
+
+    .rail {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      border-right: 1px solid var(--line);
+      background: rgba(4, 8, 6, 0.92);
+      padding: 22px 16px;
+    }
+
+    .brand {
+      display: grid;
+      gap: 5px;
+      margin-bottom: 24px;
+    }
+
+    .brand strong {
+      color: var(--green);
+      font: 900 15px/1 var(--mono);
+      text-transform: uppercase;
+    }
+
+    .brand span {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .nav {
+      display: grid;
+      gap: 8px;
+    }
+
+    .nav button {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      width: 100%;
+      min-height: 46px;
+      border: 1px solid transparent;
+      border-radius: 8px;
+      padding: 0 12px;
+      color: var(--muted);
+      background: transparent;
+      text-align: left;
+      font-weight: 800;
+    }
+
+    .nav button[aria-selected="true"] {
+      border-color: var(--line-strong);
+      color: var(--text);
+      background: rgba(156, 255, 96, 0.09);
+    }
+
+    .main {
+      min-width: 0;
+      padding: 28px 28px 42px;
+    }
+
+    .screen {
+      display: none;
+    }
+
+    .screen.active {
+      display: grid;
+      gap: 18px;
+    }
+
+    .page-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 18px;
+      margin-bottom: 8px;
+    }
+
+    .eyebrow {
+      color: var(--green);
+      font: 900 12px/1 var(--mono);
+      text-transform: uppercase;
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin: 0;
+    }
+
+    h1 {
+      margin-top: 8px;
+      font-size: clamp(32px, 4vw, 54px);
+      line-height: 0.96;
+    }
+
+    h2 {
+      font-size: 20px;
+      line-height: 1.2;
+    }
+
+    h3 {
+      font-size: 15px;
+      line-height: 1.25;
+    }
+
+    .lead {
+      margin-top: 12px;
+      max-width: 840px;
+      color: var(--muted);
+      font-size: 16px;
+      line-height: 1.7;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      justify-content: flex-end;
+    }
+
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 38px;
+      min-width: 76px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 0 13px;
+      color: var(--text);
+      background: rgba(13, 20, 17, 0.88);
+      font-size: 13px;
+      font-weight: 900;
+      white-space: nowrap;
+    }
+
+    .button.primary {
+      border-color: transparent;
+      color: #07100c;
+      background: var(--green);
+    }
+
+    .button.warning {
+      border-color: rgba(255, 191, 99, 0.42);
+      color: var(--amber);
+      background: rgba(255, 191, 99, 0.08);
+    }
+
+    .button.danger {
+      border-color: rgba(255, 111, 138, 0.42);
+      color: var(--red);
+      background: rgba(255, 111, 138, 0.08);
+    }
+
+    .button[disabled] {
+      cursor: not-allowed;
+      color: var(--weak);
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .help {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 20px;
+      height: 20px;
+      border: 1px solid var(--line-strong);
+      border-radius: 50%;
+      color: var(--green);
+      background: rgba(156, 255, 96, 0.09);
+      font: 900 12px/1 var(--mono);
+      cursor: help;
+    }
+
+    .help::after {
+      content: attr(data-tip);
+      position: absolute;
+      z-index: 20;
+      left: 50%;
+      bottom: calc(100% + 8px);
+      display: none;
+      width: min(340px, 78vw);
+      transform: translateX(-50%);
+      border: 1px solid var(--line-strong);
+      border-radius: 8px;
+      padding: 10px 12px;
+      color: var(--text);
+      background: #07100c;
+      box-shadow: var(--shadow);
+      font: 12px/1.6 var(--sans);
+    }
+
+    .help:hover::after,
+    .help:focus::after {
+      display: block;
+    }
+
+    .summary-strip {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(13, 20, 17, 0.88);
+      overflow: hidden;
+    }
+
+    .summary-item {
+      min-width: 0;
+      padding: 14px 16px;
+      border-right: 1px solid var(--line);
+    }
+
+    .summary-item:last-child {
+      border-right: 0;
+    }
+
+    .summary-item span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .summary-item strong {
+      display: block;
+      margin-top: 5px;
+      color: var(--text);
+      font-size: 20px;
+    }
+
+    .panel {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(13, 20, 17, 0.9);
+      box-shadow: var(--shadow);
+    }
+
+    .panel-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 14px;
+      padding: 18px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .panel-head p {
+      margin-top: 6px;
+      color: var(--muted);
+      line-height: 1.55;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      border: 1px solid var(--line-strong);
+      border-radius: 999px;
+      padding: 0 10px;
+      color: var(--green);
+      background: rgba(156, 255, 96, 0.09);
+      font-size: 12px;
+      font-weight: 900;
+      white-space: nowrap;
+    }
+
+    .platform-stack {
+      display: grid;
+      gap: 12px;
+      padding: 14px;
+    }
+
+    .platform-lane {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(5, 8, 7, 0.48);
+      overflow: hidden;
+    }
+
+    .lane-head {
+      display: grid;
+      grid-template-columns: 190px 1fr 128px;
+      gap: 14px;
+      align-items: center;
+      min-height: 58px;
+      padding: 0 14px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.025);
+    }
+
+    .platform-name strong {
+      display: block;
+      font-size: 18px;
+    }
+
+    .platform-name span,
+    .lane-meta,
+    .user-meta,
+    .subtext {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .status-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      width: max-content;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 5px 9px;
+      font-size: 12px;
+      font-weight: 900;
+      white-space: nowrap;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+
+    .ok { color: var(--green); }
+    .running { color: var(--cyan); }
+    .manual { color: var(--amber); }
+    .offline { color: var(--weak); }
+    .danger { color: var(--red); }
+    .queued { color: var(--blue); }
+
+    .user-list {
+      display: grid;
+    }
+
+    .user-row {
+      display: grid;
+      grid-template-columns: minmax(190px, 1.05fr) minmax(150px, 0.8fr) minmax(170px, 0.9fr) minmax(250px, 1.1fr);
+      gap: 14px;
+      align-items: center;
+      min-height: 76px;
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .user-row:last-child {
+      border-bottom: 0;
+    }
+
+    .user-id strong,
+    .ledger-main strong {
+      display: block;
+      overflow: hidden;
+      color: var(--text);
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .user-id code,
+    .ledger-path {
+      display: block;
+      margin-top: 4px;
+      overflow: hidden;
+      color: #cce1d6;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font: 12px/1.35 var(--mono);
+    }
+
+    .user-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: flex-end;
+    }
+
+    .create-row {
+      display: grid;
+      grid-template-columns: minmax(170px, 1fr) minmax(240px, 1.5fr) auto;
+      gap: 10px;
+      align-items: end;
+      padding: 14px;
+      border-top: 1px dashed rgba(201, 255, 224, 0.18);
+      background: rgba(156, 255, 96, 0.035);
+    }
+
+    label {
+      display: grid;
+      gap: 7px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    input {
+      width: 100%;
+      min-height: 40px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 0 12px;
+      color: var(--text);
+      background: rgba(5, 8, 7, 0.9);
+      outline: none;
+    }
+
+    input:focus {
+      border-color: var(--line-strong);
+    }
+
+    .detail-layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 18px;
+    }
+
+    .run-context {
+      display: grid;
+      grid-template-columns: 1.2fr repeat(4, minmax(120px, 0.7fr));
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(13, 20, 17, 0.88);
+      overflow: hidden;
+    }
+
+    .run-context div {
+      min-width: 0;
+      padding: 13px 14px;
+      border-right: 1px solid var(--line);
+    }
+
+    .run-context div:last-child {
+      border-right: 0;
+    }
+
+    .run-context span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .run-context strong {
+      display: block;
+      margin-top: 5px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .ledger {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(5, 8, 7, 0.58);
+      overflow: hidden;
+    }
+
+    .ledger-head,
+    .ledger-row {
+      display: grid;
+      grid-template-columns: 62px minmax(0, 1.05fr) minmax(120px, 0.65fr) minmax(122px, 0.65fr);
+      gap: 12px;
+      align-items: center;
+    }
+
+    .ledger-head {
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      min-height: 42px;
+      padding: 0 12px;
+      color: var(--muted);
+      background: #101914;
+      font-size: 12px;
+      font-weight: 900;
+    }
+
+    .ledger-body {
+      max-height: 448px;
+      overflow-y: auto;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(156, 255, 96, 0.45) rgba(7, 16, 12, 0.82);
+    }
+
+    .ledger-body::-webkit-scrollbar {
+      width: 8px;
+    }
+
+    .ledger-body::-webkit-scrollbar-track {
+      background: rgba(7, 16, 12, 0.82);
+    }
+
+    .ledger-body::-webkit-scrollbar-thumb {
+      border-radius: 999px;
+      background: rgba(156, 255, 96, 0.45);
+    }
+
+    .ledger-row {
+      min-height: 64px;
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .ledger-row:last-child {
+      border-bottom: 0;
+    }
+
+    .seq {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 34px;
+      height: 34px;
+      border: 1px solid rgba(156, 255, 96, 0.28);
+      border-radius: 50%;
+      color: var(--green);
+      background: rgba(156, 255, 96, 0.1);
+      font: 900 13px/1 var(--mono);
+    }
+
+    .ledger-main p {
+      display: -webkit-box;
+      margin-top: 4px;
+      overflow: hidden;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 1;
+    }
+
+    .asset-ledger .ledger-head,
+    .asset-ledger .ledger-row {
+      grid-template-columns: 82px minmax(0, 1.2fr) minmax(110px, 0.56fr) minmax(104px, 0.48fr);
+    }
+
+    .row-type {
+      display: inline-flex;
+      width: max-content;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 5px 8px;
+      color: var(--text);
+      font-size: 12px;
+      font-weight: 900;
+    }
+
+    .note-band {
+      display: grid;
+      grid-template-columns: 180px 1fr;
+      gap: 16px;
+      border: 1px solid rgba(115, 221, 255, 0.24);
+      border-radius: 8px;
+      padding: 14px;
+      background: rgba(115, 221, 255, 0.055);
+    }
+
+    .note-band strong {
+      color: var(--cyan);
+    }
+
+    .note-band p {
+      color: var(--muted);
+      line-height: 1.6;
+    }
+
+    .combined-grid {
+      display: grid;
+      grid-template-columns: 0.9fr 1.1fr;
+      gap: 18px;
+    }
+
+    .mini-stack {
+      display: grid;
+      gap: 12px;
+      padding: 14px;
+    }
+
+    .mini-profile {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 10px;
+      align-items: center;
+      min-height: 58px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px 12px;
+      background: rgba(5, 8, 7, 0.48);
+    }
+
+    @media (max-width: 1180px) {
+      .shell {
+        grid-template-columns: 1fr;
+      }
+
+      .rail {
+        position: static;
+        height: auto;
+      }
+
+      .nav {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
+      .summary-strip,
+      .run-context {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .detail-layout,
+      .combined-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 840px) {
+      .main {
+        padding: 20px 14px 32px;
+      }
+
+      .page-head {
+        display: grid;
+      }
+
+      .actions {
+        justify-content: flex-start;
+      }
+
+      .lane-head,
+      .user-row,
+      .create-row,
+      .note-band {
+        grid-template-columns: 1fr;
+      }
+
+      .user-actions {
+        justify-content: flex-start;
+      }
+
+      .ledger-head,
+      .ledger-row {
+        grid-template-columns: 42px minmax(0, 1fr) 72px 58px;
+        gap: 8px;
+        padding-right: 8px;
+        padding-left: 8px;
+      }
+
+      .asset-ledger .ledger-head,
+      .asset-ledger .ledger-row {
+        grid-template-columns: 58px minmax(0, 1fr) 58px 48px;
+      }
+
+      .ledger-row {
+        min-height: 64px;
+      }
+
+      .seq {
+        width: 30px;
+        height: 30px;
+      }
+
+      .row-type,
+      .status-chip,
+      .subtext {
+        font-size: 11px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside class="rail" aria-label="prototype navigation">
+      <div class="brand">
+        <strong>Falcon Profile Command</strong>
+        <span>Huashu design prototype v1</span>
+      </div>
+      <nav class="nav">
+        <button type="button" aria-selected="true" data-target="accounts">账号工作台 <span>平台/用户</span></button>
+        <button type="button" aria-selected="false" data-target="detail">任务详情 <span>7 行列表</span></button>
+        <button type="button" aria-selected="false" data-target="combined">组合预览 <span>落地关系</span></button>
+      </nav>
+    </aside>
+
+    <main class="main">
+      <section class="screen active" id="accounts">
+        <header class="page-head">
+          <div>
+            <div class="eyebrow">profile command</div>
+            <h1>账号管理</h1>
+            <p class="lead">每个平台直接展示所有用户/Profile、登录态、任务锁和操作入口。输入新的 Profile 名称并登录，就是创建一个新的本机账号环境。</p>
+          </div>
+          <div class="actions">
+            <button class="button">返回采集总览</button>
+            <button class="button primary">任务配置</button>
+          </div>
+        </header>
+
+        <section class="summary-strip" aria-label="账号概览">
+          <div class="summary-item"><span>平台</span><strong>4</strong></div>
+          <div class="summary-item"><span>用户/Profile</span><strong>7</strong></div>
+          <div class="summary-item"><span>可用账号</span><strong>3</strong></div>
+          <div class="summary-item"><span>占用中</span><strong>1</strong></div>
+          <div class="summary-item"><span>待处理</span><strong>2</strong></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>平台用户矩阵 <button class="help" type="button" data-tip="Falcon 的用户等于 platform/profile。每个 profile 是一套独立浏览器登录态和本地目录，可分别登录不同账号。">?</button></h2>
+              <p>不再把用户藏在下拉框里，平台、账号、状态、路径和任务锁一次性可见。</p>
+            </div>
+            <span class="pill">3 个可操作平台用户</span>
+          </div>
+
+          <div class="platform-stack">
+            <section class="platform-lane">
+              <div class="lane-head">
+                <div class="platform-name"><strong>小红书</strong><span>xiaohongshu</span></div>
+                <div class="lane-meta">当前开发平台，支持登录、检查、退出和新建 Profile。</div>
+                <span class="pill">4 个用户</span>
+              </div>
+              <div class="user-list">
+                <article class="user-row">
+                  <div class="user-id"><strong>主账号 default</strong><code>xiaohongshu/default</code></div>
+                  <span class="status-chip ok"><i class="dot"></i>已登录 / 空闲</span>
+                  <div class="user-meta">最后检查 17:03<br>目录已创建</div>
+                  <div class="user-actions">
+                    <button class="button">登录</button>
+                    <button class="button primary">检查</button>
+                    <button class="button danger">退出</button>
+                  </div>
+                </article>
+                <article class="user-row">
+                  <div class="user-id"><strong>运营账号 shop-a</strong><code>xiaohongshu/shop-a</code></div>
+                  <span class="status-chip running"><i class="dot"></i>运行中</span>
+                  <div class="user-meta">采集 xhs-live-090257<br>任务锁已占用</div>
+                  <div class="user-actions">
+                    <button class="button" disabled>登录</button>
+                    <button class="button">打开任务</button>
+                    <button class="button" disabled>退出</button>
+                  </div>
+                </article>
+                <article class="user-row">
+                  <div class="user-id"><strong>创作者 creator</strong><code>xiaohongshu/creator</code></div>
+                  <span class="status-chip manual"><i class="dot"></i>等待人工</span>
+                  <div class="user-meta">需要扫码或风控确认<br>不占用采集器</div>
+                  <div class="user-actions">
+                    <button class="button warning">登录</button>
+                    <button class="button primary">检查</button>
+                    <button class="button danger">退出</button>
+                  </div>
+                </article>
+                <article class="user-row">
+                  <div class="user-id"><strong>备用账号 backup</strong><code>xiaohongshu/backup</code></div>
+                  <span class="status-chip offline"><i class="dot"></i>未登录</span>
+                  <div class="user-meta">目录存在，未验证登录态<br>0 个历史任务</div>
+                  <div class="user-actions">
+                    <button class="button primary">登录</button>
+                    <button class="button">检查</button>
+                    <button class="button" disabled>退出</button>
+                  </div>
+                </article>
+              </div>
+              <div class="create-row">
+                <label>新建或打开 Profile <button class="help" type="button" data-tip="填入新名称会创建 browser-profiles/xiaohongshu/<profile>，打开登录窗口后登录不同平台账号。">?</button><input value="creator-2" aria-label="xiaohongshu profile name"></label>
+                <label>备注<input value="备用创作者号，用于低频任务"></label>
+                <button class="button primary">新建/登录</button>
+              </div>
+            </section>
+
+            <section class="platform-lane">
+              <div class="lane-head">
+                <div class="platform-name"><strong>抖音</strong><span>douyin</span></div>
+                <div class="lane-meta">Adapter 待接入，只展示已有队列占用，不允许误启动登录。</div>
+                <span class="pill">1 个用户</span>
+              </div>
+              <div class="user-list">
+                <article class="user-row">
+                  <div class="user-id"><strong>内容号 creator</strong><code>douyin/creator</code></div>
+                  <span class="status-chip queued"><i class="dot"></i>排队中</span>
+                  <div class="user-meta">来自历史队列任务<br>登录能力待接入</div>
+                  <div class="user-actions">
+                    <button class="button" disabled>登录</button>
+                    <button class="button" disabled>检查</button>
+                    <button class="button" disabled>退出</button>
+                  </div>
+                </article>
+              </div>
+            </section>
+
+            <section class="platform-lane">
+              <div class="lane-head">
+                <div class="platform-name"><strong>微博</strong><span>weibo</span></div>
+                <div class="lane-meta">暂无本机 Profile 或队列任务。</div>
+                <span class="pill">0 个用户</span>
+              </div>
+              <div class="create-row">
+                <label>Profile 名称<input value="default" disabled></label>
+                <label>状态<input value="平台待接入，暂不创建登录态" disabled></label>
+                <button class="button" disabled>待接入</button>
+              </div>
+            </section>
+          </div>
+        </section>
+      </section>
+
+      <section class="screen" id="detail">
+        <header class="page-head">
+          <div>
+            <div class="eyebrow">collector run detail</div>
+            <h1>任务详情</h1>
+            <p class="lead">事件链和资产/证据摘要改为队列表格式。默认只露出 7 条，更多内容在面板内部滚动，避免详情页被日志撑长。</p>
+          </div>
+          <div class="actions">
+            <button class="button">返回采集总览</button>
+            <button class="button primary">继续采集</button>
+          </div>
+        </header>
+
+        <section class="run-context" aria-label="任务上下文">
+          <div><span>Run</span><strong>xhs-live-090257</strong></div>
+          <div><span>平台/Profile</span><strong>小红书 / shop-a</strong></div>
+          <div><span>状态</span><strong class="manual">等待人工</strong></div>
+          <div><span>样本</span><strong>14 条</strong></div>
+          <div><span>证据</span><strong>46 项</strong></div>
+        </section>
+
+        <section class="detail-layout">
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>事件链</h2>
+                <p>保留完整事件顺序，展示密度参考采集总览任务列表。</p>
+              </div>
+              <span class="pill">15 条，显示 7 条</span>
+            </div>
+            <div class="ledger">
+              <div class="ledger-head"><span>#</span><span>事件</span><span>阶段</span><span>时间</span></div>
+              <div class="ledger-body">
+                <article class="ledger-row"><span class="seq">1</span><div class="ledger-main"><strong>任务启动</strong><p>采集任务已启动，准备打开浏览器。</p></div><span class="status-chip ok"><i class="dot"></i>调度</span><span class="subtext">17:02:57</span></article>
+                <article class="ledger-row"><span class="seq">2</span><div class="ledger-main"><strong>账号环境已加载</strong><p>browser profile path resolved。</p></div><span class="status-chip ok"><i class="dot"></i>Profile</span><span class="subtext">17:02:58</span></article>
+                <article class="ledger-row"><span class="seq">3</span><div class="ledger-main"><strong>打开搜索页</strong><p>进入小红书搜索结果页。</p></div><span class="status-chip running"><i class="dot"></i>浏览器</span><span class="subtext">17:03:04</span></article>
+                <article class="ledger-row"><span class="seq">4</span><div class="ledger-main"><strong>采集搜索卡片</strong><p>识别到候选笔记，进入详情页。</p></div><span class="status-chip running"><i class="dot"></i>采样</span><span class="subtext">17:03:16</span></article>
+                <article class="ledger-row"><span class="seq">5</span><div class="ledger-main"><strong>保存截图证据</strong><p>已保存搜索页和详情页截图。</p></div><span class="status-chip ok"><i class="dot"></i>证据</span><span class="subtext">17:03:33</span></article>
+                <article class="ledger-row"><span class="seq">6</span><div class="ledger-main"><strong>下载媒体资产</strong><p>图片资产写入 runtime/collector。</p></div><span class="status-chip ok"><i class="dot"></i>资产</span><span class="subtext">17:03:47</span></article>
+                <article class="ledger-row"><span class="seq">7</span><div class="ledger-main"><strong>等待人工处理</strong><p>平台要求扫码确认，自动操作暂停。</p></div><span class="status-chip manual"><i class="dot"></i>人工</span><span class="subtext">17:04:11</span></article>
+                <article class="ledger-row"><span class="seq">8</span><div class="ledger-main"><strong>记录阻塞点</strong><p>manual_action_required 已写入事件链。</p></div><span class="status-chip manual"><i class="dot"></i>人工</span><span class="subtext">17:04:12</span></article>
+                <article class="ledger-row"><span class="seq">9</span><div class="ledger-main"><strong>释放采集器</strong><p>任务不再占用 worker，等待用户处理。</p></div><span class="status-chip queued"><i class="dot"></i>队列</span><span class="subtext">17:04:14</span></article>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>资产 / 证据摘要</h2>
+                <p>媒体资产和截图证据进入同一个可滚动摘要，类型列负责分组。</p>
+              </div>
+              <span class="pill">46 项，显示 7 项</span>
+            </div>
+            <div class="ledger asset-ledger">
+              <div class="ledger-head"><span>类型</span><span>路径</span><span>指纹</span><span>范围</span></div>
+              <div class="ledger-body">
+                <article class="ledger-row"><span class="row-type ok">图片</span><div class="ledger-main"><strong>image-1-75b3e931.webp</strong><code class="ledger-path">runtime/collector/xhs-live-090257/assets/xhs-image-1.webp</code></div><span class="subtext">75b3e931</span><span class="subtext">post</span></article>
+                <article class="ledger-row"><span class="row-type ok">图片</span><div class="ledger-main"><strong>image-2-0ad92cc4.webp</strong><code class="ledger-path">runtime/collector/xhs-live-090257/assets/xhs-image-2.webp</code></div><span class="subtext">0ad92cc4</span><span class="subtext">post</span></article>
+                <article class="ledger-row"><span class="row-type running">截图</span><div class="ledger-main"><strong>search-page.png</strong><code class="ledger-path">runtime/collector/xhs-live-090257/evidence/search-page.png</code></div><span class="subtext">snapshot</span><span class="subtext">search</span></article>
+                <article class="ledger-row"><span class="row-type running">截图</span><div class="ledger-main"><strong>detail-page.png</strong><code class="ledger-path">runtime/collector/xhs-live-090257/evidence/detail-page.png</code></div><span class="subtext">snapshot</span><span class="subtext">detail</span></article>
+                <article class="ledger-row"><span class="row-type queued">字段</span><div class="ledger-main"><strong>post-fields.json</strong><code class="ledger-path">runtime/collector/xhs-live-090257/evidence/post-fields.json</code></div><span class="subtext">json</span><span class="subtext">detail</span></article>
+                <article class="ledger-row"><span class="row-type ok">图片</span><div class="ledger-main"><strong>image-3-a88723ee.webp</strong><code class="ledger-path">runtime/collector/xhs-live-090257/assets/xhs-image-3.webp</code></div><span class="subtext">a88723ee</span><span class="subtext">post</span></article>
+                <article class="ledger-row"><span class="row-type manual">风控</span><div class="ledger-main"><strong>manual-action.png</strong><code class="ledger-path">runtime/collector/xhs-live-090257/evidence/manual-action.png</code></div><span class="subtext">screenshot</span><span class="subtext">profile</span></article>
+                <article class="ledger-row"><span class="row-type ok">图片</span><div class="ledger-main"><strong>image-4-d31cc932.webp</strong><code class="ledger-path">runtime/collector/xhs-live-090257/assets/xhs-image-4.webp</code></div><span class="subtext">d31cc932</span><span class="subtext">post</span></article>
+                <article class="ledger-row"><span class="row-type queued">日志</span><div class="ledger-main"><strong>events.jsonl</strong><code class="ledger-path">runtime/collector/xhs-live-090257/events.jsonl</code></div><span class="subtext">jsonl</span><span class="subtext">run</span></article>
+              </div>
+            </div>
+          </section>
+        </section>
+
+        <div class="note-band">
+          <strong>落地规则</strong>
+          <p>正式实现时可以保留完整数据循环，只在 CSS 上限制可视高度：7 行 x 64px。面板头部显示总数和“显示 7 条”，内部滚动条沿用采集总览队列的样式。</p>
+        </div>
+      </section>
+
+      <section class="screen" id="combined">
+        <header class="page-head">
+          <div>
+            <div class="eyebrow">integration preview</div>
+            <h1>两个页面的关系</h1>
+            <p class="lead">账号页回答“我有哪些平台用户、能做什么操作”；任务详情回答“这个 run 的证据是否可追溯”。两个地方都减少隐藏信息和长页面疲劳。</p>
+          </div>
+        </header>
+
+        <section class="combined-grid">
+          <section class="panel">
+            <div class="panel-head">
+              <div><h2>账号页信息层级</h2><p>平台分组、用户行、创建行三层足够。</p></div>
+              <span class="pill">建议落正式页</span>
+            </div>
+            <div class="mini-stack">
+              <div class="mini-profile"><div><strong>小红书 / default</strong><p class="subtext">已登录，空闲，可创建任务</p></div><span class="status-chip ok"><i class="dot"></i>可用</span></div>
+              <div class="mini-profile"><div><strong>小红书 / shop-a</strong><p class="subtext">运行中，操作转为打开任务</p></div><span class="status-chip running"><i class="dot"></i>占用</span></div>
+              <div class="mini-profile"><div><strong>小红书 / creator</strong><p class="subtext">等待人工，可登录检查和退出</p></div><span class="status-chip manual"><i class="dot"></i>处理</span></div>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <div><h2>任务详情压缩规则</h2><p>用队列行密度替代大型事件卡。</p></div>
+              <span class="pill">7 行滚动</span>
+            </div>
+            <div class="mini-stack">
+              <div class="note-band"><strong>事件链</strong><p>序号、事件、阶段、时间四列。信息不再竖向堆叠，必要描述压到一行。</p></div>
+              <div class="note-band"><strong>资产证据</strong><p>类型、路径、指纹、范围四列。媒体和证据合并到一个滚动摘要，不再分两段撑高页面。</p></div>
+            </div>
+          </section>
+        </section>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    const buttons = Array.from(document.querySelectorAll("[data-target]"));
+    const screens = Array.from(document.querySelectorAll(".screen"));
+
+    buttons.forEach((button) => {
+      button.addEventListener("click", () => {
+        const target = button.dataset.target;
+        buttons.forEach((item) => item.setAttribute("aria-selected", String(item === button)));
+        screens.forEach((screen) => screen.classList.toggle("active", screen.id === target));
+      });
+    });
+  </script>
+</body>
+</html>

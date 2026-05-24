@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Falcon Accent Color Options</title>
+  <style>
+    :root {
+      --bg: #1a252c;
+      --panel: #24333c;
+      --panel-2: #293a44;
+      --ink: #eef5f2;
+      --muted: #b7c5c2;
+      --line: rgba(151, 176, 184, 0.24);
+      --blue: #76a5c5;
+      --amber: #d1a24d;
+      --danger: #df6767;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--ink);
+      background:
+        linear-gradient(135deg, rgba(118, 165, 197, 0.1), transparent 36%),
+        linear-gradient(180deg, #23323b 0%, #1d2a31 50%, #172229 100%);
+      font-family: "Microsoft YaHei", "PingFang SC", "Segoe UI", sans-serif;
+      letter-spacing: 0;
+    }
+
+    main {
+      width: min(1360px, calc(100vw - 64px));
+      margin: 0 auto;
+      padding: 44px 0 52px;
+    }
+
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      gap: 24px;
+      margin-bottom: 26px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 34px;
+      line-height: 1.15;
+    }
+
+    p {
+      margin: 8px 0 0;
+      color: var(--muted);
+      font-size: 15px;
+      line-height: 1.6;
+    }
+
+    .note {
+      border: 1px solid rgba(151, 176, 184, 0.28);
+      border-radius: 999px;
+      padding: 8px 13px;
+      color: #d7e3df;
+      background: rgba(36, 51, 60, 0.78);
+      font-size: 13px;
+      white-space: nowrap;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .card {
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: linear-gradient(180deg, rgba(43, 61, 72, 0.96), rgba(35, 50, 59, 0.96));
+      box-shadow: 0 18px 44px rgba(0, 0, 0, 0.28);
+    }
+
+    .swatch {
+      height: 118px;
+      background: var(--accent);
+    }
+
+    .body {
+      padding: 15px;
+    }
+
+    .topline {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+
+    h2 {
+      margin: 0;
+      font-size: 18px;
+    }
+
+    code {
+      color: #d8e3e0;
+      font: 700 13px/1.4 "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
+    }
+
+    .tag {
+      border: 1px solid rgba(151, 176, 184, 0.3);
+      border-radius: 999px;
+      padding: 4px 8px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .tag.recommended {
+      border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+      color: var(--accent);
+      background: color-mix(in srgb, var(--accent) 12%, transparent);
+    }
+
+    .demo {
+      display: grid;
+      gap: 10px;
+      margin-top: 14px;
+      padding-top: 14px;
+      border-top: 1px solid var(--line);
+    }
+
+    .button {
+      display: inline-flex;
+      width: max-content;
+      min-height: 34px;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid color-mix(in srgb, var(--accent) 56%, transparent);
+      border-radius: 8px;
+      padding: 8px 12px;
+      color: #0f1d18;
+      background: var(--accent);
+      font-size: 13px;
+      font-weight: 900;
+    }
+
+    .status {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--accent);
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: currentColor;
+      box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 28%, transparent);
+    }
+
+    .link {
+      color: var(--accent);
+      font-size: 13px;
+      font-weight: 900;
+    }
+
+    .meta {
+      min-height: 44px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <h1>Falcon 状态色候选</h1>
+        <p>放在当前 Slate Command 背景上看：按钮、状态点、文本链接三个高频场景一起比较。</p>
+      </div>
+      <span class="note">越往 A / E 越不像绿色，越往 C / B 越保留采集状态感</span>
+    </header>
+
+    <section class="grid">
+      <article class="card" style="--accent: #8fb68f">
+        <div class="swatch"></div>
+        <div class="body">
+          <div class="topline"><h2>当前 Mist Sage</h2><span class="tag">current</span></div>
+          <code>#8fb68f</code>
+          <p class="meta">仍然偏绿，尤其在按钮和小状态点上会显得亮。</p>
+          <div class="demo"><span class="button">开始采集</span><span class="status"><i class="dot"></i>运行中</span><span class="link">查看详情</span></div>
+        </div>
+      </article>
+
+      <article class="card" style="--accent: #7f9da3">
+        <div class="swatch"></div>
+        <div class="body">
+          <div class="topline"><h2>A 雾蓝灰</h2><span class="tag recommended">推荐</span></div>
+          <code>#7f9da3</code>
+          <p class="meta">最不像绿，偏桌面工具和数据面板，稳。</p>
+          <div class="demo"><span class="button">开始采集</span><span class="status"><i class="dot"></i>运行中</span><span class="link">查看详情</span></div>
+        </div>
+      </article>
+
+      <article class="card" style="--accent: #7d947f">
+        <div class="swatch"></div>
+        <div class="body">
+          <div class="topline"><h2>B 灰鼠尾草</h2><span class="tag">soft</span></div>
+          <code>#7d947f</code>
+          <p class="meta">保留一点绿色，但明度明显压低。</p>
+          <div class="demo"><span class="button">开始采集</span><span class="status"><i class="dot"></i>运行中</span><span class="link">查看详情</span></div>
+        </div>
+      </article>
+
+      <article class="card" style="--accent: #748876">
+        <div class="swatch"></div>
+        <div class="body">
+          <div class="topline"><h2>C 石苔灰</h2><span class="tag recommended">推荐</span></div>
+          <code>#748876</code>
+          <p class="meta">更沉稳，仍能表达可用、通过、运行。</p>
+          <div class="demo"><span class="button">开始采集</span><span class="status"><i class="dot"></i>运行中</span><span class="link">查看详情</span></div>
+        </div>
+      </article>
+
+      <article class="card" style="--accent: #8f8d6a">
+        <div class="swatch"></div>
+        <div class="body">
+          <div class="topline"><h2>D 橄榄灰</h2><span class="tag">warm</span></div>
+          <code>#8f8d6a</code>
+          <p class="meta">偏旧金和军绿，温和，但状态语义会变暖。</p>
+          <div class="demo"><span class="button">开始采集</span><span class="status"><i class="dot"></i>运行中</span><span class="link">查看详情</span></div>
+        </div>
+      </article>
+
+      <article class="card" style="--accent: #7896ad">
+        <div class="swatch"></div>
+        <div class="body">
+          <div class="topline"><h2>E 钢蓝</h2><span class="tag">desktop</span></div>
+          <code>#7896ad</code>
+          <p class="meta">彻底避开绿，和 Slate 背景最统一。</p>
+          <div class="demo"><span class="button">开始采集</span><span class="status"><i class="dot"></i>运行中</span><span class="link">查看详情</span></div>
+        </div>
+      </article>
+
+      <article class="card" style="--accent: #b49a61">
+        <div class="swatch"></div>
+        <div class="body">
+          <div class="topline"><h2>F 暖琥珀</h2><span class="tag">warm</span></div>
+          <code>#b49a61</code>
+          <p class="meta">适合主操作，不太适合成功/运行状态。</p>
+          <div class="demo"><span class="button">开始采集</span><span class="status"><i class="dot"></i>运行中</span><span class="link">查看详情</span></div>
+        </div>
+      </article>
+    </section>
+  </main>
+</body>
+</html>

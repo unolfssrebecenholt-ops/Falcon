@@ -175,10 +175,20 @@ class WebAppTest(unittest.TestCase):
             repo.init_schema()
             repo.create_collection_run(
                 CollectionRun(
-                    run_id="xhs-queued",
+                    run_id="xhs-running",
                     platform="xiaohongshu",
                     keyword="AI cover",
                     profile="default",
+                    status="running",
+                )
+            )
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="xhs-latest-completed",
+                    platform="xiaohongshu",
+                    keyword="AI avatar",
+                    profile="default",
+                    status="completed",
                 )
             )
             client = TestClient(create_app(db_path))
@@ -188,8 +198,16 @@ class WebAppTest(unittest.TestCase):
             self.assertEqual(response.status_code, 200)
             self.assertIn("采集总览", response.text)
             self.assertIn("平台入口", response.text)
-            self.assertIn("三层流转", response.text)
-            self.assertIn("xhs-queued", response.text)
+            self.assertIn('class="running-attention-banner"', response.text)
+            self.assertIn('class="platform-card active has-running"', response.text)
+            self.assertIn("xhs-running", response.text)
+            self.assertIn('class="panel recent-runs-panel"', response.text)
+            self.assertLess(
+                response.text.index('class="panel recent-runs-panel"'),
+                response.text.index('class="overview-column overview-column-right"'),
+            )
+            self.assertNotIn('class="flow-grid"', response.text)
+            self.assertNotIn('class="panel overview-entry-panel"', response.text)
             assert_no_legacy_collection_markers(self, response.text)
 
     def test_collector_overview_uses_huashu_queue_components(self):
@@ -210,12 +228,10 @@ class WebAppTest(unittest.TestCase):
                 )
             client = TestClient(create_app(db_path))
 
-            response = client.get("/collector")
+            response = client.get("/collector/runs")
 
             self.assertEqual(response.status_code, 200)
-            self.assertIn("采集作战台", response.text)
-            self.assertIn('class="overview-grid"', response.text)
-            self.assertIn("队列健康", response.text)
+            self.assertIn("任务队列", response.text)
             self.assertIn("任务开启日期范围", response.text)
             self.assertIn('id="queue-calendar-panel"', response.text)
             self.assertIn('data-platform-filter="xiaohongshu"', response.text)
@@ -237,29 +253,57 @@ class WebAppTest(unittest.TestCase):
             )
             client = TestClient(create_app(db_path))
 
-            response = client.get("/collector")
+            response = client.get("/collector/runs")
             css = (Path(__file__).resolve().parents[1] / "falcon" / "web" / "static" / "app.css").read_text(
                 encoding="utf-8"
             )
 
             self.assertEqual(response.status_code, 200)
-            self.assertIn('class="overview-column overview-column-left"', response.text)
-            self.assertIn('class="overview-column overview-column-right"', response.text)
             self.assertIn('class="queue-action-primary"', response.text)
             self.assertIn('class="queue-action-more"', response.text)
             self.assertIn("align-items: stretch", css)
-            self.assertIn(".overview-column-left", css)
-            self.assertIn("grid-template-rows: auto auto minmax(0, 1fr)", css)
             self.assertIn("table-layout: fixed", css)
             self.assertIn(".queue-wrap td:nth-child(9) {\n  overflow: visible;", css)
             self.assertNotIn("min-width: 1240px", css)
+
+    def test_web_theme_uses_slate_command_stone_moss_palette_without_neon_grid(self):
+        css = (Path(__file__).resolve().parents[1] / "falcon" / "web" / "static" / "app.css").read_text(
+            encoding="utf-8"
+        )
+        base_template = (Path(__file__).resolve().parents[1] / "falcon" / "web" / "templates" / "base.html").read_text(
+            encoding="utf-8"
+        )
+
+        body_rule = css[css.index("body {") : css.index(".inline-link {")]
+        sidebar_rule = css[css.index(".sidebar {") : css.index(".brand {")]
+
+        self.assertIn("--bg: #1a252c;", css)
+        self.assertIn("--panel: #24333c;", css)
+        self.assertIn("--accent: #748876;", css)
+        self.assertIn("--accent-dark: #5f7162;", css)
+        self.assertIn("--blue: #76a5c5;", css)
+        self.assertIn("--amber: #d1a24d;", css)
+        self.assertIn("--danger: #df6767;", css)
+        self.assertIn("--ok: #85957f;", css)
+        self.assertNotIn("radial-gradient(circle at 1px 1px", body_rule)
+        self.assertNotIn("radial-gradient(circle at 1px 1px", sidebar_rule)
+        self.assertNotIn("#060807", css)
+        self.assertNotIn("#a6ff63", css)
+        self.assertNotIn("#6fc17b", css)
+        self.assertNotIn("#87d994", css)
+        self.assertNotIn("#8fb68f", css)
+        self.assertNotIn("#9fbd8f", css)
+        self.assertNotIn("graphite-sage-all-pages-20260524", base_template)
+        self.assertNotIn("slate-command-reference-pages-20260524", base_template)
+        self.assertNotIn("slate-command-soft-sage-pages-20260524", base_template)
+        self.assertIn("slate-command-stone-moss-pages-20260524", base_template)
 
     def test_collector_overview_links_to_environment_page_without_inline_doctor(self):
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "falcon.sqlite3"
             client = TestClient(create_app(db_path))
 
-            response = client.get("/collector")
+            response = client.get("/collector/runs")
 
             self.assertEqual(response.status_code, 200)
             self.assertIn('href="/collector/environment"', response.text)
@@ -280,7 +324,7 @@ class WebAppTest(unittest.TestCase):
             self.assertIn('<details class="panel environment-panel environment-page-panel" open>', response.text)
             self.assertIn('aria-label="Falcon environment doctor"', response.text)
 
-    def test_collector_overview_embeds_create_task_form_after_focus_panel(self):
+    def test_collector_overview_links_to_dedicated_create_and_queue_pages(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             db_path = tmp_path / "falcon.sqlite3"
@@ -291,13 +335,11 @@ class WebAppTest(unittest.TestCase):
             response = client.get("/collector")
 
             self.assertEqual(response.status_code, 200)
-            self.assertIn('id="collector-create-form"', response.text)
-            self.assertIn('id="create-task"', response.text)
-            self.assertIn('action="/collector/create"', response.text)
-            self.assertIn('class="field-grid task-config-grid"', response.text)
-            self.assertLess(response.text.index('class="panel focus-panel"'), response.text.index('id="collector-create-form"'))
-            self.assertLess(response.text.index('id="collector-create-form"'), response.text.index('class="panel queue-panel"'))
-            self.assertNotIn('href="/collector/create"', response.text)
+            self.assertIn("最近任务", response.text)
+            self.assertIn('href="/collector/runs"', response.text)
+            self.assertIn('href="/collector/create"', response.text)
+            self.assertNotIn('id="collector-create-form"', response.text)
+            self.assertNotIn('class="queue-wrap"', response.text)
 
     def test_collector_overview_merges_queue_health_and_collection_rhythm(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -335,9 +377,8 @@ class WebAppTest(unittest.TestCase):
             self.assertIn("运行中", response.text)
             self.assertIn("待人工", response.text)
             self.assertIn("待启动", response.text)
-            self.assertIn('href="#collector-create-form"', response.text)
+            self.assertIn('href="/collector/create"', response.text)
             self.assertIn('action="/collector/queue/start"', response.text)
-            self.assertLess(response.text.index("队列健康"), response.text.index('class="panel queue-panel"'))
             self.assertIn(".queue-health-panel", css)
             self.assertIn(".health-metrics", css)
             self.assertIn("grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr))", css)
@@ -345,15 +386,205 @@ class WebAppTest(unittest.TestCase):
             self.assertIn(".health-actions {\n  display: grid;\n  grid-template-columns: 1fr;", css)
             self.assertNotIn("grid-template-columns: repeat(4, minmax(160px, 1fr));", css)
 
-    def test_collector_create_get_redirects_to_overview_form_anchor(self):
+    def test_collector_create_get_renders_standalone_task_creation_page(self):
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "falcon.sqlite3"
             client = TestClient(create_app(db_path))
 
-            response = client.get("/collector/create", follow_redirects=False)
+            response = client.get("/collector/create")
 
-            self.assertEqual(response.status_code, 303)
-            self.assertEqual(response.headers["location"], "/collector#collector-create-form")
+            self.assertEqual(response.status_code, 200)
+            self.assertIn("任务创建", response.text)
+            self.assertIn('id="collector-create-form"', response.text)
+            self.assertNotIn('class="panel create-side-panel"', response.text)
+            self.assertNotIn('aria-label="入队前摘要"', response.text)
+            self.assertIn('id="collector-create-confirm-dialog"', response.text)
+            self.assertIn('id="confirm-create-submit"', response.text)
+            self.assertIn("返回修改", response.text)
+            self.assertIn("确认入队", response.text)
+
+    def test_layout_redesign_adds_standalone_collector_queue_and_create_pages(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            db_path = tmp_path / "falcon.sqlite3"
+            profile_root = tmp_path / "browser-profiles"
+            (profile_root / "xiaohongshu" / "default").mkdir(parents=True)
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="xhs-layout-queued",
+                    platform="xiaohongshu",
+                    keyword="AI cover",
+                    profile="default",
+                    status="queued",
+                )
+            )
+            client = TestClient(create_app(db_path, profile_root=profile_root))
+
+            queue = client.get("/collector/runs")
+            create = client.get("/collector/create")
+
+            self.assertEqual(queue.status_code, 200)
+            self.assertIn("任务队列", queue.text)
+            self.assertIn("独立承载筛选器", queue.text)
+            self.assertIn("xhs-layout-queued", queue.text)
+            self.assertIn('action="/collector/runs/xhs-layout-queued/start"', queue.text)
+            self.assertIn('href="/collector/create"', queue.text)
+            self.assertEqual(create.status_code, 200)
+            self.assertIn("任务创建", create.text)
+            self.assertIn('id="collector-create-form"', create.text)
+            self.assertIn('action="/collector/create"', create.text)
+            self.assertNotIn('class="panel create-side-panel"', create.text)
+            self.assertIn('id="collector-create-confirm-dialog"', create.text)
+
+    def test_layout_redesign_adds_analysis_samples_page_and_links_from_analysis_home(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "falcon.sqlite3"
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            raw_id = repo.upsert_raw_item(
+                RawItem(
+                    platform="xiaohongshu",
+                    keyword="AI cover",
+                    source_type="post",
+                    title="Need better covers",
+                    content="How can I improve cover click-through?",
+                    url="https://example.test/post/analysis-samples",
+                )
+            )
+            repo.save_analysis(
+                raw_id,
+                AnalysisResult(
+                    scene_tag="xhs_cover",
+                    intent_score=91,
+                    content_value_score=84,
+                    pain_point="cover click-through is low",
+                    suggested_topic="Cover upgrade checklist",
+                    recommended_action="write_topic",
+                    outreach_type="comment_reply",
+                    outreach_priority="high",
+                    reason="clear pain point",
+                ),
+            )
+            client = TestClient(create_app(db_path))
+
+            home = client.get("/analysis")
+            samples_response = client.get("/analysis/samples")
+
+            self.assertEqual(home.status_code, 200)
+            self.assertIn('href="/analysis/samples"', home.text)
+            self.assertIn("分析样本", home.text)
+            self.assertEqual(samples_response.status_code, 200)
+            self.assertIn("分析样本", samples_response.text)
+            self.assertIn("Need better covers", samples_response.text)
+            self.assertIn("Cover upgrade checklist", samples_response.text)
+
+    def test_layout_redesign_navigation_exposes_split_page_entries(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "falcon.sqlite3"
+            client = TestClient(create_app(db_path))
+
+            response = client.get("/")
+
+            self.assertEqual(response.status_code, 200)
+            self.assertIn('href="/collector/runs"', response.text)
+            self.assertIn('href="/collector/create"', response.text)
+            self.assertIn('href="/analysis/samples"', response.text)
+            self.assertIn('href="/tasks"', response.text)
+
+    def test_layout_redesign_applies_workbench_keywords_and_report_pages(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            db_path = tmp_path / "falcon.sqlite3"
+            keyword_path = tmp_path / "keywords.csv"
+            keyword_path.write_text(
+                "theme,keyword,scene,weight,daily_limit\n"
+                "AI头像,头像小程序,avatar,5,20\n",
+                encoding="utf-8",
+            )
+            report_path = tmp_path / "daily-report.md"
+            report_path.write_text("# Falcon 日报\n\n今日样本。", encoding="utf-8")
+            client = TestClient(create_app(db_path))
+
+            dashboard = client.get("/")
+            keywords = client.get("/keywords", params={"path": str(keyword_path)})
+            report = client.get("/report", params={"path": str(report_path)})
+
+            self.assertEqual(dashboard.status_code, 200)
+            self.assertIn("工作台入口", dashboard.text)
+            self.assertIn("今日待办", dashboard.text)
+            self.assertIn("链路入口", dashboard.text)
+            self.assertIn('href="/collector/create"', dashboard.text)
+            self.assertIn('href="/analysis/samples"', dashboard.text)
+            self.assertIn('href="/tasks"', dashboard.text)
+            self.assertEqual(keywords.status_code, 200)
+            self.assertIn("关键词配置", keywords.text)
+            self.assertIn("关键词表", keywords.text)
+            self.assertIn('class="keyword-layout"', keywords.text)
+            self.assertIn("头像小程序", keywords.text)
+            self.assertEqual(report.status_code, 200)
+            self.assertIn('class="report-reader"', report.text)
+            self.assertIn("阅读宽度", report.text)
+            self.assertIn("Falcon 日报", report.text)
+
+    def test_layout_redesign_applies_review_execution_and_tasks_pages(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "falcon.sqlite3"
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            raw_id = repo.upsert_raw_item(
+                RawItem(
+                    platform="xiaohongshu",
+                    keyword="AI cover",
+                    source_type="post",
+                    title="Review and execute candidate",
+                    content="Need a reply",
+                    url="https://example.test/post/review-execution",
+                )
+            )
+            analysis = AnalysisResult(
+                scene_tag="xhs_cover",
+                intent_score=91,
+                content_value_score=86,
+                pain_point="cover click-through is low",
+                suggested_topic="Cover upgrade checklist",
+                recommended_action="comment_reply",
+                outreach_type="comment_reply",
+                outreach_priority="high",
+                reason="clear request",
+            )
+            analysis_id = repo.save_analysis(raw_id, analysis)
+            repo.create_outreach_task(
+                raw_id,
+                analysis_id,
+                analysis,
+                [Draft(kind="comment_reply", text="Try stronger contrast and fewer words.")],
+                risk_note="human confirmation required",
+            )
+            client = TestClient(create_app(db_path))
+
+            review = client.get("/review")
+            execution = client.get("/execution")
+            tasks = client.get("/tasks")
+
+            self.assertEqual(review.status_code, 200)
+            self.assertIn("复核工作台", review.text)
+            self.assertIn('class="review-workbench"', review.text)
+            self.assertIn('class="review-action-panel"', review.text)
+            self.assertIn("Review and execute candidate", review.text)
+            self.assertNotIn('class="row-form"', review.text)
+            self.assertEqual(execution.status_code, 200)
+            self.assertIn("执行首页", execution.text)
+            self.assertIn("待确认草稿队列", execution.text)
+            self.assertIn("优先级概览", execution.text)
+            self.assertIn('href="/tasks"', execution.text)
+            self.assertIn("Try stronger contrast", execution.text)
+            self.assertEqual(tasks.status_code, 200)
+            self.assertIn("触达任务状态管理", tasks.text)
+            self.assertIn('class="task-table-wrap"', tasks.text)
+            self.assertIn('action="/tasks/', tasks.text)
+            self.assertIn("human confirmation required", tasks.text)
 
     def test_collector_overview_exposes_inline_archive_button_contract(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -380,7 +611,7 @@ class WebAppTest(unittest.TestCase):
             )
             client = TestClient(create_app(db_path))
 
-            response = client.get("/collector")
+            response = client.get("/collector/runs")
 
             self.assertEqual(response.status_code, 200)
             self.assertIn('data-run-id="xhs-inline-archive"', response.text)
@@ -592,7 +823,7 @@ class WebAppTest(unittest.TestCase):
             )
             client = TestClient(create_app(db_path, profile_root=profile_root))
 
-            overview = client.get("/collector")
+            overview = client.get("/collector/runs")
             accounts = client.get("/collector/accounts")
 
             self.assertEqual(overview.status_code, 200)
@@ -608,7 +839,7 @@ class WebAppTest(unittest.TestCase):
             self.assertIn("douyin/creator", accounts.text)
             self.assertIn("browser-profiles", accounts.text)
 
-    def test_collector_accounts_render_platform_profile_matrix_without_select_entry(self):
+    def test_collector_accounts_render_platform_user_matrix_actions_without_select_entry(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             db_path = tmp_path / "falcon.sqlite3"
@@ -630,13 +861,80 @@ class WebAppTest(unittest.TestCase):
             response = client.get("/collector/accounts")
 
             self.assertEqual(response.status_code, 200)
-            self.assertIn('class="account-board"', response.text)
-            self.assertIn('class="account-column"', response.text)
+            self.assertIn("account-workbench", response.text)
+            self.assertIn('class="account-platform-section"', response.text)
+            self.assertIn("account-platform-identity", response.text)
+            self.assertIn("account-platform-meta", response.text)
+            self.assertIn("account-create-toolbar", response.text)
+            self.assertIn("account-action-bar", response.text)
+            self.assertIn("平台用户矩阵", response.text)
             self.assertIn("xiaohongshu/default", response.text)
             self.assertIn("xiaohongshu/backup", response.text)
             self.assertIn("xiaohongshu/creator", response.text)
             self.assertIn("等待人工", response.text)
+            self.assertIn("登录", response.text)
+            self.assertIn("检查", response.text)
+            self.assertIn("退出", response.text)
+            self.assertIn("新建 Profile", response.text)
+            self.assertIn("输入名称后打开登录窗口", response.text)
+            self.assertIn('action="/collector/profiles/logout"', response.text)
             self.assertNotIn("<select", response.text)
+            css_path = Path(__file__).resolve().parents[1] / "falcon" / "web" / "static" / "app.css"
+            css_text = css_path.read_text(encoding="utf-8")
+            self.assertIn(".account-action-bar", css_text)
+            self.assertIn(".account-create-toolbar", css_text)
+            self.assertIn("max-width: 260px", css_text)
+            self.assertIn("width: auto", css_text)
+            self.assertNotIn(".account-actions", css_text)
+
+    def test_collector_profile_logout_clears_idle_local_profile_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            db_path = tmp_path / "falcon.sqlite3"
+            profile_root = tmp_path / "browser-profiles"
+            profile_dir = profile_root / "xiaohongshu" / "backup"
+            profile_dir.mkdir(parents=True)
+            (profile_dir / "cookies.sqlite").write_text("local profile state", encoding="utf-8")
+            client = TestClient(create_app(db_path, profile_root=profile_root))
+
+            response = client.post(
+                "/collector/profiles/logout",
+                data={"platform": "xiaohongshu", "profile": "backup"},
+                follow_redirects=False,
+            )
+
+            self.assertEqual(response.status_code, 303)
+            self.assertIn("profile_action=logged_out", response.headers["location"])
+            self.assertFalse(profile_dir.exists())
+
+    def test_collector_profile_logout_rejects_busy_profile(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            db_path = tmp_path / "falcon.sqlite3"
+            profile_root = tmp_path / "browser-profiles"
+            profile_dir = profile_root / "xiaohongshu" / "default"
+            profile_dir.mkdir(parents=True)
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="xhs-busy-logout",
+                    platform="xiaohongshu",
+                    keyword="AI cover",
+                    profile="default",
+                    status="running",
+                )
+            )
+            client = TestClient(create_app(db_path, profile_root=profile_root))
+
+            response = client.post(
+                "/collector/profiles/logout",
+                data={"platform": "xiaohongshu", "profile": "default"},
+                follow_redirects=False,
+            )
+
+            self.assertEqual(response.status_code, 400)
+            self.assertTrue(profile_dir.exists())
 
     def test_desktop_sidebar_is_fixed_while_content_scrolls(self):
         css = (Path(__file__).resolve().parents[1] / "falcon" / "web" / "static" / "app.css").read_text(
@@ -645,10 +943,37 @@ class WebAppTest(unittest.TestCase):
 
         sidebar_rule = css[css.index(".sidebar {") : css.index(".brand {")]
         main_rule = css[css.index(".main {") : css.index(".page-header {")]
+        nav_rule = css[css.index(".nav-groups {") : css.index(".nav-group {")]
 
         self.assertIn("position: fixed", sidebar_rule)
         self.assertIn("height: 100vh", sidebar_rule)
+        self.assertIn("overflow: hidden", sidebar_rule)
+        self.assertIn("flex: 1 1 auto", nav_rule)
+        self.assertIn("overflow-y: auto", nav_rule)
+        self.assertIn("overscroll-behavior: contain", nav_rule)
+        self.assertIn("scrollbar-gutter: stable", nav_rule)
+        self.assertIn("scrollbar-color: transparent transparent", nav_rule)
+        self.assertIn(".nav-groups:hover", css)
+        self.assertIn(".nav-groups::-webkit-scrollbar", css)
+        self.assertIn(".nav-groups::-webkit-scrollbar-thumb:hover", css)
         self.assertIn("margin-left: 232px", main_rule)
+
+    def test_layout_redesign_shared_css_supports_base_page_splits(self):
+        css = (Path(__file__).resolve().parents[1] / "falcon" / "web" / "static" / "app.css").read_text(
+            encoding="utf-8"
+        )
+
+        for selector in [
+            ".workbench-grid",
+            ".keyword-layout",
+            ".report-reader",
+            ".review-workbench",
+            ".execution-grid",
+            ".task-table-wrap",
+        ]:
+            self.assertIn(selector, css)
+        self.assertIn("max-width: 860px", css)
+        self.assertIn(".review-workbench,\n  .execution-grid,\n  .keyword-layout", css)
 
     def test_collector_profile_login_launches_supported_platform_profile(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -715,7 +1040,7 @@ class WebAppTest(unittest.TestCase):
             db_path = Path(tmp) / "falcon.sqlite3"
             client = TestClient(create_app(db_path))
 
-            response = client.get("/collector")
+            response = client.get("/collector/create")
 
             self.assertEqual(response.status_code, 200)
             self.assertIn("任务配置", response.text)
@@ -728,28 +1053,28 @@ class WebAppTest(unittest.TestCase):
             db_path = Path(tmp) / "falcon.sqlite3"
             client = TestClient(create_app(db_path))
 
-            response = client.get("/collector")
+            response = client.get("/collector/create")
 
             self.assertEqual(response.status_code, 200)
             self.assertIn("任务配置", response.text)
             self.assertIn("关键词组", response.text)
             self.assertIn('name="keywords"', response.text)
             self.assertIn('class="help-dot"', response.text)
-            self.assertIn("任务拆分", response.text)
+            self.assertIn('id="confirm-run-count"', response.text)
 
     def test_collector_create_get_starts_with_blank_keyword_group(self):
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "falcon.sqlite3"
             client = TestClient(create_app(db_path))
 
-            response = client.get("/collector")
+            response = client.get("/collector/create")
 
             self.assertEqual(response.status_code, 200)
             self.assertIn('id="keywords-hidden"', response.text)
             self.assertIn('name="keywords"', response.text)
             self.assertIn('value=""', response.text)
-            self.assertIn("待添加关键词", response.text)
-            self.assertIn("未添加", response.text)
+            self.assertIn('id="confirm-keywords"', response.text)
+            self.assertIn('id="confirm-run-count"', response.text)
             self.assertNotIn('data-keyword="小红书封面"', response.text)
             self.assertNotIn('data-keyword="AI 封面"', response.text)
             self.assertNotIn('data-keyword="副业"', response.text)
@@ -763,7 +1088,7 @@ class WebAppTest(unittest.TestCase):
             (profile_root / "xiaohongshu" / "creator").mkdir(parents=True)
             client = TestClient(create_app(db_path, profile_root=profile_root))
 
-            response = client.get("/collector")
+            response = client.get("/collector/create")
 
             self.assertEqual(response.status_code, 200)
             self.assertIn('<select id="profile-select" name="profile" required>', response.text)
@@ -790,7 +1115,7 @@ class WebAppTest(unittest.TestCase):
             )
             client = TestClient(create_app(db_path, profile_root=profile_root))
 
-            response = client.get("/collector")
+            response = client.get("/collector/create")
 
             self.assertEqual(response.status_code, 200)
             self.assertNotIn('<option value="default"', response.text)
@@ -803,7 +1128,7 @@ class WebAppTest(unittest.TestCase):
             db_path = Path(tmp) / "falcon.sqlite3"
             client = TestClient(create_app(db_path))
 
-            response = client.get("/collector")
+            response = client.get("/collector/create")
 
             self.assertEqual(response.status_code, 200)
             self.assertIn('class="field profile-field"', response.text)
@@ -839,7 +1164,7 @@ class WebAppTest(unittest.TestCase):
             self.assertEqual(runs[0].keyword, "AI cover")
             self.assertEqual(runs[0].profile, "creator")
             self.assertEqual(runs[0].max_posts, 7)
-            self.assertTrue(response.headers["location"].endswith(f"/collector/runs/{runs[0].run_id}"))
+            self.assertEqual(response.headers["location"], "/collector/runs?status=queued&created=1")
             request_path = tmp_path / "runtime" / "collector" / runs[0].run_id / "request.json"
             self.assertTrue(request_path.exists())
             self.assertIn('"platform": "xiaohongshu"', request_path.read_text(encoding="utf-8"))
@@ -866,7 +1191,7 @@ class WebAppTest(unittest.TestCase):
             repo.init_schema()
             runs = sorted(repo.list_collection_runs(), key=lambda run: run.keyword)
             self.assertEqual(response.status_code, 303)
-            self.assertEqual(response.headers["location"], "/collector")
+            self.assertEqual(response.headers["location"], "/collector/runs?status=queued&created=3")
             self.assertEqual([run.keyword for run in runs], ["AI 封面", "副业", "小红书封面"])
             for run in runs:
                 self.assertEqual(run.status, "queued")
@@ -978,8 +1303,45 @@ class WebAppTest(unittest.TestCase):
             self.assertIn("Cover prompt ideas", response.text)
             self.assertIn("cover.jpg", response.text)
             self.assertIn("search.png", response.text)
+            self.assertIn('class="table-wrap sample-table-wrap"', response.text)
+            self.assertIn('class="run-ledger timeline-ledger"', response.text)
+            self.assertIn('class="run-ledger asset-evidence-ledger"', response.text)
+            self.assertIn('data-visible-rows="7"', response.text)
+            self.assertIn("显示 7 条", response.text)
             self.assertLess(response.text.index("采集样本"), response.text.index("事件链"))
             assert_no_legacy_collection_markers(self, response.text)
+
+    def test_collector_run_detail_ledger_css_limits_panels_to_seven_scrollable_rows(self):
+        css = (Path(__file__).resolve().parents[1] / "falcon" / "web" / "static" / "app.css").read_text(
+            encoding="utf-8"
+        )
+
+        ledger_body_rule = css[css.index(".run-ledger-body {") : css.index(".run-ledger-body::-webkit-scrollbar {")]
+
+        self.assertIn("max-height: calc(7 * 64px)", ledger_body_rule)
+        self.assertIn("overflow-y: auto", ledger_body_rule)
+
+    def test_collector_run_detail_sample_table_limits_to_seven_scrollable_rows(self):
+        css = (Path(__file__).resolve().parents[1] / "falcon" / "web" / "static" / "app.css").read_text(
+            encoding="utf-8"
+        )
+
+        sample_table_rule = css[css.index(".sample-table-wrap {") : css.index(".sample-table-wrap thead th {")]
+
+        self.assertIn("max-height: calc(43px + (7 * 56px))", sample_table_rule)
+        self.assertIn("overflow-y: auto", sample_table_rule)
+        self.assertIn("scrollbar-width: thin", sample_table_rule)
+
+    def test_collector_run_detail_wraps_long_failed_reason(self):
+        css = (Path(__file__).resolve().parents[1] / "falcon" / "web" / "static" / "app.css").read_text(
+            encoding="utf-8"
+        )
+
+        failed_reason_rule = css[css.index(".run-state-main .alert {") : css.index(".run-hero-meta {")]
+
+        self.assertIn("overflow-wrap: anywhere", failed_reason_rule)
+        self.assertIn("white-space: pre-wrap", failed_reason_rule)
+        self.assertIn("max-height: 220px", failed_reason_rule)
 
     def test_collector_run_detail_uses_overview_breadcrumb_without_sidebar_entry(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1023,7 +1385,7 @@ class WebAppTest(unittest.TestCase):
             )
             client = TestClient(create_app(db_path))
 
-            response = client.get("/collector")
+            response = client.get("/collector/runs")
 
             self.assertEqual(response.status_code, 200)
             self.assertIn("开启时间", response.text)
@@ -1057,18 +1419,64 @@ class WebAppTest(unittest.TestCase):
                 )
             )
             client = TestClient(create_app(db_path))
+            css = (Path(__file__).resolve().parents[1] / "falcon" / "web" / "static" / "app.css").read_text(
+                encoding="utf-8"
+            )
 
-            overview = client.get("/collector")
+            overview = client.get("/collector/runs")
+            filtered = client.get("/collector/runs?status=queued&created=1")
             detail = client.get("/collector/runs/xhs-queued")
 
             self.assertEqual(overview.status_code, 200)
-            self.assertIn('class="run-row status-queued"', overview.text)
+            self.assertIn(".queue-attention-banner", css)
+            self.assertIn(".run-row.status-queued.is-attention", css)
+            self.assertIn('class="queue-attention-banner"', overview.text)
+            self.assertIn("待启动任务", overview.text)
+            self.assertIn("不占用资源", overview.text)
+            self.assertIn('action="/collector/queue/start"', overview.text)
+            self.assertIn('href="/collector/runs?status=queued"', overview.text)
+            self.assertIn('class="run-row status-queued is-attention"', overview.text)
             self.assertIn('class="status-badge status-queued"', overview.text)
             self.assertIn('action="/collector/runs/xhs-queued/start"', overview.text)
             self.assertIn("未启动，不占用资源", overview.text)
+            self.assertEqual(filtered.status_code, 200)
+            self.assertIn('data-status-filter="all" aria-pressed="false"', filtered.text)
+            self.assertIn('data-status-filter="queued" aria-pressed="true"', filtered.text)
+            self.assertIn("刚加入 1 个任务", filtered.text)
             self.assertEqual(detail.status_code, 200)
             self.assertIn('class="run-state-banner status-queued"', detail.text)
             self.assertIn('action="/collector/runs/xhs-queued/start"', detail.text)
+
+    def test_collector_queue_running_and_failed_status_badges_are_prominent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "falcon.sqlite3"
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            for run_id, status in [("xhs-running-badge", "running"), ("xhs-failed-badge", "failed")]:
+                repo.create_collection_run(
+                    CollectionRun(
+                        run_id=run_id,
+                        platform="xiaohongshu",
+                        keyword="AI cover",
+                        profile="default",
+                        status=status,
+                    )
+                )
+            client = TestClient(create_app(db_path))
+            css = (Path(__file__).resolve().parents[1] / "falcon" / "web" / "static" / "app.css").read_text(
+                encoding="utf-8"
+            )
+
+            response = client.get("/collector/runs")
+
+            self.assertEqual(response.status_code, 200)
+            self.assertIn('class="status-badge status-running"', response.text)
+            self.assertIn('class="status-badge status-failed"', response.text)
+            self.assertIn(".status-badge.status-running {\n  min-width: 98px;", css)
+            self.assertIn(".status-badge.status-failed {\n  min-width: 98px;", css)
+            self.assertIn(".status-badge.status-running i,\n.status-badge.status-failed i {\n  width: 12px;", css)
+            self.assertIn("box-shadow: 0 0 0 2px rgba(209, 162, 77, 0.12)", css)
+            self.assertIn("box-shadow: 0 0 0 2px rgba(223, 103, 103, 0.1)", css)
 
     def test_collector_start_marks_run_running_and_dispatches_background_launcher(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1201,7 +1609,7 @@ class WebAppTest(unittest.TestCase):
             default_events = {event.event for event in repo.list_collection_events("xhs-default-old")}
             creator_events = {event.event for event in repo.list_collection_events("xhs-creator-old")}
             self.assertEqual(response.status_code, 303)
-            self.assertEqual(response.headers["location"], "/collector")
+            self.assertEqual(response.headers["location"], "/collector/runs")
             self.assertEqual(default_old.status, "running")
             self.assertEqual(default_new.status, "queued")
             self.assertEqual(creator_old.status, "running")
@@ -1628,9 +2036,28 @@ class WebAppTest(unittest.TestCase):
             self.assertIn("Main body should sit beside the preview.", response.text)
             self.assertIn("Useful comment should replace asset paths.", response.text)
             self.assertIn(f'src="/collector/runs/xhs-readable-preview/assets/', response.text)
+            self.assertIn('class="panel asset-list-panel sample-copy-panel"', response.text)
+            self.assertIn('class="sample-copy-scroll"', response.text)
             self.assertNotIn("runtime/collector/xhs-readable-preview/assets/cover.jpg", response.text)
             self.assertNotIn("assetsha", response.text)
             self.assertNotIn("图片 / 视频资产", response.text)
+
+    def test_collector_post_preview_copy_panel_matches_preview_height_and_scrolls(self):
+        css = (Path(__file__).resolve().parents[1] / "falcon" / "web" / "static" / "app.css").read_text(
+            encoding="utf-8"
+        )
+
+        panel_height_rule = css[
+            css.index(".sample-preview-panel,\n.sample-copy-panel {")
+            : css.index(".sample-preview-panel {")
+        ]
+        copy_panel_rule = css[css.index(".sample-copy-panel {") : css.index(".sample-copy-scroll {")]
+        copy_scroll_rule = css[css.index(".sample-copy-scroll {") : css.index(".sample-copy-scroll::-webkit-scrollbar {")]
+
+        self.assertIn("height: clamp(620px, calc(100vh - 170px), 760px)", panel_height_rule)
+        self.assertIn("overflow: hidden", copy_panel_rule)
+        self.assertIn("overflow-y: auto", copy_scroll_rule)
+        self.assertIn("min-height: 0", copy_scroll_rule)
 
     def test_collector_post_preview_marks_missing_assets_and_falls_back_to_detail_screenshot(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -2215,8 +2642,8 @@ class WebAppTest(unittest.TestCase):
             self.assertEqual(response.status_code, 200)
             self.assertIn("分析总览", response.text)
             self.assertIn('action="/analysis/promote"', response.text)
-            self.assertIn("Need better covers", response.text)
             self.assertIn("Cover upgrade checklist", response.text)
+            self.assertIn('href="/analysis/samples"', response.text)
             assert_no_legacy_collection_markers(self, response.text)
 
     def test_analysis_promote_collected_posts_creates_raw_items(self):
@@ -2247,12 +2674,179 @@ class WebAppTest(unittest.TestCase):
             )
             client = TestClient(create_app(db_path))
 
+            client.post("/collector/runs/xhs-promote/relevance/score", follow_redirects=False)
             response = client.post("/analysis/promote", follow_redirects=False)
 
             self.assertEqual(response.status_code, 303)
             raw_items = repo.list_raw_items()
             self.assertEqual(len(raw_items), 1)
             self.assertEqual(raw_items[0].title, "Promote this sample")
+
+    def test_collector_run_detail_shows_relevance_quality_gate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "falcon.sqlite3"
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="xhs-quality-gate",
+                    platform="xiaohongshu",
+                    keyword="AI头像",
+                    profile="default",
+                    status="completed",
+                )
+            )
+            repo.save_collected_post(
+                CollectedPost(
+                    run_id="xhs-quality-gate",
+                    platform="xiaohongshu",
+                    keyword="AI头像",
+                    title="AI头像生成工具测评",
+                    content="这篇笔记完整对比了 AI头像 的风格、价格和使用场景。",
+                    url="local://quality/1",
+                    author="creator",
+                    like_count="128",
+                    detail_fingerprint="quality-1",
+                )
+            )
+            repo.save_collected_post(
+                CollectedPost(
+                    run_id="xhs-quality-gate",
+                    platform="xiaohongshu",
+                    keyword="AI头像",
+                    title="AI绘画头像风格整理",
+                    content="整理一些头像风格和关键词，可作为选题参考。",
+                    url="local://quality/2",
+                    author="creator",
+                    detail_fingerprint="quality-2",
+                )
+            )
+            repo.save_collected_post(
+                CollectedPost(
+                    run_id="xhs-quality-gate",
+                    platform="xiaohongshu",
+                    keyword="AI头像",
+                    title="宇宙壁纸真的太好看了",
+                    content="收藏一些星空壁纸，完全没有头像制作或 AI 生成需求。",
+                    url="local://quality/3",
+                    author="creator",
+                    detail_fingerprint="quality-3",
+                )
+            )
+            client = TestClient(create_app(db_path))
+
+            score_response = client.post("/collector/runs/xhs-quality-gate/relevance/score", follow_redirects=False)
+            response = client.get("/collector/runs/xhs-quality-gate")
+
+            self.assertEqual(score_response.status_code, 303)
+            self.assertEqual(response.status_code, 200)
+            self.assertIn("相关性质量闸门", response.text)
+            self.assertIn("优质", response.text)
+            self.assertIn("默认优质", response.text)
+            self.assertIn("主分析", response.text)
+            self.assertIn('class="relevance-gate-overview"', response.text)
+            self.assertIn("可推进", response.text)
+            self.assertIn('class="sample-filter-toolbar"', response.text)
+            self.assertLess(response.text.index("采集样本"), response.text.index('class="sample-filter-toolbar"'))
+            self.assertIn('data-relevance-filter="excellent"', response.text)
+
+    def test_collector_post_preview_shows_relevance_breakdown_and_manual_override(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "falcon.sqlite3"
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="xhs-post-relevance",
+                    platform="xiaohongshu",
+                    keyword="AI头像",
+                    profile="default",
+                    status="completed",
+                )
+            )
+            post_id = repo.save_collected_post(
+                CollectedPost(
+                    run_id="xhs-post-relevance",
+                    platform="xiaohongshu",
+                    keyword="AI头像",
+                    title="AI头像生成工具测评",
+                    content="这篇笔记完整对比了 AI头像 的风格、价格和使用场景。",
+                    url="local://post-relevance/1",
+                    author="creator",
+                    detail_fingerprint="post-relevance-1",
+                )
+            )
+            client = TestClient(create_app(db_path))
+
+            client.post("/collector/runs/xhs-post-relevance/relevance/score", follow_redirects=False)
+            response = client.get(f"/collector/runs/xhs-post-relevance/posts/{post_id}")
+            override_response = client.post(
+                f"/collector/runs/xhs-post-relevance/posts/{post_id}/relevance",
+                data={"manual_relevance_level": "poor", "manual_relevance_note": "人工判断跑偏"},
+                follow_redirects=False,
+            )
+            overridden = client.get(f"/collector/runs/xhs-post-relevance/posts/{post_id}")
+
+            self.assertEqual(response.status_code, 200)
+            self.assertIn("相关性评估", response.text)
+            self.assertIn("默认质量", response.text)
+            self.assertIn("默认判定", response.text)
+            self.assertIn("人工纠正", response.text)
+            self.assertIn('class="relevance-score-meter"', response.text)
+            self.assertIn('class="manual-correction-bar"', response.text)
+            self.assertIn('class="compact-select"', response.text)
+            self.assertIn('class="compact-note"', response.text)
+            self.assertEqual(override_response.status_code, 303)
+            self.assertIn("人工修正", overridden.text)
+            self.assertIn("人工判断跑偏", overridden.text)
+            self.assertEqual(repo.get_collected_post(post_id).manual_relevance_level, "poor")
+
+    def test_analysis_entry_uses_quality_pool_and_promotes_only_excellent_and_medium(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "falcon.sqlite3"
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="xhs-analysis-quality",
+                    platform="xiaohongshu",
+                    keyword="AI头像",
+                    profile="default",
+                    status="completed",
+                )
+            )
+            for title, content, fingerprint in [
+                (
+                    "AI头像生成工具测评",
+                    "这篇笔记完整对比了 AI头像 的风格、价格和使用场景。",
+                    "analysis-quality-1",
+                ),
+                ("AI绘画头像风格整理", "整理一些头像风格和关键词，可作为选题参考。", "analysis-quality-2"),
+                ("宇宙壁纸真的太好看了", "收藏一些星空壁纸，完全没有头像制作或 AI 生成需求。", "analysis-quality-3"),
+            ]:
+                repo.save_collected_post(
+                    CollectedPost(
+                        run_id="xhs-analysis-quality",
+                        platform="xiaohongshu",
+                        keyword="AI头像",
+                        title=title,
+                        content=content,
+                        url=f"local://analysis-quality/{fingerprint}",
+                        author="creator",
+                        detail_fingerprint=fingerprint,
+                    )
+                )
+            client = TestClient(create_app(db_path))
+
+            client.post("/collector/runs/xhs-analysis-quality/relevance/score", follow_redirects=False)
+            analysis_response = client.get("/analysis")
+            promote_response = client.post("/analysis/promote", follow_redirects=False)
+
+            self.assertEqual(analysis_response.status_code, 200)
+            self.assertIn("采集质量入口", analysis_response.text)
+            self.assertIn("优质主分析", analysis_response.text)
+            self.assertEqual(promote_response.status_code, 303)
+            self.assertEqual([item.relevance_role for item in repo.list_raw_items()], ["primary", "primary", "primary"])
 
     def test_execution_overview_uses_existing_outreach_tasks(self):
         with tempfile.TemporaryDirectory() as tmp:

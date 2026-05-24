@@ -1,6 +1,7 @@
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
+import shutil
 import subprocess
 
 from .collector import safe_collector_identifier
@@ -23,8 +24,13 @@ class ProfileEntry:
     path_exists: bool
     login_supported: bool
     status_label: str
+    status_kind: str
     queue_label: str
     total_runs: int
+    running_runs: int
+    queued_runs: int
+    manual_runs: int
+    can_logout: bool
 
 
 def list_profile_entries(profile_root: Path, runs, platform_keys) -> list[ProfileEntry]:
@@ -63,6 +69,7 @@ def list_profile_entries(profile_root: Path, runs, platform_keys) -> list[Profil
         running = counts.get((platform, profile, "running"), 0)
         queued = counts.get((platform, profile, "queued"), 0)
         manual = counts.get((platform, profile, "manual_action_required"), 0)
+        path_exists = profile_path.exists()
         entries.append(
             ProfileEntry(
                 platform=platform,
@@ -70,11 +77,16 @@ def list_profile_entries(profile_root: Path, runs, platform_keys) -> list[Profil
                 key=f"{platform}/{profile}",
                 profile_path=profile_path,
                 display_path=str(Path("browser-profiles") / platform / profile),
-                path_exists=profile_path.exists(),
+                path_exists=path_exists,
                 login_supported=platform in SUPPORTED_PROFILE_LOGIN_PLATFORMS,
-                status_label=_profile_status_label(profile_path.exists(), running, queued, manual),
+                status_label=_profile_status_label(path_exists, running, queued, manual),
+                status_kind=_profile_status_kind(path_exists, running, queued, manual),
                 queue_label=f"运行 {running} / 排队 {queued} / 人工 {manual}",
                 total_runs=totals.get((platform, profile), 0),
+                running_runs=running,
+                queued_runs=queued,
+                manual_runs=manual,
+                can_logout=path_exists and running == 0 and queued == 0 and manual == 0,
             )
         )
     return entries
@@ -136,6 +148,26 @@ def launch_profile_login(
     }
 
 
+def clear_profile_directory(*, platform: str, profile: str, profile_root: Path, profile_path: Path) -> Path:
+    platform = safe_collector_identifier(platform, "platform")
+    profile = safe_collector_identifier(profile, "profile")
+    profile_root = Path(profile_root)
+    profile_path = Path(profile_path)
+    resolved_root = profile_root.resolve()
+    resolved_profile_path = profile_path.resolve()
+    if resolved_profile_path == resolved_root or resolved_root not in resolved_profile_path.parents:
+        raise ValueError("Profile path must stay inside the configured profile root")
+    expected_path = profile_root / platform / profile
+    if resolved_profile_path != expected_path.resolve():
+        raise ValueError("Profile path does not match platform/profile")
+    if not profile_path.exists():
+        return profile_path
+    if not profile_path.is_dir():
+        raise ValueError("Profile path must be a directory")
+    shutil.rmtree(profile_path)
+    return profile_path
+
+
 def _profile_status_label(path_exists: bool, running: int, queued: int, manual: int) -> str:
     if running:
         return "运行中"
@@ -146,3 +178,15 @@ def _profile_status_label(path_exists: bool, running: int, queued: int, manual: 
     if path_exists:
         return "本地已创建"
     return "未创建"
+
+
+def _profile_status_kind(path_exists: bool, running: int, queued: int, manual: int) -> str:
+    if running:
+        return "running"
+    if manual:
+        return "manual"
+    if queued:
+        return "queued"
+    if path_exists:
+        return "ready"
+    return "empty"

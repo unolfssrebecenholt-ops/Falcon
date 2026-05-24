@@ -2,6 +2,125 @@
 
 本文件是 Windows 和 M1 Mac 双机开发的接手入口。每次提交前必须更新。
 
+## 2026-05-25 Default excellent relevance policy
+
+- 本次按用户要求清除采集相关性启发式评分：
+  - 删除 `CollectionRelevanceScorer` 以及关键词匹配、需求词、噪声词、扣分项等固定字符串评分逻辑。
+  - `score_collected_posts()` 不再读取评论、资产或文本内容做判断，统一写入 `100 / excellent / primary`。
+  - 采集样本默认都是优质数据并进入主分析；人工校准仍优先生效，可把单条样本改为中等参考或劣质跳过。
+  - 样本预览页文案从“算法判断”调整为“默认判定”，分数拆解只保留“默认质量 / 人工校准”，不再展示关键词匹配、内容质量、互动信号、需求信号和扣分项。
+- 测试更新：
+  - `tests/test_relevance.py` 改为覆盖默认优质策略和人工覆盖。
+  - 工作流测试改为确认所有采集样本默认推进为 `primary`。
+  - Web 测试改为确认默认质量展示和分析入口全部 primary。
+- 验证结果：
+  - TDD 红灯：更新后的默认优质断言先在旧启发式逻辑下失败。
+  - `py -3 -m unittest tests.test_relevance tests.test_workflows.WorkflowTest.test_promote_collected_posts_defaults_all_samples_to_primary_unless_manual_override tests.test_web_app.WebAppTest.test_collector_run_detail_shows_relevance_quality_gate tests.test_web_app.WebAppTest.test_collector_post_preview_shows_relevance_breakdown_and_manual_override tests.test_web_app.WebAppTest.test_analysis_entry_uses_quality_pool_and_promotes_only_excellent_and_medium -v`：6 tests passed。
+  - `py -3 -m unittest discover -s tests`：158 tests passed。
+  - `py -3 -m compileall falcon`：passed。
+  - Playwright 检查样本预览页 `1440x1024` 和 `390x844`：无横向溢出；页面显示 `100`、默认判定和默认质量两项拆解。
+- Windows/Mac 接手说明：
+  - 本次只改 Python 评分策略、Jinja 文案、Web/Workflow/Relevance 测试和进度文档；未新增依赖、schema 或 sidecar 行为。
+
+## 2026-05-24 Relevance scoring UI polish
+
+- 本次按用户截图反馈优化任务详情和样本预览中的相关性评分展示：
+  - `/collector/runs/{run_id}` 的“相关性质量闸门”从纯文本统计改为成果卡片，直接展示可推进、可参考、需跳过、待评分四类下游结果。
+  - 相关性等级统计保留为紧凑 chip；筛选标签从质量闸门移动到“采集样本”模块标题区，作为样本列表自己的筛选工具。
+  - `/collector/runs/{run_id}/posts/{post_id}` 的“相关性评估”新增有效评分条、判定卡片和分数拆解卡片。
+  - 人工纠正区改为“人工校准”操作条，说明其用途是调整默认判定；下拉框和备注输入框收窄，桌面端分别约 152px / 340px，移动端随容器展开。
+  - 静态 CSS 版本号更新为 `slate-command-stone-moss-pages-20260524-relevance-scorecards`。
+- 新增/更新测试：
+  - Web 测试覆盖质量闸门成果卡片、采集样本内筛选工具、评分条和紧凑人工纠正控件。
+- 验证结果：
+  - TDD 红灯：新增断言先在 `test_collector_run_detail_shows_relevance_quality_gate` 和 `test_collector_post_preview_shows_relevance_breakdown_and_manual_override` 中失败。
+  - `py -3 -m unittest tests.test_web_app -v`：80 tests passed。
+  - `py -3 -m unittest discover -s tests`：161 tests passed。
+  - `py -3 -m compileall falcon`：passed。
+  - Playwright 检查 `1440x1024` 和 `390x844`：任务详情与样本预览均无横向溢出；截图保存在本机临时目录 `C:\Users\admin\AppData\Local\Temp\falcon-relevance-ui-check-20260524`，不进入 Git。
+- Windows/Mac 接手说明：
+  - 本次只涉及 Jinja 模板、CSS、Web 单测和进度文档；未新增依赖、schema 或采集 sidecar 行为。
+
+## 2026-05-24 Task detail 500 and relevance promotion fix
+
+- 本次继续排查用户反馈的任务详情报错：
+  - 本地服务访问 `http://127.0.0.1:8765/collector/runs/xiaohongshu-20260524-142419-c491f6` 已恢复 200；之前的 `relevance_summary is undefined` 来自运行中的旧 Web 进程未加载到最新模板上下文。
+  - 源码中 `/collector/runs/{run_id}` 详情路由已统一传入 `posts_with_relevance(collected_posts)` 和 `relevance_summary(collected_posts)`，任务详情页的相关性质量闸门不会再缺上下文。
+- 同步修复基线测试中暴露的相关性推广问题：
+  - 相关性评分原来过于依赖字面关键词，`生图小程序` 对 “生成封面标题图的工具”、`AI cover` 对 “cover workflow” 会被误判为劣质，导致分析推广入口没有 raw item。
+  - `CollectionRelevanceScorer` 新增生图/出图/小程序/cover 的轻量概念词扩展，并提高正文命中权重；仍保留高互动但跑题内容为 `poor/discard`。
+  - 新增单测覆盖“生图工具语义命中为 primary”和“英文正文 partial match 为 reference”。
+- 验证结果：
+  - `py -3 -m unittest tests.test_relevance -v`：5 tests passed。
+  - `py -3 -m unittest tests.test_workflows.WorkflowTest.test_promote_collected_posts_feeds_existing_analysis_pipeline -v`：passed。
+  - `py -3 -m unittest tests.test_web_app.WebAppTest.test_analysis_promote_collected_posts_creates_raw_items -v`：passed。
+  - `py -3 -m unittest discover -s tests`：158 tests passed。
+  - `py -3 -m compileall falcon`：passed。
+  - `node --check sidecar\collector\xiaohongshu.mjs`、`node --check sidecar\collector\index.mjs`：passed。
+
+## 2026-05-24 Profile window conflict failure diagnosis
+
+- 本次排查用户截图中的 `xiaohongshu-20260524-142419-c491f6` 失败：
+  - 本地 DB 事件链显示该 run 先在 `2026-05-24T14:24:39Z` 进入 `manual_action_required`，原因是检测到登录/账号确认。
+  - 用户随后在 `2026-05-24T14:25:00Z` 打开了 `xiaohongshu/default` 人工处理窗口，又在 `2026-05-24T14:25:07Z` 点击继续采集。
+  - 继续采集会重新用同一个 `browser-profiles/xiaohongshu/default` 启动 Playwright persistent context；如果人工处理窗口仍未关闭，Chromium 会复用已有 profile 会话并自行退出，Playwright 抛出 `launchPersistentContext: Target page, context or browser has been closed`。
+  - 手工最小验证同一 profile 当前可以正常被 Playwright 打开并关闭，说明不是 profile 永久损坏，而是人工处理窗口/profile 占用时机问题。
+- 修复：
+  - `sidecar/collector/xiaohongshu.mjs` 新增 `isPersistentProfileLaunchConflict`，识别 persistent profile 被已有窗口占用导致的启动即退出。
+  - 该场景不再写入 `run_failed` 和整段浏览器原始日志，而是保持 `manual_action_required`，提示关闭对应 `platform/profile` 登录或人工处理窗口后再继续采集。
+  - 任务详情页长失败原因新增换行和高度限制，历史失败日志不会再横向撑破页面。
+  - 静态 CSS 版本号已更新，浏览器刷新后会拿到新的失败原因换行样式。
+- 验证结果：
+  - `py -3 -m unittest tests.test_sidecar_contract.SidecarContractTests.test_xiaohongshu_profile_launch_conflict_keeps_run_manual_action tests.test_sidecar_contract.SidecarContractTests.test_xiaohongshu_profile_launch_conflict_is_detected_from_playwright_logs -v`：passed。
+  - `py -3 -m unittest tests.test_sidecar_contract -v`：23 tests passed。
+  - `py -3 -m unittest tests.test_web_app.WebAppTest.test_dashboard_renders tests.test_web_app.WebAppTest.test_collector_run_detail_wraps_long_failed_reason -v`：2 tests passed。
+  - `py -3 -m compileall falcon`：passed。
+  - `node --check sidecar\collector\xiaohongshu.mjs`、`node --check sidecar\collector\index.mjs`：passed。
+- 接手说明：
+  - 当前截图中的历史 run 已经落到 `failed`，不会自动改回；用户可点“重新运行”生成新任务。
+  - 后续如果在人工处理窗口未关闭时点“继续采集”，页面会继续停在“需人工处理”，不会再被 raw Playwright 日志打成失败。
+
+## 2026-05-24 Collector create confirmation and queued attention polish
+
+- 本次按用户反馈优化 `/collector/create` 和 `/collector/runs`：
+  - 任务创建页移除默认可见的右侧 `入队摘要` 和底部常驻摘要，页面回到单表单布局，宽度收敛到约 `920px`。
+  - 新增提交前确认弹窗 `collector-create-confirm-dialog`，点击“加入队列”后展示平台、Profile、关键词、将创建 run 数、最大帖子数、每帖评论数和执行策略。
+  - 如果关键词输入框里有未点击“添加”的文字，提交前会自动转成关键词标签并写入隐藏字段；点击“返回修改”会关闭弹窗并保留已填内容。
+  - `POST /collector/create` 单关键词和多关键词统一跳转到 `/collector/runs?status=queued&created=<数量>`，创建后仍只入队、不自动启动。
+  - 任务队列页在存在 `queued` run 时新增 `queue-attention-banner`，展示待启动数量、“不占用资源”说明、`批量启动` 和 `只看待启动` 操作。
+  - URL 带 `status=queued` 时默认激活“待启动”筛选；queued 行新增 `is-attention` 强调样式，`启动采集` 按钮更显眼。
+- 验证结果：
+  - 先按 TDD 看到以下用例失败，再实现后通过：
+    - `py -3 -m unittest tests.test_web_app.WebAppTest.test_collector_create_get_renders_standalone_task_creation_page -v`
+    - `py -3 -m unittest tests.test_web_app.WebAppTest.test_collector_create_post_queues_run_and_redirects_to_detail -v`
+    - `py -3 -m unittest tests.test_web_app.WebAppTest.test_collector_create_post_splits_multiple_keywords_into_runs -v`
+    - `py -3 -m unittest tests.test_web_app.WebAppTest.test_collector_queued_run_has_obvious_waiting_state_and_start_action -v`
+  - `py -3 -m unittest tests.test_web_app -v`：73 tests passed。
+  - `py -3 -m unittest discover -s tests`：146 tests passed。
+  - `py -3 -m compileall falcon`：passed。
+  - 浏览器交互验证 `http://127.0.0.1:8768/collector/create`：输入未添加关键词后提交会打开确认弹窗，取消后内容保留，确认后跳转到 `/collector/runs?status=queued&created=1`。
+  - Playwright 视口检查 `1440x1024`、`1280x720`、`390x844`：创建页弹窗和队列页均无 body/main 横向溢出；移动端弹窗宽度约 `352px`，确认按钮约 `82px`，队列提示条按钮约 `70-82px`。
+- Windows/Mac 接手说明：
+  - 本次未新增依赖、schema 或路由，只调整现有创建/队列页面行为和样式。
+  - 浏览器截图保存在本机临时目录 `C:\Users\admin\AppData\Local\Temp\falcon-create-queue-ui-check-20260524`，不进入 Git。
+
+## 2026-05-24 Account management platform grouping polish
+
+- 本次按用户反馈继续优化 `/collector/accounts`：
+  - 平台用户矩阵从普通分组块改为更明确的 `account-platform-section`，每个平台标题区拆成平台身份、状态摘要和账号入口三段。
+  - 小红书等已支持平台在标题区内展示紧凑 `新建 Profile` 工具条，输入框限制在 `260px`，按钮按内容宽度显示，不再占满整行。
+  - 账号行操作从旧 `.account-actions` 改为 `.account-action-bar`，`登录 / 检查 / 退出` 使用紧凑按钮组，移动端保持小按钮换行而不是全屏宽按钮。
+  - 未接入 adapter 的平台保留平台分区和“暂不可创建”状态，避免和已支持平台混在一起。
+- 验证结果：
+  - `py -3 -m unittest tests.test_web_app.WebAppTest.test_collector_accounts_render_platform_user_matrix_actions_without_select_entry -v`：先按 TDD 失败，改完后通过。
+  - `py -3 -m unittest tests.test_web_app -v`：73 tests passed。
+  - `py -3 -m unittest discover -s tests`：146 tests passed。
+  - `py -3 -m compileall falcon`：passed。
+  - Playwright 检查 `/collector/accounts` 的 `1440x1024`、`1280x720`、`390x844`：无 body/main 横向溢出；4 个平台分区可见；账号行按钮宽度 58px，新建按钮 96px；移动端无满屏账号操作按钮。
+- Windows/Mac 接手说明：
+  - 本次只涉及 Web 模板、CSS、Web 单测和进度文档；未新增依赖、schema 或后端路由。
+  - 浏览器截图保存在本机临时目录 `C:\Users\admin\AppData\Local\Temp\falcon-account-layout-20260524`，不进入 Git。
+
 ## 2026-05-24 AI avatar live collection quality pass
 
 - 本次按用户确认的登录态，用关键词 `AI头像` 做真实采集质量闭环：
@@ -19,6 +138,28 @@
 - 已知问题：
   - `AI头像` 搜索结果中仍会混入“AI插画/宇宙艺术/像素风咒语”等邻近内容；采集层已能保留结构化数据，下一步应在分析层或采集后过滤中做相关性评分。
   - 真实 run 产物仍只作为本机验证证据，`runtime/collector/` 与 `data/` 不进入 Git。
+
+## 2026-05-24 Production UI layout rollout
+
+- 本次继续把 Slate Command + 石苔灰 UI 原型落进生产页面：
+  - `/` 改为工作台入口，只保留关键指标、今日待办、链路入口和最近运行，不再空铺大面板。
+  - `/keywords` 改为关键词配置页，配置表单和关键词表分栏，继续使用现有 `/keywords/default` 后端生成 CSV。
+  - `/report` 改为文档阅读页，正文限制 `860px` 阅读宽度。
+  - `/review` 改为复核工作台，样本表格和复核操作面板分离，继续复用 `/review/raw/{raw_id}` 写回反馈。
+  - `/execution` 改为执行首页，只展示待确认草稿队列和优先级概览，完整状态管理入口指向 `/tasks`。
+  - `/tasks` 改为触达任务状态管理页，用紧凑表格展示草稿、风险提示和状态更新表单，继续复用 `/tasks/{task_id}/status`。
+  - 左侧目录滚动条优化为独立滚动区：桌面端 sidebar 固定、目录内部滚动，默认滚动条隐藏到 hover/focus 才显现；移动端目录横向滚动。
+- 后端功能核对：
+  - 本轮新 UI 入口均复用现有真实路由和表单动作；未新增需要 schema 的功能点。
+  - 复核保存、任务状态更新、关键词生成、日报读取、任务创建/队列/账号管理均已有后端承接。
+- 验证结果：
+  - `py -3 -m unittest tests.test_web_app -v`：73 tests passed。
+  - `py -3 -m unittest discover -s tests`：146 tests passed。
+  - `py -3 -m compileall falcon`：passed。
+  - Playwright 响应式矩阵覆盖 `/`、`/collector`、`/collector/runs`、`/collector/create`、`/collector/accounts`、`/collector/environment`、`/collector/runs/xiaohongshu-20260524-090257-c0f4a4`、`/collector/runs/xiaohongshu-20260524-090257-c0f4a4/posts/65`、`/keywords`、`/report`、`/analysis`、`/analysis/samples`、`/review`、`/execution`、`/tasks`，在 `1440x1024`、`1280x720`、`390x844` 下均无 body/main 横向溢出。
+- 已知问题：
+  - 触达任务真实数据较多时桌面表格信息密度较高，但限制在内部表格布局内，不撑破页面；后续可按用户评审继续拆出单任务详情或草稿预览抽屉。
+  - 本次未提交 Git；当前工作树仍包含前序 UI 原型、Image2/huashu 设计稿和生产改动。
 
 ## 2026-05-24 Collector overview queue health polish
 

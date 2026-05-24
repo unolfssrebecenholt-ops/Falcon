@@ -1,0 +1,197 @@
+[
+  {
+    "label": "01 仪表盘",
+    "path": "/",
+    "status": 200,
+    "screenshot": "F:\\projects\\Falcon\\docs\\design\\slate-command-pages\\01-dashboard.png",
+    "missingSelectors": [],
+    "horizontalOverflow": false,
+    "rootBg": "#1a252c",
+    "rootPanel": "#24333c",
+    "rootAccent": "#748876",
+    "cssVersion": [
+      "http://127.0.0.1:8767/static/app.css?v=slate-command-stone-moss-pages-20260524"
+    ],
+    "hasOldDotGrid": false
+  },
+  {
+    "label": "02 日报",
+    "path": "/report",
+    "status": 200,
+    "screenshot": "F:\\projects\\Falcon\\docs\\design\\slate-command-pages\\02-report.png",
+    "missingSelectors": [],
+    "horizontalOverflow": false,
+    "rootBg": "#1a252c",
+    "rootPanel": "#24333c",
+    "rootAccent": "#748876",
+    "cssVersion": [
+      "http://127.0.0.1:8767/static/app.css?v=slate-command-stone-moss-pages-20260524"
+    ],
+    "hasOldDotGrid": false
+  },
+  {
+    "label": "03 关键词池",
+    "path": "/keywords",
+    "status": 200,
+    "screenshot": "F:\\projects\\Falcon\\docs\\design\\slate-command-pages\\03-keywords.png",
+    "missingSelectors": [],
+    "horizontalOverflow": false,
+    "rootBg": "#1a252c",
+    "rootPanel": "#24333c",
+    "rootAccent": "#748876",
+    "cssVersion": [
+      "http://127.0.0.1:8767/static/app.css?v=slate-command-stone-moss-pages-20260524"
+    ],
+    "hasOldDotGrid": false
+  },
+  {
+    "label": "04 采集总览",
+    "path": "/collector",
+    "status": 200,
+    "screenshot": "F:\\projects\\Falcon\\docs\\design\\slate-command-pages\\04-collector-overview.png",
+    "missingSelectors": [],
+    "horizontalOverflow": false,
+    "rootBg": "#1a252c",
+    "rootPanel": "#24333c",
+    "rootAccent": "#748876",
+    "cssVersion": [
+      "http://127.0.0.1:8767/static/app.css?v=slate-command-stone-moss-pages-20260524"
+    ],
+    "hasOldDotGrid": false
+  },
+  {
+    "label": "05 环境自检",
+    "path": "/collector/environment",
+    "status": 200,
+    "screenshot": "F:\\projects\\Falcon\\docs\\design\\slate-command-pages\\05-collector-environment.png",
+    "missingSelectors": [],
+    "horizontalOverflow": false,
+    "rootBg": "#1a252c",
+    "rootPanel": "#24333c",
+    "rootAccent": "#748876",
+    "cssVersion": [
+      "http://127.0.0.1:8767/static/app.css?v=slate-command-stone-moss-pages-20260524"
+    ],
+    "hasOldDotGrid": false
+  },
+  {
+    "label": "06 账号管理",
+    "path": "/collector/accounts",
+    "status": 200,
+    "screenshot": "F:\\projects\\Falcon\\docs\\design\\slate-command-pages\\06-collector-accounts.png",
+    "missingSelectors": [],
+    "horizontalOverflow": false,
+    "rootBg": "#1a252c",
+    "rootPanel": "#24333c",
+    "rootAccent": "#748876",
+    "cssVersion": [
+      "http://127.0.0.1:8767/static/app.css?v=slate-command-stone-moss-pages-20260524"
+    ],
+    "hasOldDotGrid": false,
+    "accounts": {
+      "matrixPresent": true,
+      "openLoginForms": 3,
+      "logoutForms": 1,
+      "visibleActionButtons": 8,
+      "createProfileForm": true
+    }
+  },
+  {
+    "label": "07 任务详情",
+    "path": "/collector/runs/xiaohongshu-20260524-090257-c0f4a4",
+    "status": 200,
+    "screenshot": "F:\\projects\\Falcon\\docs\\design\\slate-command-pages\\07-collector-run-detail.png",
+    "missingSelectors": [],
+    "horizontalOverflow": false,
+    "rootBg": "#1a252c",
+    "rootPanel": "#24333c",
+    "rootAccent": "#748876",
+    "cssVersion": [
+      "http://127.0.0.1:8767/static/app.css?v=slate-command-stone-moss-pages-20260524"
+    ],
+    "hasOldDotGrid": false,
+    "ledgers": {
+      "timelineRows": 15,
+      "assetRows": 46,
+      "timelineVisibleRows": 7,
+      "assetVisibleRows": 7,
+      "timelineScrollable": true,
+      "assetScrollable": true
+    }
+  },
+  {
+    "label": "08 样本预览",
+    "path": "/collector/runs/xiaohongshu-20260524-090257-c0f4a4/posts/65",
+    "status": 200,
+    "screenshot": "F:\\projects\\Falcon\\docs\\design\\slate-command-pages\\08-collector-sample-preview.png",
+    "missingSelectors": [],
+    "horizontalOverflow": false,
+    "rootBg": "#1a252c",
+    "rootPanel": "#24333c",
+    "rootAccent": "#748876",
+    "cssVersion": [
+      "http://127.0.0.1:8767/static/app.css?v=slate-command-stone-moss-pages-20260524"
+    ],
+    "hasOldDotGrid": false
+  },
+  {
+    "label": "09 分析总览",
+    "path": "/analysis",
+    "status": 200,
+    "screenshot": "F:\\projects\\Falcon\\docs\\design\\slate-command-pages\\09-analysis.png",
+    "missingSelectors": [],
+    "horizontalOverflow": false,
+    "rootBg": "#1a252c",
+    "rootPanel": "#24333c",
+    "rootAccent": "#748876",
+    "cssVersion": [
+      "http://127.0.0.1:8767/static/app.css?v=slate-command-stone-moss-pages-20260524"
+    ],
+    "hasOldDotGrid": false
+  },
+  {
+    "label": "10 执行总览",
+    "path": "/execution",
+    "status": 200,
+    "screenshot": "F:\\projects\\Falcon\\docs\\design\\slate-command-pages\\10-execution.png",
+    "missingSelectors": [],
+    "horizontalOverflow": false,
+    "rootBg": "#1a252c",
+    "rootPanel": "#24333c",
+    "rootAccent": "#748876",
+    "cssVersion": [
+      "http://127.0.0.1:8767/static/app.css?v=slate-command-stone-moss-pages-20260524"
+    ],
+    "hasOldDotGrid": false
+  },
+  {
+    "label": "11 人工复核",
+    "path": "/review",
+    "status": 200,
+    "screenshot": "F:\\projects\\Falcon\\docs\\design\\slate-command-pages\\11-review.png",
+    "missingSelectors": [],
+    "horizontalOverflow": false,
+    "rootBg": "#1a252c",
+    "rootPanel": "#24333c",
+    "rootAccent": "#748876",
+    "cssVersion": [
+      "http://127.0.0.1:8767/static/app.css?v=slate-command-stone-moss-pages-20260524"
+    ],
+    "hasOldDotGrid": false
+  },
+  {
+    "label": "12 触达任务",
+    "path": "/tasks",
+    "status": 200,
+    "screenshot": "F:\\projects\\Falcon\\docs\\design\\slate-command-pages\\12-tasks.png",
+    "missingSelectors": [],
+    "horizontalOverflow": false,
+    "rootBg": "#1a252c",
+    "rootPanel": "#24333c",
+    "rootAccent": "#748876",
+    "cssVersion": [
+      "http://127.0.0.1:8767/static/app.css?v=slate-command-stone-moss-pages-20260524"
+    ],
+    "hasOldDotGrid": false
+  }
+]

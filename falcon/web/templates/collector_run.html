@@ -92,29 +92,84 @@
 </div>
 {% endif %}
 
-<section class="panel">
+<section class="panel relevance-gate-panel">
+  <div class="section-head">
+    <div>
+      <h2>相关性质量闸门</h2>
+      <p class="muted">采集样本默认都是优质数据并进入主分析；需要降级、参考或跳过时再人工校准。</p>
+    </div>
+    <form class="inline-form" action="/collector/runs/{{ run.run_id }}/relevance/score" method="post">
+      <button class="button small primary" type="submit">重新评分</button>
+    </form>
+  </div>
+  <div class="relevance-gate-overview" aria-label="相关性分流成果">
+    <article class="relevance-outcome-card outcome-primary">
+      <span>可推进</span>
+      <strong>{{ relevance_summary.roles.primary }}</strong>
+      <p>优质样本，进入主分析</p>
+    </article>
+    <article class="relevance-outcome-card outcome-reference">
+      <span>可参考</span>
+      <strong>{{ relevance_summary.roles.reference }}</strong>
+      <p>中等样本，补充判断</p>
+    </article>
+    <article class="relevance-outcome-card outcome-discard">
+      <span>需跳过</span>
+      <strong>{{ relevance_summary.roles.discard }}</strong>
+      <p>保留证据，不进分析</p>
+    </article>
+    <article class="relevance-outcome-card outcome-pending">
+      <span>待评分</span>
+      <strong>{{ relevance_summary.roles.pending }}</strong>
+      <p>尚未写入默认优质</p>
+    </article>
+  </div>
+  <div class="relevance-level-strip" aria-label="相关性等级统计">
+    <span class="relevance-level-chip relevance-excellent">优质 <strong>{{ relevance_summary.counts.excellent }}</strong></span>
+    <span class="relevance-level-chip relevance-medium">中等 <strong>{{ relevance_summary.counts.medium }}</strong></span>
+    <span class="relevance-level-chip relevance-poor">劣质 <strong>{{ relevance_summary.counts.poor }}</strong></span>
+    <span class="relevance-level-chip relevance-unscored">未评分 <strong>{{ relevance_summary.counts.unscored }}</strong></span>
+  </div>
+</section>
+
+<section class="panel sample-list-panel">
   <div class="section-head">
     <div>
       <h2>采集样本</h2>
       <p class="muted">样本标题跳转到 Falcon 本地预览，不打开平台原始链接。</p>
     </div>
-    <span class="pill">{{ posts|length }} 条</span>
+    <div class="sample-section-tools">
+      <span class="pill">{{ posts|length }} 条，显示 7 条</span>
+      <div class="sample-filter-toolbar" aria-label="相关性筛选">
+        <button class="button small" type="button" data-relevance-filter="all">全部</button>
+        <button class="button small" type="button" data-relevance-filter="excellent">优质</button>
+        <button class="button small" type="button" data-relevance-filter="medium">中等</button>
+        <button class="button small" type="button" data-relevance-filter="poor">劣质</button>
+        <button class="button small" type="button" data-relevance-filter="unscored">未评分</button>
+      </div>
+    </div>
   </div>
-  <div class="table-wrap">
+  <div class="table-wrap sample-table-wrap" data-visible-rows="7">
     <table>
       <thead>
-        <tr><th>标题</th><th>作者</th><th>互动</th><th>正文</th></tr>
+        <tr><th>等级</th><th>标题</th><th>作者</th><th>互动</th><th>相关性依据</th><th>数据完整度</th><th>下游处理</th><th>操作</th></tr>
       </thead>
       <tbody>
-        {% for post in posts %}
-        <tr>
+        {% for item in posts %}
+        {% set post = item.post %}
+        {% set relevance = item.relevance %}
+        <tr data-relevance-level="{{ relevance.effective_level }}">
+          <td><span class="relevance-badge relevance-{{ relevance.effective_level }}">{{ relevance.effective_label }} {% if relevance.score >= 0 %}{{ relevance.score }}{% endif %}</span></td>
           <td><a class="run-id" href="/collector/runs/{{ run.run_id }}/posts/{{ post.post_id }}">{{ post.title }}</a></td>
           <td>{{ post.author or "-" }}</td>
           <td><span class="subtext">赞 {{ post.like_count or "0" }} · 藏 {{ post.collect_count or "0" }} · 评 {{ post.comment_count or "0" }}</span></td>
-          <td>{{ post.content }}</td>
+          <td>{{ relevance.reason }}</td>
+          <td><span class="subtext">{{ "完整" if post.title and post.content and post.author else "待补全" }}</span></td>
+          <td><span class="relevance-role role-{{ relevance.role }}">{{ relevance.role_label }}</span></td>
+          <td><a class="button small" href="/collector/runs/{{ run.run_id }}/posts/{{ post.post_id }}">查看</a></td>
         </tr>
         {% else %}
-        <tr><td colspan="4" class="muted">暂无样本。</td></tr>
+        <tr><td colspan="8" class="muted">暂无样本。</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -126,23 +181,32 @@
     <div class="section-head">
       <div>
         <h2>事件链</h2>
-        <p class="muted">保留原始执行顺序，平台事件和核心调度事件统一翻译成人可读文案。</p>
+        <p class="muted">保留原始执行顺序，按采集总览任务列表的密度展示；超过 7 条在面板内滚动。</p>
       </div>
-      <span class="pill">{{ events|length }} 条</span>
+      <span class="pill">{{ events|length }} 条，显示 7 条</span>
     </div>
-    <div class="timeline-list">
-      {% for event in events %}
-      <article class="timeline-item">
-        <span class="timeline-index">{{ event.sequence }}</span>
-        <div>
-          <strong>{{ event.event|collector_event }}</strong>
-          <p>{{ event.message|collector_message(event.event) }}</p>
-          <span class="subtext">{{ event.scope|collector_scope }} · {{ event.level|collector_level }} · {{ event.created_at|readable_time }}</span>
-        </div>
-      </article>
-      {% else %}
-      <div class="empty-state"><strong>暂无事件</strong><span>任务启动后会持续写入事件链。</span></div>
-      {% endfor %}
+    <div class="run-ledger timeline-ledger" data-visible-rows="7">
+      <div class="run-ledger-head">
+        <span>#</span>
+        <span>事件</span>
+        <span>阶段</span>
+        <span>时间</span>
+      </div>
+      <div class="run-ledger-body">
+        {% for event in events %}
+        <article class="run-ledger-row">
+          <span class="timeline-index">{{ event.sequence }}</span>
+          <div class="run-ledger-main">
+            <strong>{{ event.event|collector_event }}</strong>
+            <p>{{ event.message|collector_message(event.event) }}</p>
+          </div>
+          <span class="subtext">{{ event.scope|collector_scope }} · {{ event.level|collector_level }}</span>
+          <span class="subtext">{{ event.created_at|readable_time }}</span>
+        </article>
+        {% else %}
+        <div class="empty-state"><strong>暂无事件</strong><span>任务启动后会持续写入事件链。</span></div>
+        {% endfor %}
+      </div>
     </div>
   </section>
 
@@ -150,31 +214,44 @@
     <div class="section-head">
       <div>
         <h2>资产 / 证据摘要</h2>
-        <p class="muted">媒体文件和截图证据分组显示，便于判断这次采集是否可追溯。</p>
+        <p class="muted">媒体文件和截图证据合并成可滚动摘要，便于判断这次采集是否可追溯。</p>
       </div>
-      <span class="pill">{{ assets|length + evidences|length }} 项</span>
+      <span class="pill">{{ assets|length + evidences|length }} 项，显示 7 条</span>
     </div>
-    <div class="asset-evidence-list">
-      <h3>媒体资产</h3>
-      {% for asset in assets %}
-      <article class="evidence-row">
-        <span>{{ asset.asset_type|asset_type }}</span>
-        <code>{{ asset.path }}</code>
-        <small>{{ asset.sha256 or "-" }}</small>
-      </article>
-      {% else %}
-      <p class="muted">暂无资产。</p>
-      {% endfor %}
-      <h3>证据包</h3>
-      {% for evidence in evidences %}
-      <article class="evidence-row">
-        <span>{{ evidence.evidence_type|evidence_scope }}</span>
-        <code>{{ evidence.path }}</code>
-        <small>{{ evidence.scope|evidence_scope }}</small>
-      </article>
-      {% else %}
-      <p class="muted">暂无证据。</p>
-      {% endfor %}
+    <div class="run-ledger asset-evidence-ledger" data-visible-rows="7">
+      <div class="run-ledger-head">
+        <span>类型</span>
+        <span>路径</span>
+        <span>指纹</span>
+        <span>范围</span>
+      </div>
+      <div class="run-ledger-body">
+        {% for asset in assets %}
+        <article class="run-ledger-row">
+          <span class="evidence-type">{{ asset.asset_type|asset_type }}</span>
+          <div class="run-ledger-main">
+            <strong>{{ asset.path|basename }}</strong>
+            <code>{{ asset.path }}</code>
+          </div>
+          <span class="subtext">{{ asset.sha256 or "-" }}</span>
+          <span class="subtext">媒体资产</span>
+        </article>
+        {% endfor %}
+        {% for evidence in evidences %}
+        <article class="run-ledger-row">
+          <span class="evidence-type">{{ evidence.evidence_type|evidence_scope }}</span>
+          <div class="run-ledger-main">
+            <strong>{{ evidence.path|basename }}</strong>
+            <code>{{ evidence.path }}</code>
+          </div>
+          <span class="subtext">证据</span>
+          <span class="subtext">{{ evidence.scope|evidence_scope }}</span>
+        </article>
+        {% endfor %}
+        {% if not assets and not evidences %}
+        <div class="empty-state"><strong>暂无资产或证据</strong><span>采集器写入媒体文件、截图或字段快照后会显示在这里。</span></div>
+        {% endif %}
+      </div>
     </div>
   </section>
 </section>
@@ -189,4 +266,18 @@
 })();
 </script>
 {% endif %}
+<script>
+(() => {
+  const buttons = Array.from(document.querySelectorAll("[data-relevance-filter]"));
+  const rows = Array.from(document.querySelectorAll("[data-relevance-level]"));
+  buttons.forEach((button) => {
+    button.addEventListener("click", () => {
+      const level = button.dataset.relevanceFilter || "all";
+      rows.forEach((row) => {
+        row.hidden = level !== "all" && row.dataset.relevanceLevel !== level;
+      });
+    });
+  });
+})();
+</script>
 {% endblock %}

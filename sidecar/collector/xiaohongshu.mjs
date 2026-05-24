@@ -107,11 +107,36 @@ async function collectXiaohongshuReal({ request, assetsPath, profilePath, events
   });
 
   try {
-    context = await chromium.launchPersistentContext(profilePath, {
-      headless: request.headed === false,
-      viewport: { width: 1366, height: 900 },
-      locale: "zh-CN",
-    });
+    try {
+      if (process.env.FALCON_COLLECTOR_FORCE_PROFILE_LAUNCH_CONFLICT === "1") {
+        throw new Error(
+          "browserType.launchPersistentContext: Target page, context or browser has been closed\nBrowser logs:\n<launching> chrome.exe --user-data-dir=browser-profiles/xiaohongshu/default --remote-debugging-pipe about:blank\n<launched> pid=49380\n[pid=49380] <process did exit: exitCode=0, signal=null>",
+        );
+      }
+      context = await chromium.launchPersistentContext(profilePath, {
+        headless: request.headed === false,
+        viewport: { width: 1366, height: 900 },
+        locale: "zh-CN",
+      });
+    } catch (error) {
+      if (isPersistentProfileLaunchConflict(error)) {
+        events.write(
+          "warning",
+          "xiaohongshu",
+          "manual_action_required",
+          `浏览器 Profile 正在被其他窗口占用。请关闭 ${request.platform}/${request.profile} 的登录或人工处理窗口后，再点击继续采集。`,
+          {
+            run_id,
+            platform,
+            reason: "profile_window_busy",
+            profile: request.profile,
+            profile_path: profilePath,
+          },
+        );
+        return [];
+      }
+      throw error;
+    }
     const page = context.pages()[0] ?? (await context.newPage());
 
     await page.goto("https://www.xiaohongshu.com/", {
@@ -241,6 +266,15 @@ async function collectXiaohongshuReal({ request, assetsPath, profilePath, events
       await context.close();
     }
   }
+}
+
+export function isPersistentProfileLaunchConflict(error) {
+  const message = String(error?.message || error || "");
+  return (
+    message.includes("launchPersistentContext") &&
+    message.includes("Target page, context or browser has been closed") &&
+    (message.includes("process did exit: exitCode=0") || message.includes("--user-data-dir="))
+  );
 }
 
 async function collectDetailRecords({ context, searchPage, request, assetsPath, events, posts }) {

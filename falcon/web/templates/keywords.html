@@ -3,37 +3,61 @@
 {% block content %}
 <header class="page-header">
   <div>
-    <h1>关键词池</h1>
-    <p>维护 Falcon Agent 采集计划要用的主题、关键词、场景和每日采样量。</p>
+    <div class="eyebrow">Falcon Agent 采集计划</div>
+    <h1>关键词配置</h1>
+    <p>维护采集计划要用的主题、关键词、场景和每日采样量，配置区和关键词表分开处理。</p>
   </div>
 </header>
 
-<section class="panel">
-  <form method="post" action="/keywords/default" class="inline-form">
-    <input name="path" value="{{ keyword_path }}">
-    <input name="theme" value="生图小程序">
-    <button class="button" type="submit">生成默认关键词池</button>
-  </form>
-</section>
+<section class="keyword-layout">
+  <section class="panel keyword-config-panel">
+    <div class="section-head">
+      <div>
+        <h2>关键词配置</h2>
+        <p class="muted">生成或切换本地 CSV，不把输入区拉成整页宽度。</p>
+      </div>
+    </div>
+    <form method="post" action="/keywords/default" class="compact-form">
+      <label>
+        <span>文件路径</span>
+        <input name="path" value="{{ keyword_path }}">
+      </label>
+      <label>
+        <span>默认主题</span>
+        <input name="theme" value="生图小程序">
+      </label>
+      <button class="button primary" type="submit">生成默认关键词池</button>
+    </form>
+  </section>
 
-<section class="panel">
-  <table>
-    <thead>
-      <tr><th>主题</th><th>关键词</th><th>场景</th><th>权重</th><th>每日上限</th></tr>
-    </thead>
-    <tbody>
-      {% for task in tasks %}
-      <tr>
-        <td>{{ task.theme }}</td>
-        <td>{{ task.keyword }}</td>
-        <td>{{ task.scene }}</td>
-        <td>{{ task.weight }}</td>
-        <td>{{ task.daily_limit }}</td>
-      </tr>
-      {% else %}
-      <tr><td colspan="5" class="muted">还没有关键词池。</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  <section class="panel keyword-table-panel">
+    <div class="section-head">
+      <div>
+        <h2>关键词表</h2>
+        <p class="muted">{{ tasks|length }} 条采集关键词，按主题、场景和权重进入任务创建页使用。</p>
+      </div>
+      <a class="button small" href="/collector/create">创建任务</a>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>主题</th><th>关键词</th><th>场景</th><th>权重</th><th>每日上限</th></tr>
+        </thead>
+        <tbody>
+          {% for task in tasks %}
+          <tr>
+            <td>{{ task.theme }}</td>
+            <td>{{ task.keyword }}</td>
+            <td>{{ task.scene }}</td>
+            <td>{{ task.weight }}</td>
+            <td>{{ task.daily_limit }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="5" class="muted">还没有关键词池。</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
 </section>
 {% endblock %}

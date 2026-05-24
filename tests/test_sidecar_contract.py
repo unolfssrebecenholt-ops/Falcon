@@ -546,6 +546,66 @@ console.log(JSON.stringify({ records, event: events[0] }));
         self.assertIn("screenshot_error", payload["event"]["payload"])
         self.assertEqual(payload["records"], [])
 
+    def test_xiaohongshu_profile_launch_conflict_is_detected_from_playwright_logs(self):
+        script = r"""
+import { isPersistentProfileLaunchConflict } from "./sidecar/collector/xiaohongshu.mjs";
+
+const busy = new Error(`browserType.launchPersistentContext: Target page, context or browser has been closed
+Browser logs:
+<launching> chrome.exe --user-data-dir=browser-profiles/xiaohongshu/default --remote-debugging-pipe about:blank
+<launched> pid=49380
+[pid=49380] <process did exit: exitCode=0, signal=null>`);
+const unrelated = new Error("Playwright is required for real-mode collection.");
+
+console.log(JSON.stringify({
+  busy: isPersistentProfileLaunchConflict(busy),
+  unrelated: isPersistentProfileLaunchConflict(unrelated),
+}));
+"""
+        result = subprocess.run(
+            ["node", "--input-type=module", "-e", script],
+            cwd=ROOT,
+            text=True,
+            encoding="utf-8",
+            capture_output=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertTrue(payload["busy"])
+        self.assertFalse(payload["unrelated"])
+
+    def test_xiaohongshu_profile_launch_conflict_keeps_run_manual_action(self):
+        env = {
+            **dict(os.environ),
+            "FALCON_COLLECTOR_FORCE_PROFILE_LAUNCH_CONFLICT": "1",
+        }
+        result, events_path, records_path, assets_dir = self.run_sidecar(
+            {
+                "schema_version": 1,
+                "run_id": "run-profile-launch-conflict",
+                "platform": "xiaohongshu",
+                "profile": "default",
+                "keyword": "AI头像",
+                "max_posts": 1,
+                "max_comments_per_post": 0,
+                "headed": True,
+                "dry_run": False,
+            },
+            env=env,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(assets_dir.is_dir())
+        self.assertTrue(records_path.exists())
+
+        events = read_jsonl(events_path)
+        self.assertEqual(events[-1]["event"], "manual_action_required")
+        self.assertEqual(events[-1]["payload"]["reason"], "profile_window_busy")
+        self.assertIn("Profile", events[-1]["message"])
+        self.assertNotIn("launchPersistentContext", events[-1]["message"])
+
     def test_xiaohongshu_open_detail_page_does_not_trigger_login_false_positive(self):
         script = r"""
 import { detectManualAction } from "./sidecar/collector/xiaohongshu.mjs";

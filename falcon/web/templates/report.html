@@ -3,17 +3,26 @@
 {% block content %}
 <header class="page-header">
   <div>
+    <div class="eyebrow">daily report</div>
     <h1>日报</h1>
     <p>{{ report_path }}</p>
   </div>
   <a class="button" href="/">返回总览</a>
 </header>
 
-<section class="panel">
-  {% if content %}
-  <pre class="report-content">{{ content }}</pre>
-  {% else %}
-  <p class="muted">还没有找到日报文件。</p>
-  {% endif %}
+<section class="report-reader">
+  <div class="panel">
+    <div class="report-meta">
+      <span>阅读宽度</span>
+      <strong>860px</strong>
+      <span>正文来源</span>
+      <code>{{ report_path }}</code>
+    </div>
+    {% if content %}
+    <pre class="report-content">{{ content }}</pre>
+    {% else %}
+    <p class="muted">还没有找到日报文件。</p>
+    {% endif %}
+  </div>
 </section>
 {% endblock %}

@@ -44,6 +44,10 @@ class FalconRepository:
                     like_count TEXT NOT NULL DEFAULT '',
                     comment_rank TEXT NOT NULL DEFAULT '',
                     published_at TEXT NOT NULL DEFAULT '',
+                    relevance_score INTEGER NOT NULL DEFAULT -1,
+                    relevance_level TEXT NOT NULL DEFAULT 'unscored',
+                    relevance_role TEXT NOT NULL DEFAULT 'pending',
+                    relevance_reason TEXT NOT NULL DEFAULT '',
                     collected_at TEXT NOT NULL
                 );
 
@@ -132,6 +136,14 @@ class FalconRepository:
                     collect_count TEXT NOT NULL DEFAULT '',
                     comment_count TEXT NOT NULL DEFAULT '',
                     detail_fingerprint TEXT NOT NULL DEFAULT '',
+                    relevance_score INTEGER NOT NULL DEFAULT -1,
+                    relevance_level TEXT NOT NULL DEFAULT 'unscored',
+                    relevance_role TEXT NOT NULL DEFAULT 'pending',
+                    relevance_reason TEXT NOT NULL DEFAULT '',
+                    relevance_breakdown_json TEXT NOT NULL DEFAULT '{}',
+                    relevance_updated_at TEXT NOT NULL DEFAULT '',
+                    manual_relevance_level TEXT NOT NULL DEFAULT '',
+                    manual_relevance_note TEXT NOT NULL DEFAULT '',
                     collected_at TEXT NOT NULL
                 );
 
@@ -188,11 +200,23 @@ class FalconRepository:
             self._ensure_column(conn, "raw_items", "commenter", "TEXT NOT NULL DEFAULT ''")
             self._ensure_column(conn, "raw_items", "like_count", "TEXT NOT NULL DEFAULT ''")
             self._ensure_column(conn, "raw_items", "comment_rank", "TEXT NOT NULL DEFAULT ''")
+            self._ensure_column(conn, "raw_items", "relevance_score", "INTEGER NOT NULL DEFAULT -1")
+            self._ensure_column(conn, "raw_items", "relevance_level", "TEXT NOT NULL DEFAULT 'unscored'")
+            self._ensure_column(conn, "raw_items", "relevance_role", "TEXT NOT NULL DEFAULT 'pending'")
+            self._ensure_column(conn, "raw_items", "relevance_reason", "TEXT NOT NULL DEFAULT ''")
             self._ensure_column(conn, "collection_runs", "completed_at", "TEXT NOT NULL DEFAULT ''")
             self._ensure_column(conn, "collection_runs", "failed_reason", "TEXT NOT NULL DEFAULT ''")
             self._ensure_column(conn, "collected_posts", "collect_count", "TEXT NOT NULL DEFAULT ''")
             self._ensure_column(conn, "collected_posts", "comment_count", "TEXT NOT NULL DEFAULT ''")
             self._ensure_column(conn, "collected_posts", "detail_fingerprint", "TEXT NOT NULL DEFAULT ''")
+            self._ensure_column(conn, "collected_posts", "relevance_score", "INTEGER NOT NULL DEFAULT -1")
+            self._ensure_column(conn, "collected_posts", "relevance_level", "TEXT NOT NULL DEFAULT 'unscored'")
+            self._ensure_column(conn, "collected_posts", "relevance_role", "TEXT NOT NULL DEFAULT 'pending'")
+            self._ensure_column(conn, "collected_posts", "relevance_reason", "TEXT NOT NULL DEFAULT ''")
+            self._ensure_column(conn, "collected_posts", "relevance_breakdown_json", "TEXT NOT NULL DEFAULT '{}'")
+            self._ensure_column(conn, "collected_posts", "relevance_updated_at", "TEXT NOT NULL DEFAULT ''")
+            self._ensure_column(conn, "collected_posts", "manual_relevance_level", "TEXT NOT NULL DEFAULT ''")
+            self._ensure_column(conn, "collected_posts", "manual_relevance_note", "TEXT NOT NULL DEFAULT ''")
             self._ensure_column(conn, "collected_comments", "comment_type", "TEXT NOT NULL DEFAULT 'comment'")
             self._ensure_column(conn, "collected_comments", "reply_to", "TEXT NOT NULL DEFAULT ''")
 
@@ -288,8 +312,11 @@ class FalconRepository:
                 """
                 INSERT OR IGNORE INTO collected_posts (
                     run_id, platform, keyword, title, content, url, author, published_at,
-                    like_count, collect_count, comment_count, detail_fingerprint, collected_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    like_count, collect_count, comment_count, detail_fingerprint,
+                    relevance_score, relevance_level, relevance_role, relevance_reason,
+                    relevance_breakdown_json, relevance_updated_at, manual_relevance_level,
+                    manual_relevance_note, collected_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     post.run_id,
@@ -304,6 +331,14 @@ class FalconRepository:
                     post.collect_count,
                     post.comment_count,
                     post.detail_fingerprint,
+                    post.relevance_score,
+                    post.relevance_level,
+                    post.relevance_role,
+                    post.relevance_reason,
+                    post.relevance_breakdown_json,
+                    post.relevance_updated_at,
+                    post.manual_relevance_level,
+                    post.manual_relevance_note,
                     post.collected_at,
                 ),
             )
@@ -477,6 +512,43 @@ class FalconRepository:
             return None
         return self._row_to_collected_post(row)
 
+    def update_collected_post_relevance(
+        self,
+        post_id: int,
+        score: int,
+        level: str,
+        role: str,
+        reason: str,
+        breakdown_json: str,
+    ) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE collected_posts
+                SET relevance_score = ?,
+                    relevance_level = ?,
+                    relevance_role = ?,
+                    relevance_reason = ?,
+                    relevance_breakdown_json = ?,
+                    relevance_updated_at = ?
+                WHERE id = ?
+                """,
+                (score, level, role, reason, breakdown_json, utc_now_iso(), post_id),
+            )
+
+    def override_collected_post_relevance(self, post_id: int, level: str, note: str = "") -> None:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE collected_posts
+                SET manual_relevance_level = ?,
+                    manual_relevance_note = ?,
+                    relevance_updated_at = ?
+                WHERE id = ?
+                """,
+                (level, note, utc_now_iso(), post_id),
+            )
+
     def list_collected_comments(
         self,
         run_id: Optional[str] = None,
@@ -545,8 +617,9 @@ class FalconRepository:
                 INSERT OR IGNORE INTO raw_items (
                     source_hash, platform, keyword, source_type, title, content, url,
                     parent_url, author, commenter, like_count, comment_rank,
-                    published_at, collected_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    published_at, relevance_score, relevance_level, relevance_role,
+                    relevance_reason, collected_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     source_hash,
@@ -562,11 +635,27 @@ class FalconRepository:
                     item.like_count,
                     item.comment_rank,
                     item.published_at,
+                    item.relevance_score,
+                    item.relevance_level,
+                    item.relevance_role,
+                    item.relevance_reason,
                     item.collected_at,
                 ),
             )
             row = conn.execute("SELECT id FROM raw_items WHERE source_hash = ?", (source_hash,)).fetchone()
-            return int(row["id"])
+            raw_id = int(row["id"])
+            conn.execute(
+                """
+                UPDATE raw_items
+                SET relevance_score = ?,
+                    relevance_level = ?,
+                    relevance_role = ?,
+                    relevance_reason = ?
+                WHERE id = ?
+                """,
+                (item.relevance_score, item.relevance_level, item.relevance_role, item.relevance_reason, raw_id),
+            )
+            return raw_id
 
     def upsert_raw_items(self, items: List[RawItem]) -> List[int]:
         return [self.upsert_raw_item(item) for item in items]
@@ -682,6 +771,10 @@ class FalconRepository:
                 raw_items.commenter,
                 raw_items.like_count,
                 raw_items.comment_rank,
+                raw_items.relevance_score,
+                raw_items.relevance_level,
+                raw_items.relevance_role,
+                raw_items.relevance_reason,
                 ai_scores.*
             FROM ai_scores
             JOIN raw_items ON raw_items.id = ai_scores.raw_item_id
@@ -761,6 +854,10 @@ class FalconRepository:
             like_count=row["like_count"],
             comment_rank=row["comment_rank"],
             published_at=row["published_at"],
+            relevance_score=int(row["relevance_score"]),
+            relevance_level=row["relevance_level"],
+            relevance_role=row["relevance_role"],
+            relevance_reason=row["relevance_reason"],
             collected_at=row["collected_at"],
         )
 
@@ -809,6 +906,14 @@ class FalconRepository:
             collect_count=row["collect_count"],
             comment_count=row["comment_count"],
             detail_fingerprint=row["detail_fingerprint"],
+            relevance_score=int(row["relevance_score"]),
+            relevance_level=row["relevance_level"],
+            relevance_role=row["relevance_role"],
+            relevance_reason=row["relevance_reason"],
+            relevance_breakdown_json=row["relevance_breakdown_json"],
+            relevance_updated_at=row["relevance_updated_at"],
+            manual_relevance_level=row["manual_relevance_level"],
+            manual_relevance_note=row["manual_relevance_note"],
             collected_at=row["collected_at"],
         )
 

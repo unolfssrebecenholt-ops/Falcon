@@ -21,6 +21,10 @@ class RawItem:
     like_count: str = ""
     comment_rank: str = ""
     published_at: str = ""
+    relevance_score: int = -1
+    relevance_level: str = "unscored"
+    relevance_role: str = "pending"
+    relevance_reason: str = ""
     collected_at: str = field(default_factory=utc_now_iso)
     raw_id: Optional[int] = None
 
@@ -69,6 +73,14 @@ class CollectedPost:
     collect_count: str = ""
     comment_count: str = ""
     detail_fingerprint: str = ""
+    relevance_score: int = -1
+    relevance_level: str = "unscored"
+    relevance_role: str = "pending"
+    relevance_reason: str = ""
+    relevance_breakdown_json: str = "{}"
+    relevance_updated_at: str = ""
+    manual_relevance_level: str = ""
+    manual_relevance_note: str = ""
     collected_at: str = field(default_factory=utc_now_iso)
     post_id: Optional[int] = None
 

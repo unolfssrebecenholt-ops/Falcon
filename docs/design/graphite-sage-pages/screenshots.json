@@ -1,0 +1,160 @@
+[
+  {
+    "label": "仪表盘",
+    "path": "/",
+    "status": 200,
+    "screenshot": "F:\\projects\\Falcon\\docs\\design\\graphite-sage-pages\\01-dashboard.png",
+    "missingSelectors": [],
+    "horizontalOverflow": false,
+    "cssVersion": [
+      "http://127.0.0.1:8766/static/app.css?v=graphite-sage-all-pages-20260524"
+    ],
+    "hasOldDotGrid": false
+  },
+  {
+    "label": "日报",
+    "path": "/report",
+    "status": 200,
+    "screenshot": "F:\\projects\\Falcon\\docs\\design\\graphite-sage-pages\\02-report.png",
+    "missingSelectors": [],
+    "horizontalOverflow": false,
+    "cssVersion": [
+      "http://127.0.0.1:8766/static/app.css?v=graphite-sage-all-pages-20260524"
+    ],
+    "hasOldDotGrid": false
+  },
+  {
+    "label": "关键词池",
+    "path": "/keywords",
+    "status": 200,
+    "screenshot": "F:\\projects\\Falcon\\docs\\design\\graphite-sage-pages\\03-keywords.png",
+    "missingSelectors": [],
+    "horizontalOverflow": false,
+    "cssVersion": [
+      "http://127.0.0.1:8766/static/app.css?v=graphite-sage-all-pages-20260524"
+    ],
+    "hasOldDotGrid": false
+  },
+  {
+    "label": "采集总览",
+    "path": "/collector",
+    "status": 200,
+    "screenshot": "F:\\projects\\Falcon\\docs\\design\\graphite-sage-pages\\04-collector-overview.png",
+    "missingSelectors": [],
+    "horizontalOverflow": false,
+    "cssVersion": [
+      "http://127.0.0.1:8766/static/app.css?v=graphite-sage-all-pages-20260524"
+    ],
+    "hasOldDotGrid": false
+  },
+  {
+    "label": "环境自检",
+    "path": "/collector/environment",
+    "status": 200,
+    "screenshot": "F:\\projects\\Falcon\\docs\\design\\graphite-sage-pages\\05-collector-environment.png",
+    "missingSelectors": [],
+    "horizontalOverflow": false,
+    "cssVersion": [
+      "http://127.0.0.1:8766/static/app.css?v=graphite-sage-all-pages-20260524"
+    ],
+    "hasOldDotGrid": false
+  },
+  {
+    "label": "账号管理",
+    "path": "/collector/accounts",
+    "status": 200,
+    "screenshot": "F:\\projects\\Falcon\\docs\\design\\graphite-sage-pages\\06-collector-accounts.png",
+    "missingSelectors": [],
+    "horizontalOverflow": false,
+    "cssVersion": [
+      "http://127.0.0.1:8766/static/app.css?v=graphite-sage-all-pages-20260524"
+    ],
+    "hasOldDotGrid": false,
+    "accountActions": {
+      "openLoginForms": 3,
+      "logoutForms": 1,
+      "visibleActionButtons": 3,
+      "createProfileForm": true
+    }
+  },
+  {
+    "label": "任务详情",
+    "path": "/collector/runs/xiaohongshu-20260524-090257-c0f4a4",
+    "status": 200,
+    "screenshot": "F:\\projects\\Falcon\\docs\\design\\graphite-sage-pages\\07-collector-run-detail.png",
+    "missingSelectors": [],
+    "horizontalOverflow": false,
+    "cssVersion": [
+      "http://127.0.0.1:8766/static/app.css?v=graphite-sage-all-pages-20260524"
+    ],
+    "hasOldDotGrid": false,
+    "ledgers": {
+      "timelineRows": 15,
+      "assetRows": 46,
+      "timelineVisibleRows": 7,
+      "assetVisibleRows": 7,
+      "timelineScrollable": true,
+      "assetScrollable": true
+    }
+  },
+  {
+    "label": "样本预览",
+    "path": "/collector/runs/xiaohongshu-20260524-090257-c0f4a4/posts/65",
+    "status": 200,
+    "screenshot": "F:\\projects\\Falcon\\docs\\design\\graphite-sage-pages\\08-collector-sample-preview.png",
+    "missingSelectors": [],
+    "horizontalOverflow": false,
+    "cssVersion": [
+      "http://127.0.0.1:8766/static/app.css?v=graphite-sage-all-pages-20260524"
+    ],
+    "hasOldDotGrid": false
+  },
+  {
+    "label": "分析总览",
+    "path": "/analysis",
+    "status": 200,
+    "screenshot": "F:\\projects\\Falcon\\docs\\design\\graphite-sage-pages\\09-analysis.png",
+    "missingSelectors": [],
+    "horizontalOverflow": false,
+    "cssVersion": [
+      "http://127.0.0.1:8766/static/app.css?v=graphite-sage-all-pages-20260524"
+    ],
+    "hasOldDotGrid": false
+  },
+  {
+    "label": "执行总览",
+    "path": "/execution",
+    "status": 200,
+    "screenshot": "F:\\projects\\Falcon\\docs\\design\\graphite-sage-pages\\10-execution.png",
+    "missingSelectors": [],
+    "horizontalOverflow": false,
+    "cssVersion": [
+      "http://127.0.0.1:8766/static/app.css?v=graphite-sage-all-pages-20260524"
+    ],
+    "hasOldDotGrid": false
+  },
+  {
+    "label": "人工复核",
+    "path": "/review",
+    "status": 200,
+    "screenshot": "F:\\projects\\Falcon\\docs\\design\\graphite-sage-pages\\11-review.png",
+    "missingSelectors": [],
+    "horizontalOverflow": false,
+    "cssVersion": [
+      "http://127.0.0.1:8766/static/app.css?v=graphite-sage-all-pages-20260524"
+    ],
+    "hasOldDotGrid": false
+  },
+  {
+    "label": "触达任务",
+    "path": "/tasks",
+    "status": 200,
+    "screenshot": "F:\\projects\\Falcon\\docs\\design\\graphite-sage-pages\\12-tasks.png",
+    "missingSelectors": [],
+    "horizontalOverflow": false,
+    "cssVersion": [
+      "http://127.0.0.1:8766/static/app.css?v=graphite-sage-all-pages-20260524"
+    ],
+    "hasOldDotGrid": false
+  }
+]

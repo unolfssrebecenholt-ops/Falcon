@@ -1,12 +1,13 @@
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Union
 
 from .analysis import HeuristicAnalyzer
 from .db import FalconRepository
 from .drafting import DraftingService
 from .llm import GPT55Client
 from .models import RawItem
+from .relevance import default_relevance_result, effective_relevance_level, effective_relevance_role
 from .reports import DailyReportBuilder
 
 
@@ -16,9 +17,54 @@ class AnalyzeResult:
     task_count: int
 
 
-def promote_collected_posts(repo: FalconRepository, run_id: Optional[str] = None, limit: Optional[int] = None) -> int:
-    promoted = 0
+@dataclass
+class RelevanceScoreResult:
+    scored_count: int
+
+
+@dataclass
+class PromoteCollectedResult:
+    promoted_count: int = 0
+    primary_count: int = 0
+    reference_count: int = 0
+    discarded_count: int = 0
+    unscored_count: int = 0
+
+
+def score_collected_posts(repo: FalconRepository, run_id: Optional[str] = None, limit: Optional[int] = None) -> RelevanceScoreResult:
+    scored = 0
     for post in repo.list_collected_posts(run_id=run_id, limit=limit):
+        if post.post_id is None:
+            continue
+        result = default_relevance_result(post)
+        repo.update_collected_post_relevance(
+            post.post_id,
+            score=result.score,
+            level=result.level,
+            role=result.analysis_role,
+            reason=result.reason,
+            breakdown_json=result.breakdown_json(),
+        )
+        scored += 1
+    return RelevanceScoreResult(scored_count=scored)
+
+
+def promote_collected_posts(
+    repo: FalconRepository,
+    run_id: Optional[str] = None,
+    limit: Optional[int] = None,
+    return_summary: bool = False,
+) -> Union[int, PromoteCollectedResult]:
+    result = PromoteCollectedResult()
+    for post in repo.list_collected_posts(run_id=run_id, limit=limit):
+        level = effective_relevance_level(post)
+        role = effective_relevance_role(post)
+        if level == "unscored":
+            result.unscored_count += 1
+            continue
+        if role == "discard":
+            result.discarded_count += 1
+            continue
         repo.upsert_raw_item(
             RawItem(
                 platform=post.platform,
@@ -30,10 +76,18 @@ def promote_collected_posts(repo: FalconRepository, run_id: Optional[str] = None
                 author=post.author,
                 like_count=post.like_count,
                 published_at=post.published_at,
+                relevance_score=post.relevance_score,
+                relevance_level=level,
+                relevance_role=role,
+                relevance_reason=post.relevance_reason,
             )
         )
-        promoted += 1
-    return promoted
+        result.promoted_count += 1
+        if role == "primary":
+            result.primary_count += 1
+        elif role == "reference":
+            result.reference_count += 1
+    return result if return_summary else result.promoted_count
 
 
 def analyze_unanalyzed(
@@ -57,6 +111,8 @@ def analyze_unanalyzed(
         result = analyzer.analyze(item)
         analysis_id = repo.save_analysis(item.raw_id or 0, result)
         analyzed += 1
+        if item.relevance_role == "reference":
+            continue
         if result.outreach_type != "ignore" and drafts_mode != "off":
             drafts, risk_note = drafting.generate(item, result)
             if drafts:

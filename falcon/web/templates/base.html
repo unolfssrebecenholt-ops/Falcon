@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Falcon 控制台{% endblock %}</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23060807'/%3E%3Cpath d='M9 23V8h14v4h-9v3h8v4h-8v4z' fill='%23a6ff63'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="{{ url_for('static', path='/app.css') }}?v=archive-actions-compact2-20260524">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231a252c'/%3E%3Cpath d='M9 23V8h14v4h-9v3h8v4h-8v4z' fill='%23748876'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="{{ url_for('static', path='/app.css') }}?v=slate-command-stone-moss-pages-20260524-relevance-scorecards">
 </head>
 <body>
   <aside class="sidebar" aria-label="Falcon navigation">
@@ -18,15 +18,32 @@
     </div>
     <nav class="nav-groups">
       <section class="nav-group">
+        <div class="nav-title"><span>工作台</span><span>LOCAL</span></div>
+        <a class="nav-link {{ 'active' if active == 'dashboard' else '' }}" href="/"><span>仪表盘</span><span class="nav-count">HOME</span></a>
+      </section>
+      <section class="nav-group">
         <div class="nav-title"><span>采集</span><span>LIVE</span></div>
-        <a class="nav-link {{ 'active' if active in ['collector', 'collector_run'] else '' }}" href="/collector"><span>采集总览</span><span class="nav-count">RUN</span></a>
+        <a class="nav-link {{ 'active' if active == 'collector' else '' }}" href="/collector"><span>采集首页</span><span class="nav-count">TODAY</span></a>
+        <a class="nav-link {{ 'active' if active in ['collector_runs', 'collector_run'] else '' }}" href="/collector/runs"><span>任务队列</span><span class="nav-count">RUNS</span></a>
+        <a class="nav-link {{ 'active' if active == 'collector_create' else '' }}" href="/collector/create"><span>任务创建</span><span class="nav-count">NEW</span></a>
         <a class="nav-link {{ 'active' if active == 'collector_accounts' else '' }}" href="/collector/accounts"><span>账号管理</span><span class="nav-count">PROFILE</span></a>
         <a class="nav-link {{ 'active' if active == 'collector_environment' else '' }}" href="/collector/environment"><span>环境自检</span><span class="nav-count">CHECK</span></a>
       </section>
       <section class="nav-group">
-        <div class="nav-title"><span>后续链路</span><span>LOCK</span></div>
-        <a class="nav-link {{ 'active' if active == 'analysis' else '' }}" href="/analysis"><span>分析总览</span><span class="nav-count">NEXT</span></a>
-        <a class="nav-link {{ 'active' if active == 'execution' else '' }}" href="/execution"><span>执行总览</span><span class="nav-count">HUMAN</span></a>
+        <div class="nav-title"><span>分析</span><span>LOCAL</span></div>
+        <a class="nav-link {{ 'active' if active == 'analysis' else '' }}" href="/analysis"><span>分析首页</span><span class="nav-count">INSIGHT</span></a>
+        <a class="nav-link {{ 'active' if active == 'analysis_samples' else '' }}" href="/analysis/samples"><span>分析样本</span><span class="nav-count">SAMPLES</span></a>
+        <a class="nav-link {{ 'active' if active == 'review' else '' }}" href="/review"><span>人工复核</span><span class="nav-count">REVIEW</span></a>
+      </section>
+      <section class="nav-group">
+        <div class="nav-title"><span>执行</span><span>LOCAL</span></div>
+        <a class="nav-link {{ 'active' if active == 'execution' else '' }}" href="/execution"><span>执行首页</span><span class="nav-count">DRAFT</span></a>
+        <a class="nav-link {{ 'active' if active == 'tasks' else '' }}" href="/tasks"><span>触达任务</span><span class="nav-count">TASKS</span></a>
+      </section>
+      <section class="nav-group">
+        <div class="nav-title"><span>基础</span><span>LOCAL</span></div>
+        <a class="nav-link {{ 'active' if active == 'keywords' else '' }}" href="/keywords"><span>关键词池</span><span class="nav-count">PLAN</span></a>
+        <a class="nav-link {{ 'active' if active == 'report' else '' }}" href="/report"><span>日报</span><span class="nav-count">DOC</span></a>
       </section>
     </nav>
   </aside>
