@@ -15,10 +15,10 @@ class FalconRepositoryTest(unittest.TestCase):
 
             item = RawItem(
                 platform="xiaohongshu",
-                keyword="小红书封面",
+                keyword="内容表现",
                 source_type="comment",
-                title="封面求助",
-                content="封面怎么做？",
+                title="内容求助",
+                content="标题怎么做？",
                 url="https://example.com/note/1",
                 published_at="2026-05-11",
             )
@@ -29,7 +29,7 @@ class FalconRepositoryTest(unittest.TestCase):
 
             self.assertEqual(first_id, second_id)
             self.assertEqual(len(items), 1)
-            self.assertEqual(items[0].keyword, "小红书封面")
+            self.assertEqual(items[0].keyword, "内容表现")
 
     def test_saves_analysis_and_outreach_task_queue(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -38,20 +38,20 @@ class FalconRepositoryTest(unittest.TestCase):
             raw_id = repo.upsert_raw_item(
                 RawItem(
                     platform="xiaohongshu",
-                    keyword="小红书封面",
+                    keyword="内容表现",
                     source_type="comment",
-                    title="封面求助",
-                    content="封面怎么做才有人点？",
+                    title="内容求助",
+                    content="标题怎么做才有人点？",
                     url="https://example.com/note/1",
                     published_at="2026-05-11",
                 )
             )
             analysis = AnalysisResult(
-                scene_tag="xhs_cover",
+                scene_tag="content_performance",
                 intent_score=88,
                 content_value_score=82,
-                pain_point="不会做小红书封面",
-                suggested_topic="小红书封面没人点？3 个排版方法",
+                pain_point="不会优化内容表现",
+                suggested_topic="内容没人点？3 个表达结构方法",
                 recommended_action="comment_reply",
                 outreach_type="comment_reply",
                 outreach_priority="high",

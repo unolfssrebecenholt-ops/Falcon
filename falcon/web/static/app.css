@@ -2430,12 +2430,20 @@ textarea:focus {
 
 .account-platform-head {
   display: grid;
-  grid-template-columns: minmax(154px, 0.62fr) minmax(240px, 1fr) minmax(300px, max-content);
-  gap: 14px;
-  align-items: center;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  align-items: stretch;
   padding: 12px 14px;
   border-bottom: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.025);
+}
+
+.account-platform-overview {
+  display: grid;
+  grid-template-columns: minmax(144px, 0.52fr) minmax(220px, 1fr);
+  gap: 14px;
+  align-items: center;
+  min-width: 0;
 }
 
 .account-platform-identity {
@@ -2496,16 +2504,21 @@ textarea:focus {
 
 .account-create-toolbar {
   display: grid;
-  grid-template-columns: minmax(180px, 260px) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 6px 8px;
   align-items: end;
-  justify-self: end;
-  width: max-content;
+  justify-self: start;
+  width: min(100%, 420px);
   max-width: 100%;
   padding: 8px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 8px;
   background: rgba(11, 17, 22, 0.26);
+}
+
+.account-create-toolbar.is-invalid {
+  border-color: rgba(223, 103, 103, 0.62);
+  background: rgba(223, 103, 103, 0.06);
 }
 
 .account-create-toolbar label {
@@ -2525,19 +2538,32 @@ textarea:focus {
 
 .account-create-toolbar input {
   width: 100%;
-  max-width: 260px;
+  max-width: 240px;
+}
+
+.account-create-toolbar.is-invalid input[name="profile"] {
+  border-color: rgba(223, 103, 103, 0.7);
 }
 
 .account-create-toolbar .button {
   width: auto;
   min-width: 96px;
   white-space: nowrap;
+  padding-right: 10px;
+  padding-left: 10px;
 }
 
 .account-create-hint {
   grid-column: 1 / -1;
   color: var(--muted);
   font-size: 11px;
+}
+
+.account-create-error {
+  grid-column: 1 / -1;
+  color: #ff9daf;
+  font-size: 12px;
+  font-weight: 800;
 }
 
 .account-create-placeholder {
@@ -2585,6 +2611,11 @@ textarea:focus {
   border-left: 3px solid var(--amber);
 }
 
+.account-user-row.status-safety_locked {
+  border-left: 3px solid var(--danger);
+  background: rgba(223, 103, 103, 0.045);
+}
+
 .account-user-row.status-ready {
   border-left: 3px solid var(--accent);
 }
@@ -2626,6 +2657,11 @@ textarea:focus {
 .account-status.status-manual {
   color: var(--amber);
   background: rgba(209, 162, 77, 0.08);
+}
+
+.account-status.status-safety_locked {
+  color: var(--danger);
+  background: rgba(223, 103, 103, 0.08);
 }
 
 .account-status.status-queued {
@@ -3931,6 +3967,10 @@ textarea:focus {
     grid-template-columns: 1fr;
   }
 
+  .account-platform-overview {
+    grid-template-columns: minmax(144px, 0.52fr) minmax(220px, 1fr);
+  }
+
   .account-create-toolbar,
   .account-create-placeholder {
     justify-self: start;
@@ -3972,6 +4012,7 @@ textarea:focus {
   .platform-picker,
   .account-board,
   .account-platform-head,
+  .account-platform-overview,
   .account-user-row,
   .flow-grid,
   .platform-grid,

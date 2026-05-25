@@ -40,6 +40,23 @@ PROGRESS_EVENTS = {
     "profile_loaded",
     "run_started",
 }
+DEFAULT_COLLECTOR_PACE = {
+    "detail_delay_range_seconds": [8, 18],
+    "scroll_delay_range_seconds": [5, 12],
+    "scroll_distance_viewport_range": [0.45, 0.85],
+    "batch_rest_after_cards_range": [5, 11],
+    "batch_rest_seconds_range": [15, 20],
+}
+DEFAULT_COLLECTOR_ACCESS_POLICY = {
+    "js_access": False,
+    "direct_url_access": False,
+    "network_api_access": False,
+}
+PROFILE_SAFETY_LOCK_REASONS = {
+    "account_risk_warning",
+    "platform_risk_circuit_breaker",
+    "risk_control",
+}
 
 
 def safe_collector_identifier(value: str, field_name: str) -> str:
@@ -117,8 +134,8 @@ class CollectorService:
         platform: str,
         profile: str,
         keyword: str,
-        max_posts: int = 20,
-        max_comments_per_post: int = 10,
+        max_posts: int = 8,
+        max_comments_per_post: int = 5,
         headed: bool = False,
         run_id: str = "",
     ) -> CollectionRun:
@@ -138,8 +155,8 @@ class CollectorService:
         platform: str,
         profile: str,
         keyword: str,
-        max_posts: int = 20,
-        max_comments_per_post: int = 10,
+        max_posts: int = 8,
+        max_comments_per_post: int = 5,
         headed: bool = True,
         dry_run: bool = False,
         run_id: str = "",
@@ -157,6 +174,8 @@ class CollectorService:
             max_comments_per_post=max_comments_per_post,
         )
         self.repo.create_collection_run(run)
+        if not dry_run and self.is_profile_safety_locked(platform, profile):
+            return self._pause_run_for_profile_safety(run)
         paths = self.prepare_run_request(run, headed=headed, dry_run=dry_run)
         self.repo.update_collection_run(run_id, status="running", progress=5, current_step="采集器已启动")
 
@@ -223,6 +242,8 @@ class CollectorService:
             raise ValueError(f"Unknown collector run: {run_id}")
         if run.status in {"completed", "cancelled"}:
             raise ValueError(f"Collector run cannot be started from status: {run.status}")
+        if not dry_run and self.is_profile_safety_locked(run.platform, run.profile):
+            return self._pause_run_for_profile_safety(run)
 
         paths = self.prepare_run_request(run, headed=headed, dry_run=dry_run)
         self.repo.update_collection_run(
@@ -302,6 +323,12 @@ class CollectorService:
             "max_comments_per_post": run.max_comments_per_post,
             "headed": headed,
             "dry_run": dry_run,
+            "safety_profile": "respectful_human",
+            "automation_boundary": "browser_control",
+            "access_policy": DEFAULT_COLLECTOR_ACCESS_POLICY,
+            "media_policy": "visible_screenshot",
+            "pace": DEFAULT_COLLECTOR_PACE,
+            "checkpoint_enabled": True,
         }
         paths.request_path.write_text(json.dumps(request, ensure_ascii=False, indent=2), encoding="utf-8")
         return paths
@@ -323,6 +350,99 @@ class CollectorService:
             profile_dir=profile_dir,
         )
 
+    def profile_safety_path(self, platform: str, profile: str) -> Path:
+        platform = safe_collector_identifier(platform, "platform")
+        profile = safe_collector_identifier(profile, "profile")
+        safety_dir = self.runtime_root / "profile-safety" / platform
+        safety_path = safety_dir / f"{profile}.json"
+        self._ensure_child_path(self.runtime_root, safety_path)
+        return safety_path
+
+    def profile_safety_state(self, platform: str, profile: str) -> Dict[str, object]:
+        path = self.profile_safety_path(platform, profile)
+        if not path.exists():
+            return {}
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return {}
+        return payload if isinstance(payload, dict) else {}
+
+    def is_profile_safety_locked(self, platform: str, profile: str) -> bool:
+        return bool(self.profile_safety_state(platform, profile).get("locked"))
+
+    def clear_profile_safety_lock(self, platform: str, profile: str) -> None:
+        path = self.profile_safety_path(platform, profile)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "platform": platform,
+            "profile": profile,
+            "locked": False,
+            "cleared_at": utc_now_iso(),
+        }
+        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    def lock_profile_safety(
+        self,
+        platform: str,
+        profile: str,
+        *,
+        reason: str,
+        run_id: str,
+        message: str,
+    ) -> None:
+        path = self.profile_safety_path(platform, profile)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "platform": platform,
+            "profile": profile,
+            "locked": True,
+            "reason": reason,
+            "run_id": run_id,
+            "message": message,
+            "locked_at": utc_now_iso(),
+        }
+        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    def _pause_run_for_profile_safety(self, run: CollectionRun) -> CollectionRun:
+        state = self.profile_safety_state(run.platform, run.profile)
+        raw_message = str(state.get("message") or "").strip()
+        message = (
+            f"账号风控熔断 / 需人工确认后再继续采集：{raw_message}"
+            if raw_message
+            else "账号风控熔断 / 需人工确认后再继续采集"
+        )
+        events = self.repo.list_collection_events(run.run_id)
+        self.repo.append_collection_event(
+            CollectionEvent(
+                run_id=run.run_id,
+                sequence=(events[-1].sequence if events else 0) + 1,
+                scope="collector",
+                event="manual_action_required",
+                message=message,
+                level="warning",
+                payload_json=json.dumps(
+                    {
+                        "reason": "profile_safety_locked",
+                        "platform": run.platform,
+                        "profile": run.profile,
+                        "safety_state": state,
+                    },
+                    ensure_ascii=False,
+                ),
+            )
+        )
+        self.repo.update_collection_run(
+            run.run_id,
+            status="manual_action_required",
+            progress=max(run.progress, 50),
+            current_step=message,
+        )
+        current = self.repo.get_collection_run(run.run_id)
+        if current is None:
+            raise RuntimeError(f"Collector run disappeared: {run.run_id}")
+        return current
+
     def ingest_outputs(self, run_id: str, events_path: Path, records_path: Path) -> None:
         for event in self._read_jsonl(events_path):
             payload = event.get("payload", {})
@@ -342,6 +462,7 @@ class CollectorService:
         if records_path.exists():
             self._ingest_records(run_id, self._read_jsonl(records_path))
         self._sync_run_status_from_events(run_id)
+        self._lock_profile_from_risk_events(run_id)
 
     def _ingest_records(self, run_id: str, records: Iterable[Dict[str, object]]) -> None:
         post_ids: Dict[str, int] = {}
@@ -497,6 +618,27 @@ class CollectorService:
                 progress=max(run.progress, _progress_for_event(latest_progress_event, run)),
                 current_step=latest_progress_event.message or "采集器已启动",
             )
+
+    def _lock_profile_from_risk_events(self, run_id: str) -> None:
+        run = self.repo.get_collection_run(run_id)
+        if run is None:
+            return
+        events = self.repo.list_collection_events(run_id)
+        for event in reversed(events):
+            if event.event != "manual_action_required":
+                continue
+            payload = _payload_for_event(event)
+            reason = str(payload.get("reason") or "")
+            if reason not in PROFILE_SAFETY_LOCK_REASONS:
+                return
+            self.lock_profile_safety(
+                run.platform,
+                run.profile,
+                reason=reason,
+                run_id=run_id,
+                message=event.message,
+            )
+            return
 
     def _new_run_id(self, platform: str) -> str:
         stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")

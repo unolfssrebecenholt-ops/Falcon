@@ -103,10 +103,10 @@ class WebAppTest(unittest.TestCase):
             raw_id = repo.upsert_raw_item(
                 RawItem(
                     platform="xiaohongshu",
-                    keyword="生图小程序",
+                    keyword="内容运营",
                     source_type="post",
-                    title="封面怎么做",
-                    content="封面怎么做",
+                    title="内容怎么做",
+                    content="内容怎么做",
                     url="https://example.com/1",
                 )
             )
@@ -131,19 +131,19 @@ class WebAppTest(unittest.TestCase):
             raw_id = repo.upsert_raw_item(
                 RawItem(
                     platform="xiaohongshu",
-                    keyword="生图小程序",
+                    keyword="内容运营",
                     source_type="post",
-                    title="封面怎么做",
-                    content="封面怎么做",
+                    title="内容怎么做",
+                    content="内容怎么做",
                     url="https://example.com/1",
                 )
             )
             analysis = AnalysisResult(
-                scene_tag="xhs_cover",
+                scene_tag="content_performance",
                 intent_score=90,
                 content_value_score=80,
-                pain_point="封面点击率低",
-                suggested_topic="封面怎么做",
+                pain_point="内容点击率低",
+                suggested_topic="内容怎么做",
                 recommended_action="comment_reply",
                 outreach_type="comment_reply",
                 outreach_priority="high",
@@ -177,7 +177,7 @@ class WebAppTest(unittest.TestCase):
                 CollectionRun(
                     run_id="xhs-running",
                     platform="xiaohongshu",
-                    keyword="AI cover",
+                    keyword="内容表现",
                     profile="default",
                     status="running",
                 )
@@ -186,7 +186,7 @@ class WebAppTest(unittest.TestCase):
                 CollectionRun(
                     run_id="xhs-latest-completed",
                     platform="xiaohongshu",
-                    keyword="AI avatar",
+                    keyword="账号增长",
                     profile="default",
                     status="completed",
                 )
@@ -246,7 +246,7 @@ class WebAppTest(unittest.TestCase):
                 CollectionRun(
                     run_id="xhs-compact-manual",
                     platform="xiaohongshu",
-                    keyword="AI cover",
+                    keyword="内容表现",
                     profile="creator",
                     status="manual_action_required",
                 )
@@ -296,7 +296,7 @@ class WebAppTest(unittest.TestCase):
         self.assertNotIn("graphite-sage-all-pages-20260524", base_template)
         self.assertNotIn("slate-command-reference-pages-20260524", base_template)
         self.assertNotIn("slate-command-soft-sage-pages-20260524", base_template)
-        self.assertIn("slate-command-stone-moss-pages-20260524", base_template)
+        self.assertIn("slate-command-stone-moss-pages-", base_template)
 
     def test_collector_overview_links_to_environment_page_without_inline_doctor(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -415,7 +415,7 @@ class WebAppTest(unittest.TestCase):
                 CollectionRun(
                     run_id="xhs-layout-queued",
                     platform="xiaohongshu",
-                    keyword="AI cover",
+                    keyword="内容表现",
                     profile="default",
                     status="queued",
                 )
@@ -446,21 +446,21 @@ class WebAppTest(unittest.TestCase):
             raw_id = repo.upsert_raw_item(
                 RawItem(
                     platform="xiaohongshu",
-                    keyword="AI cover",
+                    keyword="内容表现",
                     source_type="post",
-                    title="Need better covers",
-                    content="How can I improve cover click-through?",
+                    title="Need better content performance",
+                    content="How can I improve content click-through?",
                     url="https://example.test/post/analysis-samples",
                 )
             )
             repo.save_analysis(
                 raw_id,
                 AnalysisResult(
-                    scene_tag="xhs_cover",
+                    scene_tag="content_performance",
                     intent_score=91,
                     content_value_score=84,
-                    pain_point="cover click-through is low",
-                    suggested_topic="Cover upgrade checklist",
+                    pain_point="content click-through is low",
+                    suggested_topic="Content performance checklist",
                     recommended_action="write_topic",
                     outreach_type="comment_reply",
                     outreach_priority="high",
@@ -477,8 +477,8 @@ class WebAppTest(unittest.TestCase):
             self.assertIn("分析样本", home.text)
             self.assertEqual(samples_response.status_code, 200)
             self.assertIn("分析样本", samples_response.text)
-            self.assertIn("Need better covers", samples_response.text)
-            self.assertIn("Cover upgrade checklist", samples_response.text)
+            self.assertIn("Need better content performance", samples_response.text)
+            self.assertIn("Content performance checklist", samples_response.text)
 
     def test_layout_redesign_navigation_exposes_split_page_entries(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -500,7 +500,7 @@ class WebAppTest(unittest.TestCase):
             keyword_path = tmp_path / "keywords.csv"
             keyword_path.write_text(
                 "theme,keyword,scene,weight,daily_limit\n"
-                "AI头像,头像小程序,avatar,5,20\n",
+                "账号增长,增长工具,growth,5,20\n",
                 encoding="utf-8",
             )
             report_path = tmp_path / "daily-report.md"
@@ -522,7 +522,7 @@ class WebAppTest(unittest.TestCase):
             self.assertIn("关键词配置", keywords.text)
             self.assertIn("关键词表", keywords.text)
             self.assertIn('class="keyword-layout"', keywords.text)
-            self.assertIn("头像小程序", keywords.text)
+            self.assertIn("增长工具", keywords.text)
             self.assertEqual(report.status_code, 200)
             self.assertIn('class="report-reader"', report.text)
             self.assertIn("阅读宽度", report.text)
@@ -536,19 +536,19 @@ class WebAppTest(unittest.TestCase):
             raw_id = repo.upsert_raw_item(
                 RawItem(
                     platform="xiaohongshu",
-                    keyword="AI cover",
+                    keyword="内容表现",
                     source_type="post",
-                    title="Review and execute candidate",
+                    title="Review operations candidate",
                     content="Need a reply",
                     url="https://example.test/post/review-execution",
                 )
             )
             analysis = AnalysisResult(
-                scene_tag="xhs_cover",
+                scene_tag="content_performance",
                 intent_score=91,
                 content_value_score=86,
-                pain_point="cover click-through is low",
-                suggested_topic="Cover upgrade checklist",
+                pain_point="content click-through is low",
+                suggested_topic="Content performance checklist",
                 recommended_action="comment_reply",
                 outreach_type="comment_reply",
                 outreach_priority="high",
@@ -559,7 +559,7 @@ class WebAppTest(unittest.TestCase):
                 raw_id,
                 analysis_id,
                 analysis,
-                [Draft(kind="comment_reply", text="Try stronger contrast and fewer words.")],
+                [Draft(kind="comment_reply", text="Try a clearer title and one action.")],
                 risk_note="human confirmation required",
             )
             client = TestClient(create_app(db_path))
@@ -572,14 +572,14 @@ class WebAppTest(unittest.TestCase):
             self.assertIn("复核工作台", review.text)
             self.assertIn('class="review-workbench"', review.text)
             self.assertIn('class="review-action-panel"', review.text)
-            self.assertIn("Review and execute candidate", review.text)
+            self.assertIn("Review operations candidate", review.text)
             self.assertNotIn('class="row-form"', review.text)
             self.assertEqual(execution.status_code, 200)
             self.assertIn("执行首页", execution.text)
             self.assertIn("待确认草稿队列", execution.text)
             self.assertIn("优先级概览", execution.text)
             self.assertIn('href="/tasks"', execution.text)
-            self.assertIn("Try stronger contrast", execution.text)
+            self.assertIn("Try a clearer title", execution.text)
             self.assertEqual(tasks.status_code, 200)
             self.assertIn("触达任务状态管理", tasks.text)
             self.assertIn('class="task-table-wrap"', tasks.text)
@@ -595,7 +595,7 @@ class WebAppTest(unittest.TestCase):
                 CollectionRun(
                     run_id="xhs-inline-archive",
                     platform="xiaohongshu",
-                    keyword="AI cover",
+                    keyword="内容表现",
                     profile="default",
                     status="completed",
                 )
@@ -642,7 +642,7 @@ class WebAppTest(unittest.TestCase):
                 CollectionRun(
                     run_id="xhs-inline-json",
                     platform="xiaohongshu",
-                    keyword="AI cover",
+                    keyword="内容表现",
                     profile="default",
                     status="completed",
                 )
@@ -807,7 +807,7 @@ class WebAppTest(unittest.TestCase):
                 CollectionRun(
                     run_id="xhs-running",
                     platform="xiaohongshu",
-                    keyword="AI cover",
+                    keyword="内容表现",
                     profile="default",
                     status="running",
                 )
@@ -816,7 +816,7 @@ class WebAppTest(unittest.TestCase):
                 CollectionRun(
                     run_id="dy-queued",
                     platform="douyin",
-                    keyword="AI cover",
+                    keyword="内容表现",
                     profile="creator",
                     status="queued",
                 )
@@ -851,7 +851,7 @@ class WebAppTest(unittest.TestCase):
                 CollectionRun(
                     run_id="xhs-manual-account",
                     platform="xiaohongshu",
-                    keyword="AI cover",
+                    keyword="内容表现",
                     profile="creator",
                     status="manual_action_required",
                 )
@@ -863,12 +863,13 @@ class WebAppTest(unittest.TestCase):
             self.assertEqual(response.status_code, 200)
             self.assertIn("account-workbench", response.text)
             self.assertIn('class="account-platform-section"', response.text)
+            self.assertIn("account-platform-overview", response.text)
             self.assertIn("account-platform-identity", response.text)
             self.assertIn("account-platform-meta", response.text)
             self.assertIn("account-create-toolbar", response.text)
             self.assertIn("account-action-bar", response.text)
             self.assertIn("平台用户矩阵", response.text)
-            self.assertIn("xiaohongshu/default", response.text)
+            self.assertNotIn("xiaohongshu/default", response.text)
             self.assertIn("xiaohongshu/backup", response.text)
             self.assertIn("xiaohongshu/creator", response.text)
             self.assertIn("等待人工", response.text)
@@ -876,14 +877,15 @@ class WebAppTest(unittest.TestCase):
             self.assertIn("检查", response.text)
             self.assertIn("退出", response.text)
             self.assertIn("新建 Profile", response.text)
-            self.assertIn("输入名称后打开登录窗口", response.text)
+            self.assertIn("请用英文/数字命名", response.text)
             self.assertIn('action="/collector/profiles/logout"', response.text)
             self.assertNotIn("<select", response.text)
             css_path = Path(__file__).resolve().parents[1] / "falcon" / "web" / "static" / "app.css"
             css_text = css_path.read_text(encoding="utf-8")
             self.assertIn(".account-action-bar", css_text)
             self.assertIn(".account-create-toolbar", css_text)
-            self.assertIn("max-width: 260px", css_text)
+            self.assertIn(".account-platform-overview", css_text)
+            self.assertIn("max-width: 240px", css_text)
             self.assertIn("width: auto", css_text)
             self.assertNotIn(".account-actions", css_text)
 
@@ -920,7 +922,7 @@ class WebAppTest(unittest.TestCase):
                 CollectionRun(
                     run_id="xhs-busy-logout",
                     platform="xiaohongshu",
-                    keyword="AI cover",
+                    keyword="内容表现",
                     profile="default",
                     status="running",
                 )
@@ -1029,11 +1031,28 @@ class WebAppTest(unittest.TestCase):
                 data={"platform": "xiaohongshu", "profile": "..\\outside"},
                 follow_redirects=False,
             )
+            invalid = client.post(
+                "/collector/profiles/open-login",
+                data={"platform": "xiaohongshu", "profile": "176扫码登录"},
+                follow_redirects=False,
+            )
 
             self.assertEqual(unsupported.status_code, 400)
-            self.assertEqual(unsafe.status_code, 400)
+            self.assertEqual(unsafe.status_code, 303)
+            self.assertIn("profile_action=invalid", unsafe.headers["location"])
+            self.assertEqual(invalid.status_code, 303)
+            self.assertIn("profile_action=invalid", invalid.headers["location"])
             self.assertEqual(launches, [])
             self.assertFalse((tmp_path / "outside").exists())
+
+            notice = client.get(invalid.headers["location"])
+            self.assertEqual(notice.status_code, 200)
+            self.assertIn("Profile 名称只能使用英文字母、数字", notice.text)
+            self.assertIn('class="account-create-toolbar is-invalid"', notice.text)
+            self.assertIn('value="176扫码登录"', notice.text)
+            self.assertIn("data-profile-error", notice.text)
+            self.assertIn("data-profile-form", notice.text)
+            self.assertIn('pattern="[A-Za-z0-9][A-Za-z0-9_.-]{0,127}"', notice.text)
 
     def test_collector_create_get_renders_task_form(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1046,6 +1065,10 @@ class WebAppTest(unittest.TestCase):
             self.assertIn("任务配置", response.text)
             self.assertIn('name="keyword"', response.text)
             self.assertIn('name="max_posts"', response.text)
+            self.assertIn('name="max_posts" type="number" min="1" max="30" value="8"', response.text)
+            self.assertIn('name="max_comments_per_post" type="number" min="0" max="20" value="5"', response.text)
+            self.assertIn("截图保存", response.text)
+            self.assertIn("不下载原图", response.text)
             assert_no_legacy_collection_markers(self, response.text)
 
     def test_collector_create_get_renders_huashu_keyword_group_builder(self):
@@ -1075,8 +1098,8 @@ class WebAppTest(unittest.TestCase):
             self.assertIn('value=""', response.text)
             self.assertIn('id="confirm-keywords"', response.text)
             self.assertIn('id="confirm-run-count"', response.text)
-            self.assertNotIn('data-keyword="小红书封面"', response.text)
-            self.assertNotIn('data-keyword="AI 封面"', response.text)
+            self.assertNotIn('data-keyword="内容表现"', response.text)
+            self.assertNotIn('data-keyword="增长案例"', response.text)
             self.assertNotIn('data-keyword="副业"', response.text)
 
     def test_collector_create_get_uses_existing_profile_select(self):
@@ -1097,6 +1120,64 @@ class WebAppTest(unittest.TestCase):
             self.assertIn("只能选择账号管理里已有的 Profile", response.text)
             self.assertNotIn('<input name="profile"', response.text)
 
+    def test_collector_safety_locked_profile_is_hidden_blocked_and_clearable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            db_path = tmp_path / "falcon.sqlite3"
+            profile_root = tmp_path / "browser-profiles"
+            (profile_root / "xiaohongshu" / "default").mkdir(parents=True)
+            safety_path = tmp_path / "runtime" / "collector" / "profile-safety" / "xiaohongshu" / "default.json"
+            safety_path.parent.mkdir(parents=True)
+            safety_path.write_text(
+                json.dumps(
+                    {
+                        "platform": "xiaohongshu",
+                        "profile": "default",
+                        "locked": True,
+                        "reason": "account_risk_warning",
+                        "run_id": "risk-run",
+                        "message": "账号违规预警",
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            client = TestClient(create_app(db_path, profile_root=profile_root))
+
+            create_page = client.get("/collector/create")
+            accounts_page = client.get("/collector/accounts")
+            blocked_create = client.post(
+                "/collector/create",
+                data={
+                    "platform": "xiaohongshu",
+                    "profile": "default",
+                    "keyword": "内容表现",
+                    "max_posts": "5",
+                    "max_comments_per_post": "1",
+                },
+                follow_redirects=False,
+            )
+            cleared = client.post(
+                "/collector/profiles/clear-safety-lock",
+                data={"platform": "xiaohongshu", "profile": "default"},
+                follow_redirects=False,
+            )
+            create_after_clear = client.get("/collector/create")
+
+            self.assertEqual(create_page.status_code, 200)
+            self.assertNotIn('<option value="default"', create_page.text)
+            self.assertIn("请先在账号管理创建 Profile", create_page.text)
+            self.assertEqual(accounts_page.status_code, 200)
+            self.assertIn("账号风控熔断", accounts_page.text)
+            self.assertIn("解除熔断", accounts_page.text)
+            self.assertEqual(blocked_create.status_code, 400)
+            self.assertIn("safety locked", blocked_create.text)
+            self.assertEqual(cleared.status_code, 303)
+            cleared_state = json.loads(safety_path.read_text(encoding="utf-8"))
+            self.assertFalse(cleared_state["locked"])
+            self.assertIn("profile_action=safety_cleared", cleared.headers["location"])
+            self.assertIn('<option value="default" selected>', create_after_clear.text)
+
     def test_collector_create_get_hides_profiles_without_local_directory(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
@@ -1108,7 +1189,7 @@ class WebAppTest(unittest.TestCase):
                 CollectionRun(
                     run_id="xhs-old-profile",
                     platform="xiaohongshu",
-                    keyword="AI cover",
+                    keyword="内容表现",
                     profile="legacy",
                     status="completed",
                 )
@@ -1147,7 +1228,7 @@ class WebAppTest(unittest.TestCase):
                 data={
                     "platform": "xiaohongshu",
                     "profile": "creator",
-                    "keyword": "AI cover",
+                    "keyword": "内容表现",
                     "max_posts": "7",
                     "max_comments_per_post": "3",
                 },
@@ -1161,7 +1242,7 @@ class WebAppTest(unittest.TestCase):
             self.assertEqual(len(runs), 1)
             self.assertEqual(runs[0].status, "queued")
             self.assertEqual(runs[0].platform, "xiaohongshu")
-            self.assertEqual(runs[0].keyword, "AI cover")
+            self.assertEqual(runs[0].keyword, "内容表现")
             self.assertEqual(runs[0].profile, "creator")
             self.assertEqual(runs[0].max_posts, 7)
             self.assertEqual(response.headers["location"], "/collector/runs?status=queued&created=1")
@@ -1180,7 +1261,7 @@ class WebAppTest(unittest.TestCase):
                 data={
                     "platform": "xiaohongshu",
                     "profile": "creator",
-                    "keywords": "小红书封面\nAI 封面，副业",
+                    "keywords": "内容表现\n增长案例，副业",
                     "max_posts": "7",
                     "max_comments_per_post": "3",
                 },
@@ -1192,7 +1273,7 @@ class WebAppTest(unittest.TestCase):
             runs = sorted(repo.list_collection_runs(), key=lambda run: run.keyword)
             self.assertEqual(response.status_code, 303)
             self.assertEqual(response.headers["location"], "/collector/runs?status=queued&created=3")
-            self.assertEqual([run.keyword for run in runs], ["AI 封面", "副业", "小红书封面"])
+            self.assertEqual([run.keyword for run in runs], ["内容表现", "副业", "增长案例"])
             for run in runs:
                 self.assertEqual(run.status, "queued")
                 self.assertEqual(run.platform, "xiaohongshu")
@@ -1213,7 +1294,7 @@ class WebAppTest(unittest.TestCase):
                 data={
                     "platform": "../outside",
                     "profile": "default",
-                    "keyword": "AI cover",
+                    "keyword": "内容表现",
                     "max_posts": "5",
                     "max_comments_per_post": "1",
                 },
@@ -1224,7 +1305,7 @@ class WebAppTest(unittest.TestCase):
                 data={
                     "platform": "xiaohongshu",
                     "profile": "..\\outside",
-                    "keyword": "AI cover",
+                    "keyword": "内容表现",
                     "max_posts": "5",
                     "max_comments_per_post": "1",
                 },
@@ -1247,7 +1328,7 @@ class WebAppTest(unittest.TestCase):
                 CollectionRun(
                     run_id="xhs-detail",
                     platform="xiaohongshu",
-                    keyword="AI cover",
+                    keyword="内容表现",
                     profile="default",
                     status="running",
                     progress=35,
@@ -1267,7 +1348,7 @@ class WebAppTest(unittest.TestCase):
                 CollectedPost(
                     run_id="xhs-detail",
                     platform="xiaohongshu",
-                    keyword="AI cover",
+                    keyword="内容表现",
                     title="Cover prompt ideas",
                     content="Useful notes",
                     url="https://example.test/post/1",
@@ -1352,7 +1433,7 @@ class WebAppTest(unittest.TestCase):
                 CollectionRun(
                     run_id="xhs-breadcrumb",
                     platform="xiaohongshu",
-                    keyword="AI cover",
+                    keyword="内容表现",
                     profile="default",
                     status="manual_action_required",
                 )
@@ -1374,7 +1455,7 @@ class WebAppTest(unittest.TestCase):
                 CollectionRun(
                     run_id="xhs-manual",
                     platform="xiaohongshu",
-                    keyword="AI cover",
+                    keyword="内容表现",
                     profile="default",
                     status="manual_action_required",
                     progress=50,
@@ -1457,7 +1538,7 @@ class WebAppTest(unittest.TestCase):
                     CollectionRun(
                         run_id=run_id,
                         platform="xiaohongshu",
-                        keyword="AI cover",
+                        keyword="内容表现",
                         profile="default",
                         status=status,
                     )
@@ -1487,7 +1568,7 @@ class WebAppTest(unittest.TestCase):
                 CollectionRun(
                     run_id="xhs-start",
                     platform="xiaohongshu",
-                    keyword="AI cover",
+                    keyword="内容表现",
                     profile="default",
                     status="queued",
                     progress=0,
@@ -1524,7 +1605,7 @@ class WebAppTest(unittest.TestCase):
                 CollectionRun(
                     run_id="xhs-running-profile",
                     platform="xiaohongshu",
-                    keyword="AI cover",
+                    keyword="内容表现",
                     profile="default",
                     status="running",
                     progress=40,
@@ -1555,6 +1636,65 @@ class WebAppTest(unittest.TestCase):
             self.assertEqual(run.status, "queued")
             self.assertEqual(launches, [])
 
+    def test_collector_start_and_resume_reject_safety_locked_profile(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            db_path = tmp_path / "falcon.sqlite3"
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="xhs-locked-start",
+                    platform="xiaohongshu",
+                    keyword="内容表现",
+                    profile="default",
+                    status="queued",
+                    current_step="等待浏览器采集调度",
+                )
+            )
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="xhs-locked-resume",
+                    platform="xiaohongshu",
+                    keyword="增长案例",
+                    profile="creator",
+                    status="manual_action_required",
+                    current_step="等待人工处理",
+                )
+            )
+            safety_root = tmp_path / "runtime" / "collector" / "profile-safety" / "xiaohongshu"
+            safety_root.mkdir(parents=True)
+            for profile in ["default", "creator"]:
+                (safety_root / f"{profile}.json").write_text(
+                    json.dumps(
+                        {
+                            "platform": "xiaohongshu",
+                            "profile": profile,
+                            "locked": True,
+                            "reason": "account_risk_warning",
+                            "run_id": "risk-run",
+                            "message": "账号违规预警",
+                        },
+                        ensure_ascii=False,
+                    ),
+                    encoding="utf-8",
+                )
+            launches = []
+            client = TestClient(create_app(db_path, collector_run_launcher=lambda run_id: launches.append(run_id)))
+
+            start = client.post("/collector/runs/xhs-locked-start/start", follow_redirects=False)
+            resume = client.post("/collector/runs/xhs-locked-resume/resume", follow_redirects=False)
+
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            self.assertEqual(start.status_code, 400)
+            self.assertEqual(resume.status_code, 400)
+            self.assertIn("safety locked", start.text)
+            self.assertIn("safety locked", resume.text)
+            self.assertEqual(repo.get_collection_run("xhs-locked-start").status, "queued")
+            self.assertEqual(repo.get_collection_run("xhs-locked-resume").status, "manual_action_required")
+            self.assertEqual(launches, [])
+
     def test_collector_queue_start_dispatches_one_run_per_available_profile(self):
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "falcon.sqlite3"
@@ -1564,7 +1704,7 @@ class WebAppTest(unittest.TestCase):
                 CollectionRun(
                     run_id="xhs-default-old",
                     platform="xiaohongshu",
-                    keyword="小红书封面",
+                    keyword="内容表现",
                     profile="default",
                     status="queued",
                     current_step="等待浏览器采集调度",
@@ -1576,7 +1716,7 @@ class WebAppTest(unittest.TestCase):
                 CollectionRun(
                     run_id="xhs-default-new",
                     platform="xiaohongshu",
-                    keyword="AI 封面",
+                    keyword="增长案例",
                     profile="default",
                     status="queued",
                     current_step="等待浏览器采集调度",
@@ -1627,7 +1767,7 @@ class WebAppTest(unittest.TestCase):
                 CollectionRun(
                     run_id="xhs-manual-open",
                     platform="xiaohongshu",
-                    keyword="AI cover",
+                    keyword="内容表现",
                     profile="creator",
                     status="manual_action_required",
                     progress=50,
@@ -1668,7 +1808,7 @@ class WebAppTest(unittest.TestCase):
                 CollectionRun(
                     run_id="xhs-manual-post-url",
                     platform="xiaohongshu",
-                    keyword="AI cover",
+                    keyword="内容表现",
                     profile="default",
                     status="manual_action_required",
                     progress=50,
@@ -1707,7 +1847,7 @@ class WebAppTest(unittest.TestCase):
                 CollectionRun(
                     run_id="xhs-manual-resume",
                     platform="xiaohongshu",
-                    keyword="AI cover",
+                    keyword="内容表现",
                     profile="default",
                     status="manual_action_required",
                     progress=50,
@@ -1745,7 +1885,7 @@ class WebAppTest(unittest.TestCase):
                 CollectionRun(
                     run_id="xhs-streaming",
                     platform="xiaohongshu",
-                    keyword="AI cover",
+                    keyword="内容表现",
                     profile="default",
                     status="running",
                     progress=5,
@@ -1808,7 +1948,7 @@ class WebAppTest(unittest.TestCase):
                     CollectionRun(
                         run_id=run_id,
                         platform="xiaohongshu",
-                        keyword="AI cover",
+                        keyword="内容表现",
                         profile="default",
                         status="manual_action_required",
                         progress=50,
@@ -1832,7 +1972,7 @@ class WebAppTest(unittest.TestCase):
             self.assertEqual(repo.get_collection_run("xhs-archive").status, "cancelled")
             self.assertEqual(new_run.status, "queued")
             self.assertEqual(new_run.platform, "xiaohongshu")
-            self.assertEqual(new_run.keyword, "AI cover")
+            self.assertEqual(new_run.keyword, "内容表现")
             self.assertTrue((tmp_path / "runtime" / "collector" / new_run.run_id / "request.json").exists())
 
     def test_collector_run_detail_formats_event_times_as_shanghai_time(self):
@@ -1844,7 +1984,7 @@ class WebAppTest(unittest.TestCase):
                 CollectionRun(
                     run_id="xhs-time",
                     platform="xiaohongshu",
-                    keyword="AI cover",
+                    keyword="内容表现",
                     profile="default",
                     status="manual_action_required",
                 )
@@ -1876,7 +2016,7 @@ class WebAppTest(unittest.TestCase):
                 CollectionRun(
                     run_id="xhs-preview",
                     platform="xiaohongshu",
-                    keyword="AI cover",
+                    keyword="内容表现",
                     profile="default",
                     status="completed",
                 )
@@ -1885,7 +2025,7 @@ class WebAppTest(unittest.TestCase):
                 CollectedPost(
                     run_id="xhs-preview",
                     platform="xiaohongshu",
-                    keyword="AI cover",
+                    keyword="内容表现",
                     title="Local preview post",
                     content="Preview this inside Falcon.",
                     url="https://www.xiaohongshu.com/explore/abc123",
@@ -1924,7 +2064,7 @@ class WebAppTest(unittest.TestCase):
                 CollectionRun(
                     run_id="xhs-assets",
                     platform="xiaohongshu",
-                    keyword="AI cover",
+                    keyword="内容表现",
                     profile="default",
                     status="completed",
                 )
@@ -1933,7 +2073,7 @@ class WebAppTest(unittest.TestCase):
                 CollectedPost(
                     run_id="xhs-assets",
                     platform="xiaohongshu",
-                    keyword="AI cover",
+                    keyword="内容表现",
                     title="Carousel sample",
                     content="Preview local files.",
                     url="https://www.xiaohongshu.com/explore/carousel",
@@ -1992,7 +2132,7 @@ class WebAppTest(unittest.TestCase):
                 CollectionRun(
                     run_id="xhs-readable-preview",
                     platform="xiaohongshu",
-                    keyword="AI cover",
+                    keyword="内容表现",
                     profile="default",
                     status="completed",
                 )
@@ -2001,7 +2141,7 @@ class WebAppTest(unittest.TestCase):
                 CollectedPost(
                     run_id="xhs-readable-preview",
                     platform="xiaohongshu",
-                    keyword="AI cover",
+                    keyword="内容表现",
                     title="Readable sample",
                     content="Main body should sit beside the preview.",
                     url="https://www.xiaohongshu.com/explore/readable",
@@ -2072,7 +2212,7 @@ class WebAppTest(unittest.TestCase):
                 CollectionRun(
                     run_id="xhs-fallback",
                     platform="xiaohongshu",
-                    keyword="AI cover",
+                    keyword="内容表现",
                     profile="default",
                     status="completed",
                 )
@@ -2081,7 +2221,7 @@ class WebAppTest(unittest.TestCase):
                 CollectedPost(
                     run_id="xhs-fallback",
                     platform="xiaohongshu",
-                    keyword="AI cover",
+                    keyword="内容表现",
                     title="Fallback sample",
                     content="Preview fallback.",
                     url="https://www.xiaohongshu.com/explore/fallback",
@@ -2130,7 +2270,7 @@ class WebAppTest(unittest.TestCase):
                 CollectionRun(
                     run_id="xhs-project-runtime",
                     platform="xiaohongshu",
-                    keyword="AI cover",
+                    keyword="内容表现",
                     profile="default",
                     status="completed",
                 )
@@ -2139,7 +2279,7 @@ class WebAppTest(unittest.TestCase):
                 CollectedPost(
                     run_id="xhs-project-runtime",
                     platform="xiaohongshu",
-                    keyword="AI cover",
+                    keyword="内容表现",
                     title="Project runtime sample",
                     content="Preview project runtime file.",
                     url="https://www.xiaohongshu.com/explore/project-runtime",
@@ -2183,7 +2323,7 @@ class WebAppTest(unittest.TestCase):
                 CollectionRun(
                     run_id="xhs-json-placeholder",
                     platform="xiaohongshu",
-                    keyword="AI cover",
+                    keyword="内容表现",
                     profile="default",
                     status="completed",
                 )
@@ -2192,7 +2332,7 @@ class WebAppTest(unittest.TestCase):
                 CollectedPost(
                     run_id="xhs-json-placeholder",
                     platform="xiaohongshu",
-                    keyword="AI cover",
+                    keyword="内容表现",
                     title="JSON placeholder sample",
                     content="Preview screenshot instead.",
                     url="https://www.xiaohongshu.com/explore/json-placeholder",
@@ -2240,7 +2380,7 @@ class WebAppTest(unittest.TestCase):
                 CollectionRun(
                     run_id="xhs-detail-match",
                     platform="xiaohongshu",
-                    keyword="AI cover",
+                    keyword="内容表现",
                     profile="default",
                     status="completed",
                 )
@@ -2249,7 +2389,7 @@ class WebAppTest(unittest.TestCase):
                 CollectedPost(
                     run_id="xhs-detail-match",
                     platform="xiaohongshu",
-                    keyword="AI cover",
+                    keyword="内容表现",
                     title="Post without detail screenshot",
                     content="This post should not fall back to the search page.",
                     url="https://www.xiaohongshu.com/explore/post-1",
@@ -2261,7 +2401,7 @@ class WebAppTest(unittest.TestCase):
                 CollectedPost(
                     run_id="xhs-detail-match",
                     platform="xiaohongshu",
-                    keyword="AI cover",
+                    keyword="内容表现",
                     title="Post with detail screenshot",
                     content="This post has a matching detail screenshot.",
                     url="https://www.xiaohongshu.com/explore/post-2",
@@ -2275,7 +2415,7 @@ class WebAppTest(unittest.TestCase):
                     evidence_type="search_results_screenshot",
                     path="runtime/collector/xhs-detail-match/assets/search.png",
                     scope="search_results_screenshot",
-                    payload_json='{"keyword": "AI cover"}',
+                    payload_json='{"keyword": "内容表现"}',
                 )
             )
             detail_evidence_id = repo.save_evidence(
@@ -2325,7 +2465,7 @@ class WebAppTest(unittest.TestCase):
                 CollectionRun(
                     run_id="xhs-detail-first",
                     platform="xiaohongshu",
-                    keyword="AI cover",
+                    keyword="内容表现",
                     profile="default",
                     status="completed",
                 )
@@ -2334,7 +2474,7 @@ class WebAppTest(unittest.TestCase):
                 CollectedPost(
                     run_id="xhs-detail-first",
                     platform="xiaohongshu",
-                    keyword="AI cover",
+                    keyword="内容表现",
                     title="Detail first sample",
                     content="Detail screenshot should be the first preview item.",
                     url="https://www.xiaohongshu.com/explore/detail-first",
@@ -2395,7 +2535,7 @@ class WebAppTest(unittest.TestCase):
                 CollectionRun(
                     run_id="xhs-preview-dedupe",
                     platform="xiaohongshu",
-                    keyword="AI cover",
+                    keyword="内容表现",
                     profile="default",
                     status="completed",
                 )
@@ -2404,7 +2544,7 @@ class WebAppTest(unittest.TestCase):
                 CollectedPost(
                     run_id="xhs-preview-dedupe",
                     platform="xiaohongshu",
-                    keyword="AI cover",
+                    keyword="内容表现",
                     title="Preview metrics sample",
                     content="Preview body.",
                     url="https://www.xiaohongshu.com/explore/preview-dedupe",
@@ -2492,7 +2632,7 @@ class WebAppTest(unittest.TestCase):
                 CollectionRun(
                     run_id="xhs-untrusted-media",
                     platform="xiaohongshu",
-                    keyword="AI cover",
+                    keyword="内容表现",
                     profile="default",
                     status="completed",
                 )
@@ -2501,7 +2641,7 @@ class WebAppTest(unittest.TestCase):
                 CollectedPost(
                     run_id="xhs-untrusted-media",
                     platform="xiaohongshu",
-                    keyword="AI cover",
+                    keyword="内容表现",
                     title="Untrusted media sample",
                     content="Use the detail screenshot only.",
                     url="https://www.xiaohongshu.com/explore/untrusted-media",
@@ -2545,7 +2685,7 @@ class WebAppTest(unittest.TestCase):
                 CollectionRun(
                     run_id="xhs-localized",
                     platform="xiaohongshu",
-                    keyword="AI cover",
+                    keyword="内容表现",
                     profile="default",
                     status="completed",
                     progress=100,
@@ -2614,21 +2754,21 @@ class WebAppTest(unittest.TestCase):
             raw_id = repo.upsert_raw_item(
                 RawItem(
                     platform="xiaohongshu",
-                    keyword="AI cover",
+                    keyword="内容表现",
                     source_type="post",
-                    title="Need better covers",
-                    content="How can I improve cover click-through?",
+                    title="Need better content performance",
+                    content="How can I improve content click-through?",
                     url="https://example.test/post/analysis",
                 )
             )
             repo.save_analysis(
                 raw_id,
                 AnalysisResult(
-                    scene_tag="xhs_cover",
+                    scene_tag="content_performance",
                     intent_score=91,
                     content_value_score=84,
-                    pain_point="cover click-through is low",
-                    suggested_topic="Cover upgrade checklist",
+                    pain_point="content click-through is low",
+                    suggested_topic="Content performance checklist",
                     recommended_action="write_topic",
                     outreach_type="comment_reply",
                     outreach_priority="high",
@@ -2642,7 +2782,7 @@ class WebAppTest(unittest.TestCase):
             self.assertEqual(response.status_code, 200)
             self.assertIn("分析总览", response.text)
             self.assertIn('action="/analysis/promote"', response.text)
-            self.assertIn("Cover upgrade checklist", response.text)
+            self.assertIn("Content performance checklist", response.text)
             self.assertIn('href="/analysis/samples"', response.text)
             assert_no_legacy_collection_markers(self, response.text)
 
@@ -2655,7 +2795,7 @@ class WebAppTest(unittest.TestCase):
                 CollectionRun(
                     run_id="xhs-promote",
                     platform="xiaohongshu",
-                    keyword="AI cover",
+                    keyword="内容表现",
                     profile="default",
                     status="completed",
                 )
@@ -2664,9 +2804,9 @@ class WebAppTest(unittest.TestCase):
                 CollectedPost(
                     run_id="xhs-promote",
                     platform="xiaohongshu",
-                    keyword="AI cover",
+                    keyword="内容表现",
                     title="Promote this sample",
-                    content="Need a reusable cover workflow.",
+                    content="Need a reusable content workflow.",
                     url="local://collector/xhs-promote/post-1",
                     author="creator",
                     detail_fingerprint="promote-1",
@@ -2691,7 +2831,7 @@ class WebAppTest(unittest.TestCase):
                 CollectionRun(
                     run_id="xhs-quality-gate",
                     platform="xiaohongshu",
-                    keyword="AI头像",
+                    keyword="账号增长",
                     profile="default",
                     status="completed",
                 )
@@ -2700,9 +2840,9 @@ class WebAppTest(unittest.TestCase):
                 CollectedPost(
                     run_id="xhs-quality-gate",
                     platform="xiaohongshu",
-                    keyword="AI头像",
-                    title="AI头像生成工具测评",
-                    content="这篇笔记完整对比了 AI头像 的风格、价格和使用场景。",
+                    keyword="账号增长",
+                    title="账号增长工具测评",
+                    content="这篇笔记完整对比了账号增长工具的功能、价格和使用场景。",
                     url="local://quality/1",
                     author="creator",
                     like_count="128",
@@ -2713,9 +2853,9 @@ class WebAppTest(unittest.TestCase):
                 CollectedPost(
                     run_id="xhs-quality-gate",
                     platform="xiaohongshu",
-                    keyword="AI头像",
-                    title="AI绘画头像风格整理",
-                    content="整理一些头像风格和关键词，可作为选题参考。",
+                    keyword="账号增长",
+                    title="账号增长案例整理",
+                    content="整理一些增长动作和关键词，可作为选题参考。",
                     url="local://quality/2",
                     author="creator",
                     detail_fingerprint="quality-2",
@@ -2725,9 +2865,9 @@ class WebAppTest(unittest.TestCase):
                 CollectedPost(
                     run_id="xhs-quality-gate",
                     platform="xiaohongshu",
-                    keyword="AI头像",
-                    title="宇宙壁纸真的太好看了",
-                    content="收藏一些星空壁纸，完全没有头像制作或 AI 生成需求。",
+                    keyword="账号增长",
+                    title="周末随手拍真的太好看了",
+                    content="收藏一些星空壁纸，完全没有运营分析或增长需求。",
                     url="local://quality/3",
                     author="creator",
                     detail_fingerprint="quality-3",
@@ -2759,7 +2899,7 @@ class WebAppTest(unittest.TestCase):
                 CollectionRun(
                     run_id="xhs-post-relevance",
                     platform="xiaohongshu",
-                    keyword="AI头像",
+                    keyword="账号增长",
                     profile="default",
                     status="completed",
                 )
@@ -2768,9 +2908,9 @@ class WebAppTest(unittest.TestCase):
                 CollectedPost(
                     run_id="xhs-post-relevance",
                     platform="xiaohongshu",
-                    keyword="AI头像",
-                    title="AI头像生成工具测评",
-                    content="这篇笔记完整对比了 AI头像 的风格、价格和使用场景。",
+                    keyword="账号增长",
+                    title="账号增长工具测评",
+                    content="这篇笔记完整对比了账号增长工具的功能、价格和使用场景。",
                     url="local://post-relevance/1",
                     author="creator",
                     detail_fingerprint="post-relevance-1",
@@ -2810,25 +2950,25 @@ class WebAppTest(unittest.TestCase):
                 CollectionRun(
                     run_id="xhs-analysis-quality",
                     platform="xiaohongshu",
-                    keyword="AI头像",
+                    keyword="账号增长",
                     profile="default",
                     status="completed",
                 )
             )
             for title, content, fingerprint in [
                 (
-                    "AI头像生成工具测评",
-                    "这篇笔记完整对比了 AI头像 的风格、价格和使用场景。",
+                    "账号增长工具测评",
+                    "这篇笔记完整对比了账号增长工具的功能、价格和使用场景。",
                     "analysis-quality-1",
                 ),
-                ("AI绘画头像风格整理", "整理一些头像风格和关键词，可作为选题参考。", "analysis-quality-2"),
-                ("宇宙壁纸真的太好看了", "收藏一些星空壁纸，完全没有头像制作或 AI 生成需求。", "analysis-quality-3"),
+                ("账号增长案例整理", "整理一些增长动作和关键词，可作为选题参考。", "analysis-quality-2"),
+                ("周末随手拍真的太好看了", "收藏一些星空壁纸，完全没有运营分析或增长需求。", "analysis-quality-3"),
             ]:
                 repo.save_collected_post(
                     CollectedPost(
                         run_id="xhs-analysis-quality",
                         platform="xiaohongshu",
-                        keyword="AI头像",
+                        keyword="账号增长",
                         title=title,
                         content=content,
                         url=f"local://analysis-quality/{fingerprint}",
@@ -2856,7 +2996,7 @@ class WebAppTest(unittest.TestCase):
             raw_id = repo.upsert_raw_item(
                 RawItem(
                     platform="xiaohongshu",
-                    keyword="AI cover",
+                    keyword="内容表现",
                     source_type="post",
                     title="Execution candidate",
                     content="Need a reply",
@@ -2864,10 +3004,10 @@ class WebAppTest(unittest.TestCase):
                 )
             )
             analysis = AnalysisResult(
-                scene_tag="xhs_cover",
+                scene_tag="content_performance",
                 intent_score=88,
                 content_value_score=79,
-                pain_point="needs cover advice",
+                pain_point="needs content advice",
                 suggested_topic="reply draft",
                 recommended_action="comment_reply",
                 outreach_type="comment_reply",
@@ -2879,7 +3019,7 @@ class WebAppTest(unittest.TestCase):
                 raw_id,
                 analysis_id,
                 analysis,
-                [Draft(kind="comment_reply", text="Try a shorter title and stronger contrast.")],
+                [Draft(kind="comment_reply", text="Try a shorter title and clearer action.")],
                 risk_note="human confirmation required",
             )
             client = TestClient(create_app(db_path))

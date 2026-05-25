@@ -41,34 +41,38 @@
     {% for group in profile_groups %}
     <section class="account-platform-section">
       <div class="account-platform-head">
-        <div class="account-platform-identity">
-          <span class="subtext">platform</span>
-          <h2>{{ group.name }}</h2>
-          <code>{{ group.key }}</code>
-        </div>
-        <div class="account-platform-meta">
-          <div class="account-platform-tags">
-            <span class="pill">{{ group.entries|length }} 个用户</span>
-            {% if group.key in profile_login_supported_platforms %}
-            <span class="account-platform-support is-supported">可登录 / 可检查</span>
-            {% else %}
-            <span class="account-platform-support">Adapter 待接入</span>
-            {% endif %}
+        <div class="account-platform-overview">
+          <div class="account-platform-identity">
+            <span class="subtext">platform</span>
+            <h2>{{ group.name }}</h2>
+            <code>{{ group.key }}</code>
           </div>
-          <p>{{ "支持登录、检查和退出本机 Profile。" if group.key in profile_login_supported_platforms else "只展示已有队列或本机目录，登录入口等 adapter 接入后开放。" }}</p>
+          <div class="account-platform-meta">
+            <div class="account-platform-tags">
+              <span class="pill">{{ group.entries|length }} 个用户</span>
+              {% if group.key in profile_login_supported_platforms %}
+              <span class="account-platform-support is-supported">可登录 / 可检查</span>
+              {% else %}
+              <span class="account-platform-support">Adapter 待接入</span>
+              {% endif %}
+            </div>
+            <p>{{ "支持登录、检查和退出本机 Profile。" if group.key in profile_login_supported_platforms else "只展示已有队列或本机目录，登录入口等 adapter 接入后开放。" }}</p>
+          </div>
         </div>
         {% if group.key in profile_login_supported_platforms %}
-        <form class="account-create-toolbar" action="/collector/profiles/open-login" method="post">
+        {% set profile_invalid = profile_action == "invalid" and profile_platform == group.key %}
+        <form class="account-create-toolbar {{ 'is-invalid' if profile_invalid else '' }}" action="/collector/profiles/open-login" method="post" data-profile-form novalidate>
           <input type="hidden" name="platform" value="{{ group.key }}">
           <label>
             <span>
               新建 Profile
               <button class="help-dot" type="button" aria-label="新建 Profile 说明" data-tip="填入新名称会创建 browser-profiles/platform/profile，打开登录窗口后可以登录另一个平台账号。">?</button>
             </span>
-            <input name="profile" value="default" placeholder="default / creator / backup" required>
+            <input name="profile" value="{{ profile_name if profile_invalid else 'default' }}" placeholder="default / creator / backup" pattern="[A-Za-z0-9][A-Za-z0-9_.-]{0,127}" title="只能使用英文字母、数字、点、下划线或短横线，并且必须以字母或数字开头。" aria-invalid="{{ 'true' if profile_invalid else 'false' }}" aria-describedby="profile-hint-{{ group.key }} profile-error-{{ group.key }}" data-profile-input {% if profile_invalid %}autofocus{% endif %} required>
           </label>
           <button class="button small primary" type="submit">新建 Profile</button>
-          <span class="account-create-hint">输入名称后打开登录窗口</span>
+          <span id="profile-hint-{{ group.key }}" class="account-create-hint">请用英文/数字命名，例如 creator-1。提交后打开登录窗口。</span>
+          <span id="profile-error-{{ group.key }}" class="account-create-error" data-profile-error {% if not profile_invalid %}hidden{% endif %}>Profile 名称只能使用英文字母、数字、点、下划线或短横线，并且必须以字母或数字开头。</span>
         </form>
         {% else %}
         <div class="account-create-placeholder">
@@ -94,9 +98,19 @@
           <div class="account-lock">
             <span>任务锁</span>
             <strong>{{ item.queue_label }}</strong>
+            {% if item.safety_locked %}
+            <span class="subtext">账号风控熔断 / 需人工确认</span>
+            {% endif %}
           </div>
           <div class="account-action-bar">
             {% if item.login_supported %}
+              {% if item.safety_locked %}
+              <form class="inline-form" action="/collector/profiles/clear-safety-lock" method="post">
+                <input type="hidden" name="platform" value="{{ item.platform }}">
+                <input type="hidden" name="profile" value="{{ item.profile }}">
+                <button class="button small danger" type="submit">解除熔断</button>
+              </form>
+              {% endif %}
               {% if item.running_runs %}
               <button class="button small" type="button" disabled>登录</button>
               <button class="button small" type="button" disabled>检查</button>
@@ -140,4 +154,33 @@
     {% endfor %}
   </div>
 </section>
+<script>
+(() => {
+  const profilePattern = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/;
+  document.querySelectorAll("[data-profile-form]").forEach((form) => {
+    const input = form.querySelector("[data-profile-input]");
+    const error = form.querySelector("[data-profile-error]");
+    if (!input || !error) return;
+    const showError = () => {
+      form.classList.add("is-invalid");
+      input.setAttribute("aria-invalid", "true");
+      error.hidden = false;
+      input.focus();
+      input.select();
+    };
+    const clearError = () => {
+      if (!profilePattern.test(input.value.trim())) return;
+      form.classList.remove("is-invalid");
+      input.setAttribute("aria-invalid", "false");
+      error.hidden = true;
+    };
+    form.addEventListener("submit", (event) => {
+      if (profilePattern.test(input.value.trim())) return;
+      event.preventDefault();
+      showError();
+    });
+    input.addEventListener("input", clearError);
+  });
+})();
+</script>
 {% endblock %}

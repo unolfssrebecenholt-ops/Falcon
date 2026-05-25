@@ -1,6 +1,6 @@
 # Falcon Agent
 
-Falcon Agent 是面向 `AI出图助手` 的本地内容运营代理。项目正在从旧的外部工作流采集方案，重建为 Falcon 自己掌控的浏览器采集、数据整理、分析生成和人工确认执行工作台。
+Falcon Agent 是一个独立的本地自动化采集、分析和运营平台。项目正在从旧的外部工作流采集方案，重建为 Falcon 自己掌控的浏览器采集、数据整理、分析生成和人工确认执行工作台。
 
 当前仓库只保留 `main` 分支作为共享主线。Windows 和 M1 Mac 两台机器都从 GitHub 拉取同一份代码继续开发。
 
@@ -8,7 +8,7 @@ Falcon Agent 是面向 `AI出图助手` 的本地内容运营代理。项目正�
 
 ## 项目定位
 
-Falcon 的目标不是做一个只会生成文案的工具，而是成为一个本地优先、人工可控的内容运营系统：
+Falcon 的目标不是服务某一个固定项目，而是成为一个本地优先、人工可控的通用运营系统：
 
 - 用真实浏览器采集公开平台信号，优先支持小红书。
 - 将帖子、作者、互动指标、评论、媒体资产和原始证据归一化保存到本地。
@@ -122,11 +122,11 @@ python3 -m falcon web --host 127.0.0.1 --port 8765 --db data/falcon.sqlite3
 生成关键词池：
 
 ```powershell
-py -3 -m falcon write-keyword-pool data\collection_keywords.csv --theme "AI头像"
+py -3 -m falcon write-keyword-pool data\collection_keywords.csv --theme "内容运营"
 ```
 
 ```bash
-python3 -m falcon write-keyword-pool data/collection_keywords.csv --theme "AI头像"
+python3 -m falcon write-keyword-pool data/collection_keywords.csv --theme "内容运营"
 ```
 
 运行分析和报告：

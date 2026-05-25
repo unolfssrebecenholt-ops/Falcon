@@ -38,7 +38,7 @@ import {
 
 const first = normalizeSearchCard({
   href: "https://www.xiaohongshu.com/search_result/65abc123?xsec_token=one",
-  text: "小红书封面设计技巧\n何花说升学\n04-04\n1.2万",
+  text: "内容运营复盘技巧\n何花说升学\n04-04\n1.2万",
   title: "",
   author: "何花说升学04-04",
   likesText: "1.2万",
@@ -48,8 +48,8 @@ const duplicate = normalizeSearchCards(
     first,
     {
       href: "https://www.xiaohongshu.com/explore/65abc123?xsec_token=two",
-      text: "小红书封面设计技巧\n何花说升学\n04-04\n1.2万",
-      title: "小红书封面设计技巧",
+      text: "内容运营复盘技巧\n何花说升学\n04-04\n1.2万",
+      title: "内容运营复盘技巧",
       author: "何花说升学",
       likesText: "1.2万",
     },
@@ -82,7 +82,7 @@ console.log(JSON.stringify({
         self.assertEqual(payload["firstId"], "xiaohongshu:65abc123")
         self.assertEqual(payload["secondId"], payload["firstId"])
         self.assertEqual(payload["canonicalUrl"], "https://www.xiaohongshu.com/explore/65abc123")
-        self.assertEqual(payload["title"], "小红书封面设计技巧")
+        self.assertEqual(payload["title"], "内容运营复盘技巧")
         self.assertEqual(payload["author"], "何花说升学")
         self.assertEqual(payload["publishedAt"], "04-04")
         self.assertEqual(payload["likes"], 12000)
@@ -94,9 +94,9 @@ import { normalizeSearchCard } from "./sidecar/collector/xiaohongshu-normalize.m
 
 const card = normalizeSearchCard({
   href: "https://www.xiaohongshu.com/explore/68c66840000000001c03f6ef",
-  text: "AI头像制作的一些靠谱的风格【附提示词】\nAILong人工智能工具箱\n2025-09-14\n162",
-  title: "AI头像制作的一些靠谱的风格【附提示词】",
-  author: "AILong人工智能工具箱",
+  text: "账号增长工具的一些靠谱用法【附流程】\n运营工具箱\n2025-09-14\n162",
+  title: "账号增长工具的一些靠谱用法【附流程】",
+  author: "运营工具箱",
   likesText: "162",
 });
 
@@ -118,8 +118,8 @@ console.log(JSON.stringify({
 
         self.assertEqual(result.returncode, 0, result.stderr)
         payload = json.loads(result.stdout)
-        self.assertEqual(payload["title"], "AI头像制作的一些靠谱的风格【附提示词】")
-        self.assertEqual(payload["author"], "AILong人工智能工具箱")
+        self.assertEqual(payload["title"], "账号增长工具的一些靠谱用法【附流程】")
+        self.assertEqual(payload["author"], "运营工具箱")
         self.assertEqual(payload["publishedAt"], "2025-09-14")
         self.assertEqual(payload["likes"], 162)
 
@@ -160,6 +160,252 @@ console.log(JSON.stringify({ result, screenshot: calls[0] }));
         self.assertEqual(payload["result"]["mode"], "viewport")
         self.assertEqual(payload["screenshot"]["path"], "detail.png")
         self.assertFalse(payload["screenshot"]["fullPage"])
+
+    def test_xiaohongshu_collector_static_respects_browser_boundary(self):
+        source = (ROOT / "sidecar" / "collector" / "xiaohongshu.mjs").read_text(encoding="utf-8")
+
+        for forbidden in [
+            "page.evaluate",
+            ".$eval",
+            ".$$eval",
+            "context().request",
+            "request.get",
+            "downloadImage",
+            "media_download_failed",
+        ]:
+            self.assertNotIn(forbidden, source)
+        self.assertNotIn("search_result?keyword", source)
+        self.assertNotRegex(source, r"\.goto\([^)]*(?:explore|search_result)")
+        self.assertEqual(source.count('page.goto("https://www.xiaohongshu.com/"'), 1)
+
+    def test_xiaohongshu_pace_defaults_wait_rest_and_scroll_in_safe_ranges(self):
+        script = r"""
+import { normalizeCollectorRequest, restBetweenCards, scrollSearchResults } from "./sidecar/collector/xiaohongshu.mjs";
+
+const originalRandom = Math.random;
+const waits = [];
+const wheels = [];
+const events = [];
+const page = {
+  viewportSize() { return { width: 1366, height: 1000 }; },
+  mouse: {
+    async wheel(x, y) { wheels.push([x, y]); },
+  },
+  async waitForTimeout(ms) { waits.push(ms); },
+};
+const request = normalizeCollectorRequest({
+  run_id: "pace-run",
+  platform: "xiaohongshu",
+});
+
+Math.random = () => 0;
+const minScroll = await scrollSearchResults(page, request);
+const paceState = { attemptedSinceBatchRest: 0, nextBatchRestAfter: 1 };
+await restBetweenCards(page, request, {
+  write(level, scope, event, message, payload) {
+    events.push({ level, scope, event, message, payload });
+  },
+}, paceState);
+
+Math.random = () => 0.999999;
+const maxScroll = await scrollSearchResults(page, request);
+Math.random = originalRandom;
+
+console.log(JSON.stringify({
+  minScroll,
+  maxScroll,
+  wheels,
+  waits,
+  events,
+  paceState,
+  pace: request.pace,
+}));
+"""
+        result = subprocess.run(
+            ["node", "--input-type=module", "-e", script],
+            cwd=ROOT,
+            text=True,
+            encoding="utf-8",
+            capture_output=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["pace"]["detail_delay_range_seconds"], [8, 18])
+        self.assertEqual(payload["pace"]["scroll_delay_range_seconds"], [5, 12])
+        self.assertEqual(payload["pace"]["batch_rest_after_cards_range"], [5, 11])
+        self.assertEqual(payload["pace"]["batch_rest_seconds_range"], [15, 20])
+        self.assertEqual(payload["minScroll"], 450)
+        self.assertEqual(payload["maxScroll"], 850)
+        self.assertIn(5000, payload["waits"])
+        self.assertIn(8000, payload["waits"])
+        self.assertIn(15000, payload["waits"])
+        self.assertIn("collector_batch_rest", [event["event"] for event in payload["events"]])
+
+    def test_xiaohongshu_checkpoint_resume_skips_completed_cards(self):
+        script = r"""
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { collectWaterfallRecords, normalizeCollectorRequest } from "./sidecar/collector/xiaohongshu.mjs";
+
+function emptyCollection() {
+  return {
+    first() { return emptyLocator(); },
+    nth() { return emptyLocator(); },
+    async count() { return 0; },
+    async all() { return []; },
+  };
+}
+
+function collection(items) {
+  return {
+    first() { return items[0] || emptyLocator(); },
+    nth(index) { return items[index] || emptyLocator(); },
+    async count() { return items.length; },
+    async all() { return items; },
+  };
+}
+
+function emptyLocator() {
+  return makeLocator({ box: null });
+}
+
+function makeLocator({ text = "", box = { x: 100, y: 200, width: 260, height: 180 }, children = {}, lists = {} } = {}) {
+  return {
+    first() { return this; },
+    nth() { return this; },
+    async count() { return box ? 1 : 0; },
+    async all() { return box ? [this] : []; },
+    async scrollIntoViewIfNeeded() {},
+    async boundingBox() { return box; },
+    async innerText() { return text; },
+    async textContent() { return text; },
+    async getAttribute() { return ""; },
+    locator(selector) {
+      if (children[selector]) return collection([children[selector]]);
+      if (lists[selector]) return collection(lists[selector]);
+      return emptyCollection();
+    },
+  };
+}
+
+const runRoot = mkdtempSync(join(tmpdir(), "falcon-checkpoint-"));
+const assetsPath = join(runRoot, "assets");
+mkdirSync(assetsPath, { recursive: true });
+const first = {
+  postId: "xiaohongshu:first123",
+  url: "https://www.xiaohongshu.com/explore/first123",
+  title: "already done",
+};
+const second = {
+  postId: "xiaohongshu:second123",
+  url: "https://www.xiaohongshu.com/explore/second123",
+  title: "needs collection",
+};
+writeFileSync(join(runRoot, "checkpoint.json"), JSON.stringify({
+  run_id: "checkpoint-run",
+  platform: "xiaohongshu",
+  collected_ids: ["xiaohongshu:first123"],
+  skipped_ids: [],
+  failed_ids: [],
+  pending_posts: [first, second],
+  attempted_since_batch_rest: 0,
+  next_batch_rest_after: 99,
+}, null, 2));
+
+const calls = [];
+const events = [];
+let opened = false;
+const card = makeLocator();
+const detailRoot = makeLocator({
+  box: { x: 0, y: 0, width: 900, height: 700 },
+  children: {
+    "#detail-title": makeLocator({ text: "second title", box: { x: 20, y: 20, width: 300, height: 40 } }),
+    "#detail-desc": makeLocator({ text: "second body", box: { x: 20, y: 80, width: 420, height: 80 } }),
+    "a[href*='/user/profile']": makeLocator({ text: "author", box: { x: 20, y: 160, width: 160, height: 32 } }),
+  },
+  lists: {
+    "img": [],
+    ".comment-item, [class*='comment-item'], [class*='reply-item']": [],
+  },
+});
+const searchPage = {
+  viewportSize() { return { width: 1366, height: 900 }; },
+  locator(selector) {
+    calls.push(["locator", selector, opened]);
+    if (opened && selector === "#noteContainer") return collection([detailRoot]);
+    if (!opened && selector.includes("second123")) return collection([card]);
+    return emptyCollection();
+  },
+  waitForEvent() { return Promise.resolve(null); },
+  mouse: {
+    async move() {},
+    async click() { opened = true; calls.push(["click", "second123"]); },
+    async wheel() { calls.push(["wheel"]); },
+  },
+  keyboard: {
+    async press(key) { calls.push(["press", key]); },
+  },
+  async waitForLoadState() {},
+  async waitForTimeout() {},
+  async screenshot(options) { writeFileSync(options.path, "screenshot"); },
+  async goBack() { opened = false; calls.push(["goBack"]); },
+  url() {
+    return opened
+      ? "https://www.xiaohongshu.com/explore/second123"
+      : "https://www.xiaohongshu.com/search_result?keyword=test";
+  },
+};
+const request = normalizeCollectorRequest({
+  run_id: "checkpoint-run",
+  platform: "xiaohongshu",
+  keyword: "test",
+  max_posts: 2,
+  max_comments_per_post: 0,
+  pace: {
+    detail_delay_range_seconds: [0, 0],
+    scroll_delay_range_seconds: [0, 0],
+    batch_rest_after_cards_range: [99, 99],
+    batch_rest_seconds_range: [0, 0],
+    click_delay_range_ms: [0, 0],
+  },
+});
+
+const outcome = await collectWaterfallRecords({
+  context: {},
+  searchPage,
+  request,
+  assetsPath,
+  events: {
+    write(level, scope, event, message, payload) {
+      events.push({ level, scope, event, message, payload });
+    },
+  },
+  initialPosts: [first, second],
+});
+const checkpoint = JSON.parse(readFileSync(join(runRoot, "checkpoint.json"), "utf8"));
+console.log(JSON.stringify({ outcome, calls, events, checkpoint }));
+rmSync(runRoot, { recursive: true, force: true });
+"""
+        result = subprocess.run(
+            ["node", "--input-type=module", "-e", script],
+            cwd=ROOT,
+            text=True,
+            encoding="utf-8",
+            capture_output=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        post_records = [record for record in payload["outcome"]["records"] if record["type"] == "post"]
+        self.assertEqual([record["post_id"] for record in post_records], ["xiaohongshu:second123"])
+        self.assertEqual(payload["calls"].count(["click", "second123"]), 1)
+        self.assertIn("xiaohongshu:first123", payload["checkpoint"]["collected_ids"])
+        self.assertIn("xiaohongshu:second123", payload["checkpoint"]["collected_ids"])
+        self.assertEqual(payload["checkpoint"]["pending_posts"], [])
 
     def test_xiaohongshu_opens_detail_with_mouse_click_not_direct_url(self):
         script = r"""
@@ -232,14 +478,13 @@ import { openDetailFromSearchCard } from "./sidecar/collector/xiaohongshu.mjs";
 const calls = [];
 let opened = false;
 
-function makeLocator(name, box, safePoint = null) {
+function makeLocator(name, box) {
   return {
     name,
     first() { return this; },
     async count() { calls.push(["count", name]); return box ? 1 : 0; },
     async scrollIntoViewIfNeeded(options) { calls.push(["scroll", name, options.timeout]); },
     async boundingBox() { calls.push(["box", name]); return box; },
-    async evaluate() { calls.push(["evaluate", name]); return safePoint; },
   };
 }
 
@@ -257,14 +502,6 @@ const hiddenExplore = makeLocator("hidden-explore", null);
 const visibleTitle = makeLocator(
   "visible-title",
   { x: 100, y: 180, width: 220, height: 40 },
-  {
-    x: 210,
-    y: 200,
-    label: "center",
-    href: "https://www.xiaohongshu.com/search_result/65abc123?xsec_token=token",
-    rect: { x: 100, y: 180, width: 220, height: 40 },
-    hitClass: "title",
-  },
 );
 const offscreenNote = makeLocator("offscreen-note", { x: 100, y: -556, width: 244, height: 429 });
 
@@ -333,8 +570,294 @@ console.log(JSON.stringify({ mode: openedHandle.mode, calls }));
         click_calls = [call for call in payload["calls"] if call[0] == "click"]
         self.assertEqual(len(click_calls), 1)
         self.assertGreaterEqual(click_calls[0][2], 0)
-        self.assertIn(["evaluate", "visible-title"], payload["calls"])
-        self.assertNotIn(["evaluate", "offscreen-note"], payload["calls"])
+        self.assertNotIn("evaluate", [call[0] for call in payload["calls"]])
+
+    def test_xiaohongshu_scrolls_waterfall_to_relocate_expected_card(self):
+        script = r"""
+import { openDetailFromSearchCard } from "./sidecar/collector/xiaohongshu.mjs";
+
+const calls = [];
+let scrolls = 0;
+let opened = false;
+
+const targetLocator = {
+  first() { return this; },
+  async count() { calls.push(["target-count"]); return 1; },
+  async all() { calls.push(["target-all"]); return [this]; },
+  async scrollIntoViewIfNeeded(options) { calls.push(["target-scroll", options.timeout]); },
+  async boundingBox() { calls.push(["target-box"]); return { x: 120, y: 220, width: 260, height: 180 }; },
+};
+const empty = {
+  first() { return this; },
+  nth() { return this; },
+  async count() { calls.push(["empty-count"]); return 0; },
+  async all() { calls.push(["empty-all"]); return []; },
+};
+const targetCollection = {
+  first() { return targetLocator; },
+  nth() { return targetLocator; },
+  async count() { return 1; },
+  async all() { return [targetLocator]; },
+};
+const page = {
+  locator(selector) {
+    calls.push(["locator", selector, scrolls]);
+    if (selector.includes("target123") && scrolls >= 2) {
+      return targetCollection;
+    }
+    return empty;
+  },
+  waitForEvent(event, options) {
+    calls.push(["waitForEvent", event, options.timeout]);
+    return Promise.resolve(null);
+  },
+  mouse: {
+    async move(x, y) { calls.push(["move", Math.round(x), Math.round(y)]); },
+    async click(x, y) {
+      calls.push(["click", Math.round(x), Math.round(y)]);
+      opened = true;
+    },
+    async wheel(x, y) {
+      calls.push(["wheel", x, y]);
+      scrolls += 1;
+    },
+  },
+  async waitForTimeout(ms) { calls.push(["wait", ms]); },
+  async waitForLoadState(state, options) { calls.push(["load", state, options?.timeout]); },
+  url() {
+    return opened
+      ? "https://www.xiaohongshu.com/explore/target123"
+      : "https://www.xiaohongshu.com/search_result?keyword=test";
+  },
+};
+
+const openedHandle = await openDetailFromSearchCard({
+  searchPage: page,
+  searchPost: {
+    postId: "xiaohongshu:target123",
+    url: "https://www.xiaohongshu.com/explore/target123",
+    title: "target",
+    cardIndex: 70,
+  },
+  index: 17,
+});
+
+console.log(JSON.stringify({ mode: openedHandle.mode, scrolls, calls }));
+"""
+        result = subprocess.run(
+            ["node", "--input-type=module", "-e", script],
+            cwd=ROOT,
+            text=True,
+            encoding="utf-8",
+            capture_output=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["mode"], "same_page")
+        self.assertGreaterEqual(payload["scrolls"], 2)
+        self.assertIn(["click", 245, 303], payload["calls"])
+
+    def test_xiaohongshu_retries_when_note_load_failed_toast_disappears(self):
+        script = r"""
+import { openDetailFromSearchCard } from "./sidecar/collector/xiaohongshu.mjs";
+
+const calls = [];
+let clickCount = 0;
+let opened = false;
+
+const locator = {
+  first() { return this; },
+  async count() { return 1; },
+  async all() { return [this]; },
+  async scrollIntoViewIfNeeded(options) { calls.push(["scroll", options.timeout]); },
+  async boundingBox() { return { x: 120, y: 220, width: 260, height: 180 }; },
+};
+const toastLocator = {
+  first() { return this; },
+  nth() { return this; },
+  async count() { return clickCount === 1 ? 1 : 0; },
+  async all() { return clickCount === 1 ? [this] : []; },
+  async boundingBox() { return clickCount === 1 ? { x: 10, y: 10, width: 240, height: 40 } : null; },
+  async innerText() { return "笔记加载失败"; },
+  async textContent() { return "笔记加载失败"; },
+};
+const empty = {
+  first() { return this; },
+  nth() { return this; },
+  async count() { return 0; },
+  async all() { return []; },
+};
+const collection = {
+  first() { return locator; },
+  nth() { return locator; },
+  async count() { return 1; },
+  async all() { return [locator]; },
+};
+const page = {
+  locator(selector) {
+    calls.push(["locator", selector]);
+    if (selector === "body" || selector.includes("toast") || selector.includes("message") || selector.includes("notify")) {
+      return toastLocator;
+    }
+    return selector.includes("retry123") ? collection : empty;
+  },
+  waitForEvent(event, options) {
+    calls.push(["waitForEvent", event, options.timeout]);
+    return Promise.resolve(null);
+  },
+  mouse: {
+    async move() {},
+    async click() {
+      clickCount += 1;
+      calls.push(["click", clickCount]);
+      if (clickCount >= 2) opened = true;
+    },
+  },
+  keyboard: {
+    async press(key) { calls.push(["press", key]); },
+  },
+  async waitForTimeout(ms) { calls.push(["wait", ms]); },
+  async waitForLoadState() {},
+  url() {
+    return opened
+      ? "https://www.xiaohongshu.com/explore/retry123"
+      : "https://www.xiaohongshu.com/search_result?keyword=test";
+  },
+};
+
+const openedHandle = await openDetailFromSearchCard({
+  searchPage: page,
+  searchPost: {
+    postId: "xiaohongshu:retry123",
+    url: "https://www.xiaohongshu.com/explore/retry123",
+    title: "retry target",
+  },
+  index: 0,
+});
+
+console.log(JSON.stringify({ mode: openedHandle.mode, clickCount, calls }));
+"""
+        result = subprocess.run(
+            ["node", "--input-type=module", "-e", script],
+            cwd=ROOT,
+            text=True,
+            encoding="utf-8",
+            capture_output=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["mode"], "same_page")
+        self.assertEqual(payload["clickCount"], 2)
+        self.assertIn(["press", "Escape"], payload["calls"])
+
+    def test_xiaohongshu_skips_card_after_repeated_note_load_failure(self):
+        script = r"""
+import { collectDetailRecords } from "./sidecar/collector/xiaohongshu.mjs";
+
+const calls = [];
+const events = [];
+let clickCount = 0;
+
+const locator = {
+  first() { return this; },
+  async count() { return 1; },
+  async all() { return [this]; },
+  async scrollIntoViewIfNeeded() {},
+  async boundingBox() { return { x: 120, y: 220, width: 260, height: 180 }; },
+};
+const toastLocator = {
+  first() { return this; },
+  nth() { return this; },
+  async count() { return 1; },
+  async all() { return [this]; },
+  async boundingBox() { return { x: 10, y: 10, width: 240, height: 40 }; },
+  async innerText() { return "笔记加载失败"; },
+  async textContent() { return "笔记加载失败"; },
+};
+const empty = {
+  first() { return this; },
+  nth() { return this; },
+  async count() { return 0; },
+  async all() { return []; },
+};
+const collection = {
+  first() { return locator; },
+  nth() { return locator; },
+  async count() { return 1; },
+  async all() { return [locator]; },
+};
+const searchPage = {
+  locator(selector) {
+    if (selector === "body" || selector.includes("toast") || selector.includes("message") || selector.includes("notify")) {
+      return toastLocator;
+    }
+    return selector.includes("fail123") ? collection : empty;
+  },
+  waitForEvent() { return Promise.resolve(null); },
+  mouse: {
+    async move() {},
+    async click() {
+      clickCount += 1;
+      calls.push(["click", clickCount]);
+    },
+  },
+  keyboard: {
+    async press(key) { calls.push(["press", key]); },
+  },
+  async waitForTimeout() {},
+  async waitForLoadState() {},
+  async screenshot(options) { calls.push(["screenshot", options.path]); },
+  url() { return "https://www.xiaohongshu.com/search_result?keyword=test"; },
+};
+
+const outcome = await collectDetailRecords({
+  context: {},
+  searchPage,
+  request: {
+    run_id: "note-load-failed-run",
+    platform: "xiaohongshu",
+    keyword: "avatar",
+    max_comments_per_post: 1,
+  },
+  assetsPath: ".",
+  events: {
+    write(level, scope, event, message, payload) {
+      events.push({ level, scope, event, message, payload });
+    },
+  },
+  posts: [
+    {
+      postId: "xiaohongshu:fail123",
+      url: "https://www.xiaohongshu.com/explore/fail123",
+      title: "fail target",
+    },
+  ],
+  total: 3,
+});
+
+console.log(JSON.stringify({ outcome, events, calls, clickCount }));
+"""
+        result = subprocess.run(
+            ["node", "--input-type=module", "-e", script],
+            cwd=ROOT,
+            text=True,
+            encoding="utf-8",
+            capture_output=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertTrue(payload["outcome"]["skipped"])
+        self.assertFalse(payload["outcome"]["stopped"])
+        self.assertEqual(payload["events"][-1]["event"], "detail_open_skipped")
+        self.assertEqual(payload["events"][-1]["payload"]["reason"], "note_load_failed")
+        self.assertEqual(payload["clickCount"], 2)
+        self.assertEqual(payload["outcome"]["records"][0]["scope"], "detail_error_screenshot")
 
     def test_xiaohongshu_does_not_fallback_to_index_when_expected_post_id_is_missing(self):
         script = r"""
@@ -347,7 +870,6 @@ const genericCard = {
   async all() { calls.push(["generic-all"]); return [this]; },
   async scrollIntoViewIfNeeded() { calls.push(["generic-scroll"]); },
   async boundingBox() { calls.push(["generic-box"]); return { x: 100, y: 200, width: 260, height: 180 }; },
-  async evaluate() { calls.push(["generic-evaluate"]); return { x: 200, y: 260, label: "center" }; },
 };
 const empty = {
   first() { return this; },
@@ -587,7 +1109,7 @@ console.log(JSON.stringify({
                 "run_id": "run-profile-launch-conflict",
                 "platform": "xiaohongshu",
                 "profile": "default",
-                "keyword": "AI头像",
+                "keyword": "账号增长",
                 "max_posts": 1,
                 "max_comments_per_post": 0,
                 "headed": True,
@@ -606,18 +1128,132 @@ console.log(JSON.stringify({
         self.assertIn("Profile", events[-1]["message"])
         self.assertNotIn("launchPersistentContext", events[-1]["message"])
 
+    def test_xiaohongshu_detail_target_closed_becomes_manual_action(self):
+        script = r"""
+import { collectDetailRecords, isPlaywrightTargetClosedError } from "./sidecar/collector/xiaohongshu.mjs";
+
+const calls = [];
+const events = [];
+const detailPage = {
+  async waitForLoadState() { calls.push(["detail-load"]); },
+  async waitForTimeout(ms) { calls.push(["detail-wait", ms]); },
+  locator() { return empty; },
+  async screenshot() {
+    throw new Error("Target page closed");
+  },
+  async close() { calls.push(["detail-close"]); },
+};
+const locator = {
+  async scrollIntoViewIfNeeded() { calls.push(["scroll"]); },
+  async boundingBox() { calls.push(["box"]); return { x: 100, y: 180, width: 240, height: 180 }; },
+};
+const collection = {
+  first() { return locator; },
+  nth() { return locator; },
+  async count() { calls.push(["count"]); return 1; },
+  async all() { calls.push(["all"]); return [locator]; },
+};
+const empty = {
+  first() { return this; },
+  nth() { return this; },
+  async count() { return 0; },
+  async all() { return []; },
+  async boundingBox() { return null; },
+  async innerText() { return ""; },
+  async textContent() { return ""; },
+};
+const searchPage = {
+  locator(selector) { calls.push(["locator", selector]); return collection; },
+  waitForEvent(event, options) { calls.push(["waitForEvent", event, options.timeout]); return Promise.resolve(detailPage); },
+  mouse: {
+    async move(x, y) { calls.push(["move", Math.round(x), Math.round(y)]); },
+    async click(x, y) { calls.push(["click", Math.round(x), Math.round(y)]); },
+  },
+  async waitForTimeout(ms) { calls.push(["search-wait", ms]); },
+  async waitForLoadState() { calls.push(["search-load"]); },
+  url() { return "https://www.xiaohongshu.com/search_result?keyword=avatar"; },
+};
+
+const outcome = await collectDetailRecords({
+  context: {},
+  searchPage,
+  request: {
+    run_id: "closed-detail-run",
+    platform: "xiaohongshu",
+    keyword: "avatar",
+    max_comments_per_post: 1,
+  },
+  assetsPath: ".",
+  events: {
+    write(level, scope, event, message, payload) {
+      events.push({ level, scope, event, message, payload });
+    },
+  },
+  posts: [
+    {
+      postId: "xiaohongshu:closed123",
+      url: "https://www.xiaohongshu.com/explore/closed123",
+      title: "sample",
+    },
+  ],
+});
+
+console.log(JSON.stringify({
+  targetClosed: isPlaywrightTargetClosedError(new Error("Target page, context or browser has been closed")),
+  unrelated: isPlaywrightTargetClosedError(new Error("normal detail parse failure")),
+  stopped: outcome.stopped,
+  records: outcome.records,
+  events,
+  calls,
+}));
+"""
+        result = subprocess.run(
+            ["node", "--input-type=module", "-e", script],
+            cwd=ROOT,
+            text=True,
+            encoding="utf-8",
+            capture_output=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertTrue(payload["targetClosed"])
+        self.assertFalse(payload["unrelated"])
+        self.assertTrue(payload["stopped"])
+        self.assertEqual(payload["records"], [])
+        self.assertEqual(payload["events"][-1]["event"], "manual_action_required")
+        self.assertEqual(payload["events"][-1]["payload"]["reason"], "browser_closed_mid_run")
+        self.assertIn("closed123", payload["events"][-1]["payload"]["url"])
+        self.assertIn(["detail-close"], payload["calls"])
+
     def test_xiaohongshu_open_detail_page_does_not_trigger_login_false_positive(self):
         script = r"""
 import { detectManualAction } from "./sidecar/collector/xiaohongshu.mjs";
 
+const empty = {
+  first() { return this; },
+  nth() { return this; },
+  async count() { return 0; },
+  async all() { return []; },
+  async boundingBox() { return null; },
+  async innerText() { return ""; },
+  async textContent() { return ""; },
+};
+const detail = {
+  first() { return this; },
+  nth() { return this; },
+  async count() { return 1; },
+  async all() { return [this]; },
+  async boundingBox() { return { x: 0, y: 0, width: 900, height: 700 }; },
+  async innerText() { return "完整笔记正文 评论区 login 注册 手机号 验证码"; },
+  async textContent() { return "完整笔记正文 评论区 login 注册 手机号 验证码"; },
+};
 const result = await detectManualAction({
-  async evaluate() {
-    return {
-      url: "https://www.xiaohongshu.com/explore/65abc123?xsec_token=token",
-      title: "sample - 小红书",
-      text: "完整笔记正文 评论区 login 注册 手机号 验证码",
-      hasDetailContainer: true,
-    };
+  url() { return "https://www.xiaohongshu.com/explore/65abc123?xsec_token=token"; },
+  async title() { return "sample - 小红书"; },
+  locator(selector) {
+    return selector === "#noteContainer" || selector === "body" ? detail : empty;
   },
 });
 
@@ -636,81 +1272,120 @@ console.log(JSON.stringify({ result }));
         payload = json.loads(result.stdout)
         self.assertIsNone(payload["result"])
 
-    def test_xiaohongshu_detail_snapshot_uses_only_detail_container_images(self):
+    def test_xiaohongshu_account_risk_warning_triggers_manual_action(self):
+        script = r"""
+import { detectManualAction } from "./sidecar/collector/xiaohongshu.mjs";
+
+const body = {
+  first() { return this; },
+  nth() { return this; },
+  async count() { return 1; },
+  async all() { return [this]; },
+  async boundingBox() { return { x: 0, y: 0, width: 900, height: 500 }; },
+  async innerText() { return "账号违规预警：检测到第三方工具或自动浏览脚本"; },
+  async textContent() { return "账号违规预警：检测到第三方工具或自动浏览脚本"; },
+};
+const empty = {
+  first() { return this; },
+  nth() { return this; },
+  async count() { return 0; },
+  async all() { return []; },
+  async boundingBox() { return null; },
+};
+
+const result = await detectManualAction({
+  url() { return "https://www.xiaohongshu.com/"; },
+  async title() { return "小红书"; },
+  locator(selector) {
+    return selector === "body" ? body : empty;
+  },
+});
+
+console.log(JSON.stringify(result));
+"""
+        result = subprocess.run(
+            ["node", "--input-type=module", "-e", script],
+            cwd=ROOT,
+            text=True,
+            encoding="utf-8",
+            capture_output=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["reason"], "account_risk_warning")
+
+    def test_xiaohongshu_detail_snapshot_reads_visible_detail_container_without_image_urls(self):
         script = r"""
 import { extractDetailSnapshot } from "./sidecar/collector/xiaohongshu.mjs";
 
-const node = (values = {}) => ({
-  innerText: values.text || "",
-  textContent: values.text || "",
-  currentSrc: values.currentSrc || "",
-  src: values.src || "",
-  naturalWidth: values.width || 0,
-  naturalHeight: values.height || 0,
-  width: values.width || 0,
-  height: values.height || 0,
-  querySelector(selector) {
-    return values.selectors?.[selector] || null;
-  },
-  querySelectorAll(selector) {
-    return values.lists?.[selector] || [];
-  },
-});
+function emptyCollection() {
+  return {
+    first() { return emptyLocator(); },
+    nth() { return emptyLocator(); },
+    async count() { return 0; },
+    async all() { return []; },
+  };
+}
 
-const detailImage = node({
-  currentSrc: "https://img.example/detail.webp",
-  width: 640,
-  height: 480,
-});
-const backgroundImage = node({
-  currentSrc: "https://img.example/search-card.webp",
-  width: 640,
-  height: 480,
-});
-const comment = node({
+function collection(items) {
+  return {
+    first() { return items[0] || emptyLocator(); },
+    nth(index) { return items[index] || emptyLocator(); },
+    async count() { return items.length; },
+    async all() { return items; },
+  };
+}
+
+function emptyLocator() {
+  return makeLocator({ box: null });
+}
+
+function makeLocator({ text = "", box = { x: 10, y: 10, width: 320, height: 40 }, attrs = {}, children = {}, lists = {} } = {}) {
+  return {
+    first() { return this; },
+    nth() { return this; },
+    async count() { return box ? 1 : 0; },
+    async all() { return box ? [this] : []; },
+    async boundingBox() { return box; },
+    async innerText() { return text; },
+    async textContent() { return text; },
+    async getAttribute(name) { return attrs[name] || ""; },
+    locator(selector) {
+      if (children[selector]) return collection([children[selector]]);
+      if (lists[selector]) return collection(lists[selector]);
+      return emptyCollection();
+    },
+  };
+}
+
+const comment = makeLocator({
   text: "commenter\nuseful comment",
-  selectors: {
-    "[class*='author']": node({ text: "commenter" }),
-    "[class*='content']": node({ text: "useful comment" }),
+  box: { x: 20, y: 360, width: 420, height: 72 },
+  children: {
+    "[class*='author']": makeLocator({ text: "commenter" }),
+    "[class*='content']": makeLocator({ text: "useful comment" }),
   },
 });
-const detailRoot = node({
-  selectors: {
-    "#detail-title": node({ text: "detail title" }),
-    "#detail-desc": node({ text: "detail body" }),
-    "a[href*='/user/profile']": node({ text: "detail author" }),
-    "[class*='interact']": node({ text: "12 likes" }),
+const detailRoot = makeLocator({
+  box: { x: 0, y: 0, width: 900, height: 700 },
+  children: {
+    "#detail-title": makeLocator({ text: "detail title" }),
+    "#detail-desc": makeLocator({ text: "detail body" }),
+    "a[href*='/user/profile']": makeLocator({ text: "detail author" }),
+    "[class*='interact']": makeLocator({ text: "12 likes" }),
   },
   lists: {
-    "img": [detailImage],
-    ".comment-item, [class*='comment-item']": [comment],
+    ".comment-item, [class*='comment-item'], [class*='reply-item']": [comment],
+    "img": [],
   },
 });
-const fakeDocument = {
-  images: [detailImage, backgroundImage],
-  querySelector(selector) {
-    if (selector === "#noteContainer, .note-detail-mask .note-container, .note-container, .note-detail") {
-      return detailRoot;
-    }
-    return null;
-  },
-  querySelectorAll(selector) {
-    return selector === ".comment-item, [class*='comment-item']" ? [comment] : [];
-  },
-};
 
 const page = {
-  async evaluate(callback, commentLimit) {
-    const oldDocument = globalThis.document;
-    const oldLocation = globalThis.location;
-    globalThis.document = fakeDocument;
-    globalThis.location = { href: "https://www.xiaohongshu.com/explore/detail" };
-    try {
-      return callback(commentLimit);
-    } finally {
-      globalThis.document = oldDocument;
-      globalThis.location = oldLocation;
-    }
+  url() { return "https://www.xiaohongshu.com/explore/detail"; },
+  locator(selector) {
+    return selector === "#noteContainer" ? collection([detailRoot]) : emptyCollection();
   },
 };
 
@@ -728,9 +1403,106 @@ console.log(JSON.stringify(snapshot));
 
         self.assertEqual(result.returncode, 0, result.stderr)
         payload = json.loads(result.stdout)
-        self.assertEqual(payload["images"], ["https://img.example/detail.webp"])
+        self.assertEqual(payload["images"], [])
         self.assertEqual(payload["title"], "detail title")
         self.assertEqual(payload["comments"][0]["content"], "useful comment")
+
+    def test_xiaohongshu_visible_screenshot_media_asset_has_no_remote_url(self):
+        script = r"""
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { captureVisibleMediaScreenshots, normalizeCollectorRequest } from "./sidecar/collector/xiaohongshu.mjs";
+
+function emptyCollection() {
+  return {
+    first() { return emptyLocator(); },
+    nth() { return emptyLocator(); },
+    async count() { return 0; },
+    async all() { return []; },
+  };
+}
+
+function collection(items) {
+  return {
+    first() { return items[0] || emptyLocator(); },
+    nth(index) { return items[index] || emptyLocator(); },
+    async count() { return items.length; },
+    async all() { return items; },
+  };
+}
+
+function emptyLocator() {
+  return makeLocator({ box: null });
+}
+
+function makeLocator({ box = { x: 0, y: 0, width: 320, height: 240 }, lists = {}, screenshotBody = "" } = {}) {
+  return {
+    first() { return this; },
+    nth() { return this; },
+    async count() { return box ? 1 : 0; },
+    async all() { return box ? [this] : []; },
+    async boundingBox() { return box; },
+    locator(selector) {
+      if (lists[selector]) return collection(lists[selector]);
+      return emptyCollection();
+    },
+    async screenshot(options) {
+      writeFileSync(options.path, screenshotBody || "visible-image");
+    },
+  };
+}
+
+const assetsPath = mkdtempSync(join(tmpdir(), "falcon-visible-media-"));
+const image = makeLocator({ box: { x: 12, y: 20, width: 320, height: 240 }, screenshotBody: "fake-png" });
+const root = makeLocator({
+  box: { x: 0, y: 0, width: 900, height: 700 },
+  lists: { "img": [image] },
+});
+const events = [];
+
+const records = await captureVisibleMediaScreenshots({
+  page: {
+    locator(selector) {
+      return selector === "#noteContainer" ? collection([root]) : emptyCollection();
+    },
+  },
+  request: normalizeCollectorRequest({
+    run_id: "visible-media-run",
+    platform: "xiaohongshu",
+    media_policy: "visible_screenshot",
+  }),
+  assetsPath,
+  stem: "post-1",
+  postId: "xiaohongshu:post-1",
+  events: {
+    write(level, scope, event, message, payload) {
+      events.push({ level, scope, event, message, payload });
+    },
+  },
+});
+
+console.log(JSON.stringify({ records, events }));
+rmSync(assetsPath, { recursive: true, force: true });
+"""
+        result = subprocess.run(
+            ["node", "--input-type=module", "-e", script],
+            cwd=ROOT,
+            text=True,
+            encoding="utf-8",
+            capture_output=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(len(payload["records"]), 1)
+        record = payload["records"][0]
+        self.assertEqual(record["type"], "media_asset")
+        self.assertEqual(record["source"], "visible_screenshot")
+        self.assertEqual(record["url"], "")
+        self.assertEqual(record["mime_type"], "image/png")
+        self.assertTrue(record["sha256"])
 
     def test_xiaohongshu_media_url_dedupe_collapses_cdn_variants(self):
         script = r"""
@@ -792,24 +1564,26 @@ console.log(JSON.stringify(normalized.metrics));
 import { extractDetailSnapshot, normalizeDetailSnapshot } from "./sidecar/collector/xiaohongshu.mjs";
 
 const node = (values = {}) => ({
-  innerText: values.text || "",
-  textContent: values.text || "",
-  className: values.className || "",
-  currentSrc: values.currentSrc || "",
-  src: values.src || "",
-  naturalWidth: values.width || 0,
-  naturalHeight: values.height || 0,
-  width: values.width || 0,
-  height: values.height || 0,
-  getAttribute(name) {
-    return values.attrs?.[name] || "";
+  first() { return this; },
+  nth() { return this; },
+  async count() { return values.box === null ? 0 : 1; },
+  async all() { return values.box === null ? [] : [this]; },
+  async boundingBox() { return values.box === null ? null : (values.box || { x: 20, y: 20, width: 360, height: 50 }); },
+  async innerText() { return values.text || ""; },
+  async textContent() { return values.text || ""; },
+  async getAttribute(name) { return values.attrs?.[name] || (name === "class" ? values.className || "" : ""); },
+  locator(selector) {
+    const item = values.selectors?.[selector];
+    if (item) return collection([item]);
+    return collection(values.lists?.[selector] || []);
   },
-  querySelector(selector) {
-    return values.selectors?.[selector] || null;
-  },
-  querySelectorAll(selector) {
-    return values.lists?.[selector] || [];
-  },
+});
+
+const collection = (items) => ({
+  first() { return items[0] || node({ box: null }); },
+  nth(index) { return items[index] || node({ box: null }); },
+  async count() { return items.length; },
+  async all() { return items; },
 });
 
 const reply = node({
@@ -822,6 +1596,7 @@ const reply = node({
   },
 });
 const detailRoot = node({
+  box: { x: 0, y: 0, width: 900, height: 700 },
   selectors: {
     "#detail-title": node({ text: "detail title" }),
   },
@@ -832,23 +1607,9 @@ const detailRoot = node({
   },
 });
 const page = {
-  async evaluate(callback, commentLimit) {
-    const oldDocument = globalThis.document;
-    const oldLocation = globalThis.location;
-    globalThis.document = {
-      querySelector(selector) {
-        if (selector === "#noteContainer, .note-detail-mask .note-container, .note-container, .note-detail") return detailRoot;
-        return null;
-      },
-      querySelectorAll() { return []; },
-    };
-    globalThis.location = { href: "https://www.xiaohongshu.com/explore/detail" };
-    try {
-      return callback(commentLimit);
-    } finally {
-      globalThis.document = oldDocument;
-      globalThis.location = oldLocation;
-    }
+  url() { return "https://www.xiaohongshu.com/explore/detail"; },
+  locator(selector) {
+    return selector === "#noteContainer" ? collection([detailRoot]) : collection([]);
   },
 };
 
@@ -882,7 +1643,6 @@ const replyLocator = {
   async all() { calls.push(["all"]); return available ? [this] : []; },
   async scrollIntoViewIfNeeded(options) { calls.push(["scroll", options.timeout]); },
   async boundingBox() { calls.push(["box"]); return { x: 120, y: 220, width: 160, height: 32 }; },
-  async evaluate() { calls.push(["evaluate"]); return { x: 200, y: 236, label: "center" }; },
   async click() { calls.push(["locator-click"]); },
 };
 const page = {
@@ -1015,7 +1775,7 @@ console.log(JSON.stringify({
                 "run_id": "run-dry-xhs",
                 "platform": "xiaohongshu",
                 "profile": "default",
-                "keyword": "AI出图助手",
+                "keyword": "运营助手",
                 "max_posts": 2,
                 "max_comments_per_post": 1,
                 "headed": False,
@@ -1069,7 +1829,7 @@ console.log(JSON.stringify({
                 "run_id": "run-bad-platform",
                 "platform": "unsupported",
                 "profile": "default",
-                "keyword": "AI出图助手",
+                "keyword": "运营助手",
                 "max_posts": 1,
                 "max_comments_per_post": 1,
                 "headed": False,
@@ -1130,7 +1890,7 @@ console.log(JSON.stringify({ afterFirst, afterSecond, afterFlush }));
                 "run_id": "run-real-missing-playwright",
                 "platform": "xiaohongshu",
                 "profile": "default",
-                "keyword": "AI鍑哄浘鍔╂墜",
+                "keyword": "content ops",
                 "max_posts": 1,
                 "max_comments_per_post": 0,
                 "headed": True,

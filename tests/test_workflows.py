@@ -18,10 +18,10 @@ class WorkflowTest(unittest.TestCase):
             repo.upsert_raw_item(
                 RawItem(
                     platform="xiaohongshu",
-                    keyword="生图小程序",
+                    keyword="内容运营",
                     source_type="post",
-                    title="小红书封面怎么做才有人点？",
-                    content="想找一个能直接生成封面标题图的工具。",
+                    title="内容怎么做才有人点？",
+                    content="想找一个能直接分析标题、首图和互动数据的工具。",
                     url="local://seed/1",
                 )
             )
@@ -42,7 +42,7 @@ class WorkflowTest(unittest.TestCase):
                 CollectionRun(
                     run_id="xhs-analysis",
                     platform="xiaohongshu",
-                    keyword="生图小程序",
+                    keyword="内容运营",
                     profile="default",
                     status="completed",
                 )
@@ -51,9 +51,9 @@ class WorkflowTest(unittest.TestCase):
                 CollectedPost(
                     run_id="xhs-analysis",
                     platform="xiaohongshu",
-                    keyword="生图小程序",
-                    title="小红书封面怎么做才有人点？",
-                    content="想找一个能直接生成封面标题图的工具。",
+                    keyword="内容运营",
+                    title="内容怎么做才有人点？",
+                    content="想找一个能直接分析标题、首图和互动数据的工具。",
                     url="local://collector/xhs-analysis/post-1",
                     author="小红书用户",
                     like_count="128",
@@ -82,7 +82,7 @@ class WorkflowTest(unittest.TestCase):
                 CollectionRun(
                     run_id="xhs-relevance",
                     platform="xiaohongshu",
-                    keyword="AI头像",
+                    keyword="账号增长",
                     profile="default",
                     status="completed",
                 )
@@ -91,9 +91,9 @@ class WorkflowTest(unittest.TestCase):
                 CollectedPost(
                     run_id="xhs-relevance",
                     platform="xiaohongshu",
-                    keyword="AI头像",
-                    title="AI头像生成工具测评",
-                    content="这篇笔记完整对比了 AI头像 的风格、价格和使用场景，适合做需求分析。",
+                    keyword="账号增长",
+                    title="账号增长工具测评",
+                    content="这篇笔记完整对比了账号增长工具的功能、价格和使用场景，适合做需求分析。",
                     url="local://collector/xhs-relevance/post-1",
                     author="creator",
                     like_count="128",
@@ -105,9 +105,9 @@ class WorkflowTest(unittest.TestCase):
                 CollectedPost(
                     run_id="xhs-relevance",
                     platform="xiaohongshu",
-                    keyword="AI头像",
-                    title="AI绘画头像风格整理",
-                    content="整理一些头像风格和关键词，可作为选题参考。",
+                    keyword="账号增长",
+                    title="账号增长案例整理",
+                    content="整理一些增长动作和关键词，可作为选题参考。",
                     url="local://collector/xhs-relevance/post-2",
                     author="creator",
                     detail_fingerprint="relevance-post-2",
@@ -117,9 +117,9 @@ class WorkflowTest(unittest.TestCase):
                 CollectedPost(
                     run_id="xhs-relevance",
                     platform="xiaohongshu",
-                    keyword="AI头像",
-                    title="宇宙壁纸真的太好看了",
-                    content="收藏一些星空壁纸，完全没有头像制作或 AI 生成需求。",
+                    keyword="账号增长",
+                    title="周末随手拍真的太好看了",
+                    content="收藏一些星空壁纸，完全没有运营分析或增长需求。",
                     url="local://collector/xhs-relevance/post-3",
                     author="creator",
                     like_count="9999",

@@ -11,9 +11,6 @@ SUPPORTED_PROFILE_LOGIN_PLATFORMS = {
     "xiaohongshu": "https://www.xiaohongshu.com/",
 }
 
-DEFAULT_PROFILE_KEYS = (("xiaohongshu", "default"),)
-
-
 @dataclass
 class ProfileEntry:
     platform: str
@@ -31,12 +28,16 @@ class ProfileEntry:
     queued_runs: int
     manual_runs: int
     can_logout: bool
+    safety_locked: bool = False
+    safety_reason: str = ""
+    safety_message: str = ""
 
 
-def list_profile_entries(profile_root: Path, runs, platform_keys) -> list[ProfileEntry]:
+def list_profile_entries(profile_root: Path, runs, platform_keys, safety_states=None) -> list[ProfileEntry]:
     profile_root = Path(profile_root)
     allowed_platforms = set(platform_keys)
-    pairs = set(DEFAULT_PROFILE_KEYS)
+    safety_states = safety_states or {}
+    pairs = set()
     run_list = list(runs)
 
     for run in run_list:
@@ -70,6 +71,8 @@ def list_profile_entries(profile_root: Path, runs, platform_keys) -> list[Profil
         queued = counts.get((platform, profile, "queued"), 0)
         manual = counts.get((platform, profile, "manual_action_required"), 0)
         path_exists = profile_path.exists()
+        safety_state = safety_states.get((platform, profile), {})
+        safety_locked = bool(safety_state.get("locked"))
         entries.append(
             ProfileEntry(
                 platform=platform,
@@ -79,14 +82,17 @@ def list_profile_entries(profile_root: Path, runs, platform_keys) -> list[Profil
                 display_path=str(Path("browser-profiles") / platform / profile),
                 path_exists=path_exists,
                 login_supported=platform in SUPPORTED_PROFILE_LOGIN_PLATFORMS,
-                status_label=_profile_status_label(path_exists, running, queued, manual),
-                status_kind=_profile_status_kind(path_exists, running, queued, manual),
+                status_label="账号风控熔断" if safety_locked else _profile_status_label(path_exists, running, queued, manual),
+                status_kind="safety_locked" if safety_locked else _profile_status_kind(path_exists, running, queued, manual),
                 queue_label=f"运行 {running} / 排队 {queued} / 人工 {manual}",
                 total_runs=totals.get((platform, profile), 0),
                 running_runs=running,
                 queued_runs=queued,
                 manual_runs=manual,
-                can_logout=path_exists and running == 0 and queued == 0 and manual == 0,
+                can_logout=path_exists and running == 0 and queued == 0 and manual == 0 and not safety_locked,
+                safety_locked=safety_locked,
+                safety_reason=str(safety_state.get("reason") or ""),
+                safety_message=str(safety_state.get("message") or ""),
             )
         )
     return entries

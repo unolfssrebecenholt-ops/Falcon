@@ -17,24 +17,24 @@ class KeywordTask:
 
 
 DEFAULT_KEYWORDS = [
-    ("小红书封面", "cover", 10, 20),
-    ("小红书标题图", "cover", 9, 15),
-    ("封面怎么做", "cover", 8, 15),
-    ("爆款封面", "cover", 8, 15),
-    ("AI头像", "avatar", 4, 10),
-    ("活动海报", "poster", 3, 10),
-    ("朋友圈背景图", "background", 3, 10),
+    ("内容运营自动化", "workflow", 10, 20),
+    ("竞品内容分析", "analysis", 9, 15),
+    ("账号增长策略", "growth", 8, 15),
+    ("爆款内容拆解", "content_performance", 8, 15),
+    ("用户评论分析", "audience_growth", 7, 12),
+    ("营销素材管理", "marketing_asset", 6, 10),
+    ("运营日报自动化", "reporting", 5, 10),
 ]
 
 PROGRAM_INTENT_PATTERNS = [
-    ("{program_name}不好用", "tool_pain", 10, 10),
-    ("求推荐更好用的生图工具", "tool_recommendation", 10, 10),
-    ("有没有好用的{program_name}", "tool_recommendation", 9, 10),
-    ("{program_name}平替", "tool_alternative", 8, 8),
+    ("{program_name}怎么做", "workflow", 10, 10),
+    ("{program_name}工具推荐", "tool_recommendation", 10, 10),
+    ("有没有好用的{program_name}工具", "tool_recommendation", 9, 10),
+    ("{program_name}自动化", "automation", 8, 8),
     ("{program_name}教程", "tutorial", 7, 8),
-    ("小红书封面生图工具", "cover", 9, 10),
-    ("活动海报生图工具", "poster", 6, 8),
-    ("AI头像生图工具", "avatar", 5, 8),
+    ("{program_name}案例", "case_study", 7, 8),
+    ("{program_name}数据分析", "analysis", 8, 8),
+    ("{program_name}复盘模板", "reporting", 6, 8),
 ]
 
 

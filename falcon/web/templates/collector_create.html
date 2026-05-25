@@ -5,7 +5,7 @@
   <div>
     <div class="eyebrow">collector create</div>
     <h1>任务创建</h1>
-    <p>独立表单页按平台、账号、关键词、采样范围和节奏分组。输入区按内容定宽，不做满屏大块。</p>
+    <p>独立表单页按平台、账号、关键词和采样范围分组；默认使用截图保存版，低频执行，不下载原图。</p>
   </div>
   <div class="action-row">
     <a class="button" href="/collector/runs">返回队列</a>
@@ -96,8 +96,8 @@
     if (confirmProfile) confirmProfile.textContent = profileSelect?.value || "未选择";
     if (confirmKeywords) confirmKeywords.textContent = keywords.join(" / ");
     if (confirmRunCount) confirmRunCount.textContent = `${keywords.length} 个`;
-    if (confirmMaxPosts) confirmMaxPosts.textContent = maxPostsInput?.value || "20";
-    if (confirmMaxComments) confirmMaxComments.textContent = maxCommentsInput?.value || "10";
+    if (confirmMaxPosts) confirmMaxPosts.textContent = maxPostsInput?.value || "8";
+    if (confirmMaxComments) confirmMaxComments.textContent = maxCommentsInput?.value || "5";
   }
 
   function openConfirmDialog() {

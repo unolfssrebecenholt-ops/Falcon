@@ -154,13 +154,13 @@ node sidecar/collector/index.mjs --request runtime/collector/<run_id>/request.js
 Python CLI dry-run:
 
 ```powershell
-py -3 -m falcon --db data\falcon.sqlite3 collector-dry-run --platform xiaohongshu --profile default --keyword "小红书封面" --max-posts 5
+py -3 -m falcon --db data\falcon.sqlite3 collector-dry-run --platform xiaohongshu --profile default --keyword "内容运营" --max-posts 5
 ```
 
 Python CLI real browser run:
 
 ```powershell
-py -3 -m falcon --db data\falcon.sqlite3 collector-run --platform xiaohongshu --profile default --keyword "小红书封面" --max-posts 5
+py -3 -m falcon --db data\falcon.sqlite3 collector-run --platform xiaohongshu --profile default --keyword "内容运营" --max-posts 5
 ```
 
 Profile login from the Web workbench:
@@ -197,7 +197,7 @@ macOS:
 rm -rf /tmp/falcon-smoke
 mkdir -p /tmp/falcon-smoke
 python3 -m falcon --db /tmp/falcon-smoke/falcon.sqlite3 init-db
-python3 -m falcon write-keyword-pool /tmp/falcon-smoke/collection_keywords.csv --theme "生图小程序"
+python3 -m falcon write-keyword-pool /tmp/falcon-smoke/collection_keywords.csv --theme "内容运营"
 python3 -m falcon --db /tmp/falcon-smoke/falcon.sqlite3 report --output /tmp/falcon-smoke/daily-report.md
 ```
 
@@ -207,7 +207,7 @@ Windows PowerShell:
 Remove-Item -Recurse -Force $env:TEMP\falcon-smoke -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force $env:TEMP\falcon-smoke | Out-Null
 py -3 -m falcon --db $env:TEMP\falcon-smoke\falcon.sqlite3 init-db
-py -3 -m falcon write-keyword-pool $env:TEMP\falcon-smoke\collection_keywords.csv --theme "生图小程序"
+py -3 -m falcon write-keyword-pool $env:TEMP\falcon-smoke\collection_keywords.csv --theme "内容运营"
 py -3 -m falcon --db $env:TEMP\falcon-smoke\falcon.sqlite3 report --output $env:TEMP\falcon-smoke\daily-report.md
 ```
 

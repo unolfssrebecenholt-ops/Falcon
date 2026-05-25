@@ -19,10 +19,10 @@ class ReviewFeedbackCliTest(unittest.TestCase):
             raw_id = repo.upsert_raw_item(
                 RawItem(
                     platform="xiaohongshu",
-                    keyword="生图小程序",
+                    keyword="内容运营",
                     source_type="post",
-                    title="小红书封面怎么做",
-                    content="小红书封面怎么做",
+                    title="内容复盘怎么做",
+                    content="内容复盘怎么做",
                     url="https://example.com/1",
                 )
             )

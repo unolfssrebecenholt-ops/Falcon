@@ -33,50 +33,50 @@ class DraftingService:
 
     def _fallback_templates(self, analysis: AnalysisResult) -> List[Tuple[str, str]]:
         topic = analysis.suggested_topic.rstrip("。")
-        if analysis.scene_tag == "avatar":
+        if analysis.scene_tag == "brand_asset":
             return [
-                ("comment_reply", f"头像可以先定一个明确风格，比如治愈、软萌或轻复古，再生成几版对比。{topic}这个方向挺适合先试。"),
-                ("private_message", "看到你在找头像工具，可以先从风格关键词入手，不一定要复杂描述。需要的话我可以发你一个轻量生成思路。"),
-                ("soft_advice", "先选一个主风格，再补充人物/宠物/颜色氛围，头像会更稳定。"),
+                ("comment_reply", f"品牌视觉可以先定主色、语气和核心元素，再做几版对比。{topic}这个方向适合整理成规范。"),
+                ("private_message", "看到你在梳理账号形象，可以先从主色、关键词和参考样式入手，后续再扩展成素材模板。"),
+                ("soft_advice", "先固定 2-3 个视觉关键词，再补充使用场景，产出的素材会更统一。"),
             ]
-        if analysis.scene_tag == "poster":
+        if analysis.scene_tag == "marketing_asset":
             return [
-                ("comment_reply", f"活动海报可以先把优惠、时间、地点三件事排清楚，再补风格。{topic}这个方向可以直接做成模板。"),
-                ("private_message", "看到你在做活动海报，我建议先把核心优惠写短，再生成竖版海报，会更适合转发。"),
-                ("soft_advice", "先把最重要的一句优惠放大，其他信息收在下面，海报会更清楚。"),
+                ("comment_reply", f"营销素材可以先把目标用户、利益点和行动入口写清楚，再补版式。{topic}这个方向可以做成模板。"),
+                ("private_message", "看到你在准备营销素材，我建议先把核心利益点压缩成一句话，再围绕渠道尺寸做适配。"),
+                ("soft_advice", "先突出最重要的一句利益点，次要信息放到下方，用户会更容易判断要不要行动。"),
             ]
-        if analysis.scene_tag == "moments":
+        if analysis.scene_tag == "audience_growth":
             return [
-                ("comment_reply", f"朋友圈背景可以先写情绪关键词，再补场景和色调。{topic}这个方向挺容易出氛围。"),
-                ("private_message", "看到你在找朋友圈背景图，可以先用情绪词 + 场景词生成，比如松弛、海边、傍晚。"),
-                ("soft_advice", "先选情绪，再选场景，最后补一个主色调，背景图会更统一。"),
+                ("comment_reply", f"可以先把用户问题按频率分组，再给每类准备不同回复路径。{topic}这个方向适合做成复盘表。"),
+                ("private_message", "看到你在看互动和转化，可以先统计评论里重复出现的问题，再决定内容和跟进优先级。"),
+                ("soft_advice", "先把高频问题、行动意图和可承接动作分开，后面判断优先级会更清楚。"),
             ]
-        if analysis.scene_tag == "free":
+        if analysis.scene_tag == "tool_workflow":
             return [
-                ("comment_reply", f"一句话生图可以把主体、场景、风格三个信息写清楚。{topic}这个方向适合先试。"),
-                ("private_message", "看到你在试 AI 生图，可以先用“主体 + 场景 + 风格”的句式，效果通常更稳定。"),
-                ("soft_advice", "描述里别只写风格，补上主体和场景会更容易出想要的画面。"),
+                ("comment_reply", f"可以先把重复动作拆成采集、整理、判断和执行四段，再看哪一段最值得自动化。{topic}"),
+                ("private_message", "看到你在找更顺的工具流程，可以先列出每天重复做的 3 个动作，再判断是否需要自动化。"),
+                ("soft_advice", "先自动化低风险的整理和预览动作，高风险执行动作保留人工确认。"),
             ]
         return [
             (
                 "comment_reply",
-                f"可以先从标题和主体层级入手：标题短一点、主体大一点，会更容易判断封面点击感。{topic}这个方向也挺适合整理成模板。",
+                f"可以先从目标、用户问题和行动入口入手，把信息层级排清楚。{topic}这个方向也适合整理成复用模板。",
             ),
             (
                 "private_message",
-                "看到你在研究小红书封面，我这边整理过一个轻量做法：先定标题重点，再选风格生成首图。你需要的话我可以发你参考。",
+                "看到你在研究内容运营流程，我这边建议先把目标、样本和判断标准拆开，再决定下一步动作。",
             ),
             (
                 "soft_advice",
-                "先不急着追求复杂设计，可以试试一个明确标题 + 一个大主体 + 少量贴纸元素，先看点击反馈。",
+                "先不急着扩大动作规模，可以用少量样本验证判断标准，再逐步固化流程。",
             ),
         ]
 
     def _system_prompt(self) -> str:
         return (
-            "你是 AI出图助手 的小红书运营助理。你只生成待人工确认的评论/私信草稿，"
+            "你是 Falcon 平台里的内容运营分析助手。你只生成待人工确认的评论、私信或跟进草稿，"
             "不能假装已经发送，不能承诺必爆款，不能制造骚扰感。语气像真实用户给建议，"
-            "先给一个可执行建议，再自然提到可以用工具生成。输出 JSON。"
+            "先给一个可执行建议，再自然说明可以用工具或流程提高效率。输出 JSON。"
         )
 
     def _user_prompt(self, item: RawItem, analysis: AnalysisResult) -> str:

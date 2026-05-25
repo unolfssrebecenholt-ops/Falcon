@@ -2,6 +2,46 @@
 
 本文件是 Windows 和 M1 Mac 双机开发的接手入口。每次提交前必须更新。
 
+## 2026-05-25 Xiaohongshu respectful screenshot collector v1
+
+- 本次按用户要求先暂停设计意向层工作，集中修小红书瀑布流采集完整性和平台友好边界：
+  - 小红书真实采集路径改为浏览器控制边界：主页打开后通过搜索框输入关键词，后续只用点击、滚动、键盘、locator 可见文本和截图保存，不再用 `page.evaluate` / `$eval` / `$$eval` 做 DOM 抽取。
+  - 移除详情 URL 直连和图片/API 直连下载路径；媒体资产 v1 改为详情页截图和详情容器内可见图片局部截图，`media_asset.url` 为空并标记 `source=visible_screenshot`。
+  - 默认安全策略写入 request.json：`safety_profile=respectful_human`、`automation_boundary=browser_control`、`access_policy` 禁止 JS/URL/API 访问、`media_policy=visible_screenshot`、`checkpoint_enabled=true`。
+  - 默认节奏降速：详情间 8-18s、滚动后 5-12s、每随机 5-11 张卡片大停 15-20s、滚动距离随机 0.45-0.85 屏且单次不超过一屏。
+  - 瀑布流续采 checkpoint 记录已采、待采、失败和节奏状态；继续采集会跳过已完成/失败卡片，只补未完成卡片。
+  - 命中账号违规预警、第三方工具、脚本、自动浏览、环境异常、操作频繁等风险信号时立即 `manual_action_required`，锁定对应 profile，不自动恢复、不绕过验证。
+  - UI 默认改为小批量截图保存版：最大帖子默认 8、每帖评论默认 5，创建页明确展示“低频浏览器采集 / 截图保存 / 不下载原图”；账号页展示并可人工解除风控熔断锁。
+- 验证结果：
+  - `node --check sidecar\collector\xiaohongshu.mjs`、`node --check sidecar\collector\index.mjs`：passed。
+  - 静态扫描 `sidecar/collector/xiaohongshu.mjs`：无 `page.evaluate`、`$eval`、`$$eval`、`context().request`、`request.get`、`downloadImage`、`media_download_failed`、搜索 URL 拼接入口命中。
+  - `python -m unittest tests.test_sidecar_contract tests.test_collector_service tests.test_web_app -v`：128 tests passed。
+  - `python -m unittest discover -s tests`：171 tests passed。
+  - `python -m compileall falcon`：passed。
+- Windows/Mac 接手说明：
+  - 本次未新增依赖或 schema；profile safety lock 写在 `runtime/collector/profile-safety/<platform>/<profile>.json`，属于本机运行数据，不进 Git。
+  - 本机验证仍使用 Codex bundled Python：`C:\Users\zhanglongsheng\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe`。
+
+## 2026-05-25 Product-neutral platform cleanup
+
+- 本次按用户要求把 Falcon 从单一项目定制语义中清理出来，定位为独立的自动化采集、分析和运营平台：
+  - `README.md`、`project.md` 和 `pyproject.toml` 不再描述为面向某个固定产品的内容运营代理。
+  - GPT 草稿生成 system prompt 改为 Falcon 平台内的通用内容运营分析助手，不再写死特定项目或特定品类。
+  - 默认关键词主题从旧业务主题改为 `内容运营`，默认关键词池改为内容运营自动化、竞品内容分析、账号增长、评论分析、营销素材管理和运营日报自动化等中立方向。
+  - 启发式分析场景从旧的封面/头像/生图场景迁移为 `content_performance`、`marketing_asset`、`brand_asset`、`audience_growth` 和 `tool_workflow`。
+  - 日报章节从旧的单品类主报告调整为“重点内容机会”，Image2 架构图提示词同步改为自动化采集、分析、运营平台。
+  - 测试样例、开发指南命令和设计原型文字同步改为中立运营平台语义。
+- 兼容性修复：
+  - `sidecar/collector/xiaohongshu.mjs` 的 profile 冲突测试钩子前移，强制模拟 profile 占用时不再依赖本机是否安装 Playwright。
+- 验证结果：
+  - 使用 Codex bundled Python：`python -m unittest discover -s tests`：158 tests passed。
+  - 使用 Codex bundled Python：`python -m compileall falcon`：passed。
+  - 使用 Codex bundled Node：`node --check sidecar\collector\index.mjs`、`node --check sidecar\collector\xiaohongshu.mjs`、`node --check sidecar\collector\xiaohongshu-normalize.mjs`、`node --check sidecar\collector\profile-login.mjs`：passed。
+  - 静态扫描当前工作树：旧单项目中文名和旧外部自动化平台精确标记均无命中。
+- Windows/Mac 接手说明：
+  - 本机 PATH 没有可用 `py`/真实 `python`，只有 Microsoft Store alias；本次验证使用 `C:\Users\zhanglongsheng\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe`。
+  - `docs/progress.md` 历史记录中仍保留旧关键词作为历史验证事实；当前代码、产品文档和默认行为已中立化。
+
 ## 2026-05-25 Chinese README handoff refresh
 
 - 本次结合当前项目目标和开发进度重写 `README.md`：

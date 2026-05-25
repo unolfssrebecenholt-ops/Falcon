@@ -1,7 +1,8 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
-import { extname, join } from "node:path";
+import { dirname, join } from "node:path";
 import {
+  canonicalPostId,
   canonicalPostUrl,
   normalizeSearchCards,
   normalizeWhitespace,
@@ -9,13 +10,41 @@ import {
   stableFingerprint,
 } from "./xiaohongshu-normalize.mjs";
 
+const DEFAULT_ACCESS_POLICY = {
+  js_access: false,
+  direct_url_access: false,
+  network_api_access: false,
+};
+
+const DEFAULT_PACE = {
+  detail_delay_range_seconds: [8, 18],
+  scroll_delay_range_seconds: [5, 12],
+  scroll_distance_viewport_range: [0.45, 0.85],
+  batch_rest_after_cards_range: [5, 11],
+  batch_rest_seconds_range: [15, 20],
+  click_delay_range_ms: [250, 900],
+  detail_scroll_distance_viewport_range: [0.25, 0.55],
+  max_relocate_scrolls: 6,
+  max_screenshot_media_per_post: 4,
+};
+
+const DEFAULT_REQUEST_POLICY = {
+  safety_profile: "respectful_human",
+  automation_boundary: "browser_control",
+  media_policy: "visible_screenshot",
+  checkpoint_enabled: true,
+  access_policy: DEFAULT_ACCESS_POLICY,
+  pace: DEFAULT_PACE,
+};
+
 export async function collectXiaohongshu({ request, assetsPath, profilePath, events }) {
-  if (!request.dry_run) {
-    return collectXiaohongshuReal({ request, assetsPath, profilePath, events });
+  const collectorRequest = normalizeCollectorRequest(request);
+  if (!collectorRequest.dry_run) {
+    return collectXiaohongshuReal({ request: collectorRequest, assetsPath, profilePath, events });
   }
 
-  const run_id = request.run_id;
-  const platform = request.platform;
+  const run_id = collectorRequest.run_id;
+  const platform = collectorRequest.platform;
   const postId = `${run_id}-post-1`;
   const commentId = `${postId}-comment-1`;
   const assetId = `${postId}-asset-1`;
@@ -34,8 +63,8 @@ export async function collectXiaohongshu({ request, assetsPath, profilePath, eve
       run_id,
       platform,
       post_id: postId,
-      keyword: request.keyword,
-      title: `Dry-run sample for ${request.keyword}`,
+      keyword: collectorRequest.keyword,
+      title: `Dry-run sample for ${collectorRequest.keyword}`,
       body: "A deterministic Xiaohongshu dry-run post fixture for the Falcon collector contract.",
       author: {
         display_name: "Falcon dry-run author",
@@ -63,12 +92,12 @@ export async function collectXiaohongshu({ request, assetsPath, profilePath, eve
       evidence_id: evidenceId,
       platform,
       post_id: postId,
-      scope: "dry_run_fixture",
-      payload: {
-        source: "sidecar/collector/xiaohongshu.mjs",
-        keyword: request.keyword,
+        scope: "dry_run_fixture",
+        payload: {
+          source: "sidecar/collector/xiaohongshu.mjs",
+          keyword: collectorRequest.keyword,
+        },
       },
-    },
     {
       type: "media_asset",
       run_id,
@@ -92,8 +121,22 @@ export async function collectXiaohongshu({ request, assetsPath, profilePath, eve
   return records;
 }
 
+export function normalizeCollectorRequest(request = {}) {
+  return {
+    ...request,
+    safety_profile: request.safety_profile || DEFAULT_REQUEST_POLICY.safety_profile,
+    automation_boundary: request.automation_boundary || DEFAULT_REQUEST_POLICY.automation_boundary,
+    media_policy: request.media_policy || DEFAULT_REQUEST_POLICY.media_policy,
+    checkpoint_enabled: request.checkpoint_enabled !== false,
+    access_policy: {
+      ...DEFAULT_ACCESS_POLICY,
+      ...(request.access_policy || {}),
+    },
+    pace: normalizePace(request.pace),
+  };
+}
+
 async function collectXiaohongshuReal({ request, assetsPath, profilePath, events }) {
-  const { chromium } = await loadPlaywright();
   const run_id = request.run_id;
   const platform = request.platform;
   const maxPosts = Math.max(1, Number(request.max_posts ?? 5));
@@ -113,6 +156,7 @@ async function collectXiaohongshuReal({ request, assetsPath, profilePath, events
           "browserType.launchPersistentContext: Target page, context or browser has been closed\nBrowser logs:\n<launching> chrome.exe --user-data-dir=browser-profiles/xiaohongshu/default --remote-debugging-pipe about:blank\n<launched> pid=49380\n[pid=49380] <process did exit: exitCode=0, signal=null>",
         );
       }
+      const { chromium } = await loadPlaywright();
       context = await chromium.launchPersistentContext(profilePath, {
         headless: request.headed === false,
         viewport: { width: 1366, height: 900 },
@@ -157,14 +201,8 @@ async function collectXiaohongshuReal({ request, assetsPath, profilePath, events
       });
     }
 
-    const searchUrl = new URL("https://www.xiaohongshu.com/search_result");
-    searchUrl.searchParams.set("keyword", request.keyword ?? "");
-    searchUrl.searchParams.set("source", "web_search_result_notes");
-    await page.goto(searchUrl.toString(), {
-      waitUntil: "domcontentloaded",
-      timeout: 30_000,
-    });
-    await quietWait(page, 5000);
+    await performSearchFromHome(page, request, events);
+    await humanWait(page, secondsRangeToMs(request.pace.scroll_delay_range_seconds));
 
     const searchStop = await detectManualAction(page);
     if (searchStop) {
@@ -177,8 +215,6 @@ async function collectXiaohongshuReal({ request, assetsPath, profilePath, events
         detail: searchStop.detail,
       });
     }
-
-    await bestEffortScroll(page);
 
     const screenshotPath = join(assetsPath, "xiaohongshu-search-results.png");
     await page.screenshot({ path: screenshotPath, fullPage: true });
@@ -237,13 +273,13 @@ async function collectXiaohongshuReal({ request, assetsPath, profilePath, events
 
     let detailOutcome;
     try {
-      detailOutcome = await collectDetailRecords({
+      detailOutcome = await collectWaterfallRecords({
         context,
         searchPage: page,
         request,
         assetsPath,
         events,
-        posts: snapshot.posts,
+        initialPosts: snapshot.posts,
       });
       records.push(...detailOutcome.records);
     } catch (error) {
@@ -254,18 +290,55 @@ async function collectXiaohongshuReal({ request, assetsPath, profilePath, events
       throw error;
     }
 
-    events.write("info", "xiaohongshu", "records_collected", "已生成小红书采集记录", {
-      run_id,
-      platform,
-      posts: snapshot.posts.length,
-      stopped: detailOutcome.stopped,
-    });
+    if (!detailOutcome.stopped) {
+      events.write("info", "xiaohongshu", "records_collected", "已生成小红书采集记录", {
+        run_id,
+        platform,
+        posts: detailOutcome.collected,
+        discovered: detailOutcome.discovered,
+        skipped: detailOutcome.skipped,
+        requested: maxPosts,
+      });
+    }
     return records;
   } finally {
     if (context) {
-      await context.close();
+      await context.close().catch(() => {});
     }
   }
+}
+
+export function isPlaywrightTargetClosedError(error) {
+  const message = String(error?.message || error || "").toLowerCase();
+  return (
+    message.includes("target page, context or browser has been closed") ||
+    message.includes("target page closed") ||
+    message.includes("target closed") ||
+    message.includes("page has been closed") ||
+    message.includes("context has been closed") ||
+    message.includes("browser has been closed")
+  );
+}
+
+function searchCardNotFoundError(message) {
+  const error = new Error(message);
+  error.code = "XIAOHONGSHU_CARD_NOT_FOUND";
+  return error;
+}
+
+function isSearchCardNotFoundError(error) {
+  return error?.code === "XIAOHONGSHU_CARD_NOT_FOUND";
+}
+
+function detailOpenFailedError(message, reason = "detail_not_detected") {
+  const error = new Error(message);
+  error.code = "XIAOHONGSHU_DETAIL_OPEN_FAILED";
+  error.reason = reason;
+  return error;
+}
+
+function isDetailOpenFailedError(error) {
+  return error?.code === "XIAOHONGSHU_DETAIL_OPEN_FAILED";
 }
 
 export function isPersistentProfileLaunchConflict(error) {
@@ -277,13 +350,230 @@ export function isPersistentProfileLaunchConflict(error) {
   );
 }
 
-async function collectDetailRecords({ context, searchPage, request, assetsPath, events, posts }) {
+export async function collectWaterfallRecords({
+  context,
+  searchPage,
+  request,
+  assetsPath,
+  events,
+  initialPosts = [],
+}) {
+  const maxPosts = Math.max(1, Number(request.max_posts ?? 5));
+  const checkpointPath = checkpointPathForAssets(assetsPath);
+  const checkpoint = await readCheckpoint(checkpointPath, request);
+  const records = [];
+  const pending = [];
+  const queuedIds = new Set();
+  const collectedIds = new Set(checkpoint.collected_ids || []);
+  const skippedIds = new Set(checkpoint.skipped_ids || []);
+  const failedIds = new Set(checkpoint.failed_ids || []);
+  const paceState = {
+    attemptedSinceBatchRest: Number(checkpoint.attempted_since_batch_rest || 0),
+    nextBatchRestAfter:
+      Number(checkpoint.next_batch_rest_after || 0) ||
+      randomIntFromRange(request.pace.batch_rest_after_cards_range),
+  };
+  let stagnantScrolls = 0;
+
+  const enqueuePosts = (posts, source) => {
+    let added = 0;
+    for (const post of posts) {
+      const remainingNeeded = Math.max(0, maxPosts - collectedIds.size);
+      if (pending.length >= remainingNeeded) {
+        break;
+      }
+      const postId = postIdForSearchPost(post);
+      if (
+        !postId ||
+        queuedIds.has(postId) ||
+        collectedIds.has(postId) ||
+        skippedIds.has(postId) ||
+        failedIds.has(postId)
+      ) {
+        continue;
+      }
+      pending.push(post);
+      queuedIds.add(postId);
+      added += 1;
+    }
+    if (added > 0) {
+      events.write("info", "xiaohongshu", "waterfall_cards_discovered", `瀑布流已发现 ${queuedIds.size}/${maxPosts} 条候选笔记`, {
+        run_id: request.run_id,
+        platform: request.platform,
+        source,
+        added,
+        queued: pending.length,
+        discovered: queuedIds.size,
+        requested: maxPosts,
+      });
+    }
+    return added;
+  };
+
+  enqueuePosts([...(checkpoint.pending_posts || []), ...initialPosts], "initial_view");
+
+  while (collectedIds.size < maxPosts) {
+    if (pending.length === 0) {
+      const discovered = await discoverMoreWaterfallPosts({
+        searchPage,
+        request,
+        maxPosts,
+        enqueuePosts,
+      });
+      if (discovered === 0) {
+        stagnantScrolls += 1;
+        if (stagnantScrolls >= 8) {
+          events.write(
+            "warning",
+            "xiaohongshu",
+            "waterfall_exhausted",
+            `瀑布流连续滚动未发现更多新笔记，已采集 ${collectedIds.size}/${maxPosts} 条。`,
+            {
+              run_id: request.run_id,
+              platform: request.platform,
+              collected: collectedIds.size,
+              discovered: queuedIds.size,
+              requested: maxPosts,
+            },
+          );
+          break;
+        }
+      } else {
+        stagnantScrolls = 0;
+      }
+      continue;
+    }
+
+    const searchPost = pending.shift();
+    const postId = postIdForSearchPost(searchPost);
+    if (!postId || collectedIds.has(postId)) {
+      continue;
+    }
+
+    try {
+      const detailOutcome = await collectDetailRecords({
+        context,
+        searchPage,
+        request,
+        assetsPath,
+        events,
+        posts: [searchPost],
+        startIndex: collectedIds.size,
+        total: maxPosts,
+      });
+      records.push(...detailOutcome.records);
+      if (detailOutcome.stopped) {
+        await writeCheckpoint(checkpointPath, request, {
+          collectedIds,
+          skippedIds,
+          failedIds,
+          pending,
+          paceState,
+        });
+        return {
+          records,
+          stopped: true,
+          collected: collectedIds.size,
+          discovered: queuedIds.size,
+        };
+      }
+      if (detailOutcome.skipped) {
+        skippedIds.add(postId);
+        failedIds.add(postId);
+      } else {
+        collectedIds.add(postId);
+      }
+      await writeCheckpoint(checkpointPath, request, {
+        collectedIds,
+        skippedIds,
+        failedIds,
+        pending,
+        paceState,
+      });
+      if (collectedIds.size < maxPosts) {
+        await restBetweenCards(searchPage, request, events, paceState);
+        await writeCheckpoint(checkpointPath, request, {
+          collectedIds,
+          skippedIds,
+          failedIds,
+          pending,
+          paceState,
+        });
+      }
+    } catch (error) {
+      if (Array.isArray(error.partialRecords)) {
+        records.push(...error.partialRecords);
+      }
+      await writeCheckpoint(checkpointPath, request, {
+        collectedIds,
+        skippedIds,
+        failedIds,
+        pending,
+        paceState,
+      });
+      error.partialRecords = records;
+      throw error;
+    }
+  }
+
+  await writeCheckpoint(checkpointPath, request, {
+    collectedIds,
+    skippedIds,
+    failedIds,
+    pending,
+    paceState,
+  });
+
+  return {
+    records,
+    stopped: false,
+    collected: collectedIds.size,
+    discovered: queuedIds.size,
+    skipped: skippedIds.size,
+  };
+}
+
+async function discoverMoreWaterfallPosts({ searchPage, request, maxPosts, enqueuePosts }) {
+  await scrollSearchResults(searchPage, request);
+  const rawSnapshot = await extractVisibleSnapshot(searchPage, maxPosts * 4);
+  const snapshot = {
+    ...rawSnapshot,
+    posts: normalizeSearchCards(rawSnapshot.posts, maxPosts),
+  };
+  return enqueuePosts(snapshot.posts, "scroll");
+}
+
+export async function scrollSearchResults(page, request = {}) {
+  const viewport = page.viewportSize?.() ?? { width: 1366, height: 900 };
+  const ratio = randomFloatFromRange(request.pace?.scroll_distance_viewport_range || DEFAULT_PACE.scroll_distance_viewport_range);
+  const deltaY = Math.max(180, Math.round(Math.min(viewport.height, viewport.height * ratio)));
+  await page.mouse.wheel(0, deltaY);
+  await humanWait(page, secondsRangeToMs(request.pace?.scroll_delay_range_seconds || DEFAULT_PACE.scroll_delay_range_seconds));
+  return deltaY;
+}
+
+function postIdForSearchPost(searchPost) {
+  const postUrl = canonicalPostUrl(searchPost?.url || searchPost?.href);
+  return searchPost?.postId || canonicalPostId(postUrl || searchPost?.href || "");
+}
+
+export async function collectDetailRecords({
+  context,
+  searchPage,
+  request,
+  assetsPath,
+  events,
+  posts,
+  startIndex = 0,
+  total,
+}) {
   const records = [];
   const platform = request.platform;
   const maxComments = Math.max(0, Number(request.max_comments_per_post ?? 10));
-  const postTotal = Math.max(1, posts.length);
+  const postTotal = Math.max(1, Number(total ?? posts.length));
 
   for (const [index, searchPost] of posts.entries()) {
+    const progressIndex = startIndex + index;
     const postUrl = canonicalPostUrl(searchPost.url || searchPost.href);
     const postId = searchPost.postId || `xiaohongshu:${stableFingerprint(postUrl || searchPost.text).slice(0, 16)}`;
     const stem = safeAssetStem(postId);
@@ -295,7 +585,7 @@ async function collectDetailRecords({ context, searchPage, request, assetsPath, 
         platform,
         postId,
         postUrl,
-        index,
+        index: progressIndex,
         total: postTotal,
         phase: "opening",
       });
@@ -312,9 +602,10 @@ async function collectDetailRecords({ context, searchPage, request, assetsPath, 
         searchPage,
         searchPost,
         index,
+        request,
       });
       const detailPage = detailHandle.page;
-      await quietWait(detailPage, 2500);
+      await humanWait(detailPage, [2200, 4200]);
 
       const detailStop = await detectManualAction(detailPage);
       if (detailStop) {
@@ -334,8 +625,7 @@ async function collectDetailRecords({ context, searchPage, request, assetsPath, 
       const detailScreenshotPath = join(assetsPath, `${stem}-detail.png`);
       await captureDetailScreenshot(detailPage, detailScreenshotPath);
       if (maxComments > 0) {
-        await detailPage.mouse.wheel(0, 650);
-        await quietWait(detailPage, 1200);
+        await scrollDetailPage(detailPage, request);
         await expandVisibleCommentReplies(detailPage, Math.min(maxComments, 6));
       }
       const detail = normalizeDetailSnapshot(await extractDetailSnapshot(detailPage, maxComments));
@@ -375,6 +665,16 @@ async function collectDetailRecords({ context, searchPage, request, assetsPath, 
           payload: { post_id: postId, url: postUrl, comments: detail.comments.length, media_scope: "detail_container" },
         }),
       );
+      records.push(
+        ...(await captureVisibleMediaScreenshots({
+          page: detailPage,
+          request,
+          assetsPath,
+          stem,
+          postId,
+          events,
+        })),
+      );
 
       for (const [commentIndex, comment] of detail.comments.entries()) {
         if (!comment.content) {
@@ -395,39 +695,12 @@ async function collectDetailRecords({ context, searchPage, request, assetsPath, 
         });
       }
 
-      const imageUrls = uniqueMediaUrls([...detail.images, searchPost.image]).filter((url) => /^https?:|^data:image\//.test(url));
-      for (const [imageIndex, imageUrl] of imageUrls.entries()) {
-        const assetId = `${stem}-image-${imageIndex + 1}`;
-        try {
-          const asset = await downloadImage(detailPage, imageUrl, assetsPath, assetId);
-          records.push({
-            type: "media_asset",
-            run_id: request.run_id,
-            platform,
-            asset_id: assetId,
-            post_id: postId,
-            media_type: "image",
-            path: asset.path,
-            mime_type: asset.mime_type,
-            sha256: asset.sha256,
-            url: imageUrl,
-          });
-        } catch (error) {
-          events.write("warning", "xiaohongshu", "media_download_failed", "图片下载失败，已跳过该素材", {
-            run_id: request.run_id,
-            platform,
-            post_id: postId,
-            url: imageUrl,
-            error: error.message,
-          });
-        }
-      }
       const collectedPayload = postProgressPayload({
         request,
         platform,
         postId,
         postUrl,
-        index,
+        index: progressIndex,
         total: postTotal,
         phase: "collected",
       });
@@ -453,7 +726,68 @@ async function collectDetailRecords({ context, searchPage, request, assetsPath, 
           }),
         );
       }
-      const wrapped = new Error(`小红书详情页采集失败：第 ${index + 1} 条笔记，${error.message}`);
+      if (isPlaywrightTargetClosedError(error)) {
+        const collectedPosts = startIndex + records.filter((record) => record.type === "post").length;
+        events.write(
+          "warning",
+          "xiaohongshu",
+          "manual_action_required",
+          `浏览器或详情页在第 ${index + 1}/${postTotal} 条采集时已关闭，已保留 ${collectedPosts} 条已采集笔记；请确认窗口状态后继续采集或重新运行。`,
+          {
+            run_id: request.run_id,
+            platform,
+            reason: "browser_closed_mid_run",
+            post_id: postId,
+            url: postUrl,
+            post_index: index + 1,
+            post_total: postTotal,
+            collected_posts: collectedPosts,
+            error: error.message,
+          },
+        );
+        return { records, stopped: true };
+      }
+      if (isSearchCardNotFoundError(error)) {
+        const collectedPosts = startIndex + records.filter((record) => record.type === "post").length;
+        events.write(
+          "warning",
+          "xiaohongshu",
+          "manual_action_required",
+          `瀑布流定位第 ${progressIndex + 1}/${postTotal} 条时未能找回目标卡片，已保留 ${collectedPosts} 条本轮已采笔记；请检查搜索页后继续或重跑。`,
+          {
+            run_id: request.run_id,
+            platform,
+            reason: "waterfall_target_missing",
+            post_id: postId,
+            url: postUrl,
+            post_index: progressIndex + 1,
+            post_total: postTotal,
+            collected_posts: collectedPosts,
+            error: error.message,
+          },
+        );
+        return { records, stopped: true };
+      }
+      if (isDetailOpenFailedError(error)) {
+        events.write(
+          "warning",
+          "xiaohongshu",
+          "detail_open_skipped",
+          `第 ${progressIndex + 1}/${postTotal} 条笔记详情未能打开，已记录证据并继续采集后续笔记。`,
+          {
+            run_id: request.run_id,
+            platform,
+            reason: error.reason || "detail_not_detected",
+            post_id: postId,
+            url: postUrl,
+            post_index: progressIndex + 1,
+            post_total: postTotal,
+            error: error.message,
+          },
+        );
+        return { records, stopped: false, skipped: true };
+      }
+      const wrapped = new Error(`小红书详情页采集失败：第 ${progressIndex + 1} 条笔记，${error.message}`);
       wrapped.code = error.code ?? "XIAOHONGSHU_DETAIL_FAILED";
       wrapped.partialRecords = records;
       throw wrapped;
@@ -482,71 +816,165 @@ export function postProgressPayload({ request, platform, postId, postUrl, index,
   };
 }
 
-export async function openDetailFromSearchCard({ context, searchPage, searchPost, index }) {
-  const locator = await findSearchCardLocator(searchPage, searchPost, index);
-  if (!locator) {
-    throw new Error("未找到可点击的小红书笔记卡片，已停止直接 URL 访问以避免触发风控。");
-  }
-
+export async function openDetailFromSearchCard({ context, searchPage, searchPost, index, request = {} }) {
   const browserContext = context || searchPage.context?.();
-  const popupPromise = searchPage.waitForEvent
-    ? searchPage.waitForEvent("popup", { timeout: 8000 }).catch(() => null)
-    : browserContext?.waitForEvent
+  let lastReason = "detail_not_detected";
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const locator = await findSearchCardLocator(searchPage, searchPost, index, request);
+    if (!locator) {
+      throw new Error("未找到可点击的小红书笔记卡片，已停止直接 URL 访问以避免触发风控。");
+    }
+
+    const beforeUrl = searchPage.url();
+    const beforePages = browserContext?.pages ? new Set(browserContext.pages()) : new Set();
+    const popupPromise = searchPage.waitForEvent
+      ? searchPage.waitForEvent("popup", { timeout: 8000 }).catch(() => null)
+      : Promise.resolve(null);
+    const contextPagePromise = browserContext?.waitForEvent
       ? browserContext.waitForEvent("page", { timeout: 8000 }).catch(() => null)
       : Promise.resolve(null);
-  const beforeUrl = searchPage.url();
-  await humanMouseClickLocator(searchPage, locator);
-  const popup = await popupPromise;
-  if (popup) {
-    await popup.waitForLoadState("domcontentloaded", { timeout: 12_000 }).catch(() => {});
-    return { page: popup, mode: "popup", searchPage };
-  }
 
-  await searchPage.waitForLoadState("domcontentloaded", { timeout: 8000 }).catch(() => {});
-  await searchPage.waitForTimeout(1500);
-  const afterUrl = searchPage.url();
-  if (afterUrl !== beforeUrl || (await hasDetailContainer(searchPage))) {
-    return { page: searchPage, mode: "same_page", searchPage, beforeUrl };
-  }
+    await humanMouseClickLocator(searchPage, locator);
+    const popup = await firstOpenedPage([popupPromise, contextPagePromise]);
+    if (popup) {
+      await popup.waitForLoadState("domcontentloaded", { timeout: 12_000 }).catch(() => {});
+      return { page: popup, mode: "popup", searchPage };
+    }
 
-  const fallbackPage = browserContext?.pages
-    ? browserContext.pages().find((page) => page !== searchPage && page.url() !== beforeUrl)
-    : null;
-  if (fallbackPage) {
-    await fallbackPage.waitForLoadState("domcontentloaded", { timeout: 8000 }).catch(() => {});
-    return { page: fallbackPage, mode: "context_page", searchPage };
-  }
+    await searchPage.waitForLoadState("domcontentloaded", { timeout: 8000 }).catch(() => {});
+    await humanWait(searchPage, [1400, 2600]);
+    const afterUrl = searchPage.url();
+    if (afterUrl !== beforeUrl || (await hasDetailContainer(searchPage))) {
+      return { page: searchPage, mode: "same_page", searchPage, beforeUrl };
+    }
 
-  throw new Error("点击笔记卡片后未检测到详情页或弹窗。");
-}
+    const fallbackPage = browserContext?.pages
+      ? browserContext
+          .pages()
+          .find((page) => page !== searchPage && !beforePages.has(page) && safePageUrl(page) !== beforeUrl)
+      : null;
+    if (fallbackPage) {
+      await fallbackPage.waitForLoadState("domcontentloaded", { timeout: 8000 }).catch(() => {});
+      return { page: fallbackPage, mode: "context_page", searchPage };
+    }
 
-async function findSearchCardLocator(page, searchPost, index) {
-  const rawId = String(searchPost?.postId || "").replace(/^xiaohongshu:/, "");
-  const selectors = [];
-  const expectedIds = new Set();
-  if (rawId) {
-    expectedIds.add(rawId);
-    selectors.push(`a[href*="/search_result/${cssEscape(rawId)}"]`);
-    selectors.push(`a[href*="/explore/${cssEscape(rawId)}"]`);
-    selectors.push(`a[href*="${cssEscape(rawId)}"]`);
-    selectors.push(`.note-item:has(a[href*="${cssEscape(rawId)}"])`);
-    selectors.push(`.feeds-page .note-card:has(a[href*="${cssEscape(rawId)}"])`);
-    selectors.push(`section:has(a[href*="${cssEscape(rawId)}"])`);
-    selectors.push(`article:has(a[href*="${cssEscape(rawId)}"])`);
-  }
-  if (searchPost?.href) {
-    const hrefId = String(searchPost.href).match(/(?:\/(?:explore|search_result)\/)([A-Za-z0-9_-]{6,})/)?.[1];
-    if (hrefId && hrefId !== rawId) {
-      expectedIds.add(hrefId);
-      selectors.push(`a[href*="/search_result/${cssEscape(hrefId)}"]`);
-      selectors.push(`a[href*="/explore/${cssEscape(hrefId)}"]`);
-      selectors.push(`a[href*="${cssEscape(hrefId)}"]`);
-      selectors.push(`.note-item:has(a[href*="${cssEscape(hrefId)}"])`);
-      selectors.push(`.feeds-page .note-card:has(a[href*="${cssEscape(hrefId)}"])`);
+    const noteOpenFailure = await detectNoteOpenFailure(searchPage);
+    lastReason = noteOpenFailure || "detail_not_detected";
+    if (attempt < 1) {
+      if (searchPage.keyboard?.press) {
+        await searchPage.keyboard.press("Escape").catch(() => {});
+      }
+      await humanWait(searchPage, [1200, 2600]);
+      continue;
     }
   }
 
-  for (const selector of selectors) {
+  if (lastReason === "note_load_failed") {
+    throw detailOpenFailedError("点击笔记卡片后小红书提示笔记加载失败。", lastReason);
+  }
+  throw detailOpenFailedError("点击笔记卡片后未检测到详情页或弹窗。", lastReason);
+}
+
+async function firstOpenedPage(promises) {
+  try {
+    return await Promise.any(
+      promises.map((promise) =>
+        promise
+          .then((page) => {
+            if (page) {
+              return page;
+            }
+            throw new Error("No opened page");
+          })
+          .catch((error) => {
+            throw error;
+          }),
+      ),
+    );
+  } catch {
+    return null;
+  }
+}
+
+function safePageUrl(page) {
+  try {
+    return page.url();
+  } catch {
+    return "";
+  }
+}
+
+async function detectNoteOpenFailure(page) {
+  try {
+    const text = await visibleTextForSelectors(page, [
+      "[class*='toast']",
+      "[class*='message']",
+      "[class*='notify']",
+      "[role='alert']",
+      "body",
+    ], 3000);
+    if (/笔记加载失败|加载失败|内容不存在|已删除|无法查看|暂时无法浏览/.test(text)) {
+      return "note_load_failed";
+    }
+  } catch {
+    return "";
+  }
+  return "";
+}
+
+async function findSearchCardLocator(page, searchPost, index, request = {}) {
+  const expectedIds = expectedSearchCardIds(searchPost);
+  const expectedLocator = await findExpectedSearchCardLocator(page, expectedIds);
+  if (expectedLocator) {
+    return expectedLocator;
+  }
+
+  if (expectedIds.size) {
+    const recoveredLocator = await scrollToSearchCardLocator(page, expectedIds, searchPost, request);
+    if (recoveredLocator) {
+      return recoveredLocator;
+    }
+    throw searchCardNotFoundError(
+      `未找到与 ${Array.from(expectedIds).join(", ")} 匹配的可点击笔记卡片，搜索页可能已经离开原结果页或瀑布流未继续加载，已停止按序号兜底以避免采错帖子。`,
+    );
+  }
+
+  const cardIndex = Number.isInteger(searchPost?.cardIndex) ? searchPost.cardIndex : index;
+  return indexedClickableLocator(page, ".note-item, .feeds-page .note-card, section, article", cardIndex);
+}
+
+function expectedSearchCardIds(searchPost) {
+  const ids = new Set();
+  const rawId = String(searchPost?.postId || "").replace(/^xiaohongshu:/, "");
+  if (rawId) {
+    ids.add(rawId);
+  }
+  for (const value of [searchPost?.href, searchPost?.url]) {
+    const hrefId = String(value || "").match(/(?:\/(?:explore|search_result)\/)([A-Za-z0-9_-]{6,})/)?.[1];
+    if (hrefId) {
+      ids.add(hrefId);
+    }
+  }
+  return ids;
+}
+
+function searchCardSelectorsForIds(expectedIds) {
+  const selectors = [];
+  for (const id of expectedIds) {
+    selectors.push(`a[href*="/search_result/${cssEscape(id)}"]`);
+    selectors.push(`a[href*="/explore/${cssEscape(id)}"]`);
+    selectors.push(`a[href*="${cssEscape(id)}"]`);
+    selectors.push(`.note-item:has(a[href*="${cssEscape(id)}"])`);
+    selectors.push(`.feeds-page .note-card:has(a[href*="${cssEscape(id)}"])`);
+    selectors.push(`section:has(a[href*="${cssEscape(id)}"])`);
+    selectors.push(`article:has(a[href*="${cssEscape(id)}"])`);
+  }
+  return selectors;
+}
+
+async function findExpectedSearchCardLocator(page, expectedIds) {
+  for (const selector of searchCardSelectorsForIds(expectedIds)) {
     const locator = await firstClickableLocator(page, selector, {
       minimumSize: selector.startsWith("a[href") ? 10 : 80,
     });
@@ -554,15 +982,19 @@ async function findSearchCardLocator(page, searchPost, index) {
       return locator;
     }
   }
+  return null;
+}
 
-  if (expectedIds.size) {
-    throw new Error(
-      `未找到与 ${Array.from(expectedIds).join(", ")} 匹配的可点击笔记卡片，搜索页可能已经离开原结果页，已停止按序号兜底以避免采错帖子。`,
-    );
+async function scrollToSearchCardLocator(page, expectedIds, searchPost, request = {}) {
+  const maxScrolls = Math.max(1, Number(request.pace?.max_relocate_scrolls || DEFAULT_PACE.max_relocate_scrolls));
+  for (let attempt = 0; attempt < maxScrolls; attempt += 1) {
+    await scrollSearchResults(page, request);
+    const locator = await findExpectedSearchCardLocator(page, expectedIds);
+    if (locator) {
+      return locator;
+    }
   }
-
-  const cardIndex = Number.isInteger(searchPost?.cardIndex) ? searchPost.cardIndex : index;
-  return indexedClickableLocator(page, ".note-item, .feeds-page .note-card, section, article", cardIndex);
+  return null;
 }
 
 async function firstClickableLocator(page, selector, { minimumSize = 10 } = {}) {
@@ -629,17 +1061,17 @@ async function isClickableLocator(page, locator, { minimumSize }) {
 
 async function humanMouseClickLocator(page, locator) {
   await locator.scrollIntoViewIfNeeded({ timeout: 5000 }).catch(() => {});
-  await page.waitForTimeout(350);
+  await humanWait(page, [250, 900]);
   const point = await findSafeClickPoint(page, locator, { allowReposition: true });
   if (!point) {
     throw new Error("小红书笔记卡片不可见，无法模拟点击。");
   }
   const { x, y } = point;
   await page.mouse.move(x - 18, y - 10, { steps: 8 });
-  await page.waitForTimeout(180);
+  await humanWait(page, [120, 360]);
   await page.mouse.move(x, y, { steps: 10 });
-  await page.waitForTimeout(160);
-  await page.mouse.click(x, y, { delay: 95 });
+  await humanWait(page, [120, 360]);
+  await page.mouse.click(x, y, { delay: randomInt(80, 180) });
 }
 
 async function findSafeClickPoint(page, locator, { allowReposition = false } = {}) {
@@ -664,60 +1096,13 @@ async function findSafeClickPoint(page, locator, { allowReposition = false } = {
     } else {
       return null;
     }
-    await page.mouse.wheel(0, deltaY);
-    await page.waitForTimeout(550);
+    await page.mouse.wheel(0, deltaY + randomInt(-40, 40));
+    await humanWait(page, [450, 900]);
   }
   return null;
 }
 
 async function locatorHitTestPoint(locator) {
-  if (locator.evaluate) {
-    const point = await locator.evaluate((element) => {
-      const rect = element.getBoundingClientRect();
-      if (!rect || rect.width <= 0 || rect.height <= 0) {
-        return null;
-      }
-
-      const topGuard = 120;
-      const margin = 8;
-      const ownAnchor = element.matches?.("a[href]") ? element : element.closest?.("a[href]");
-      const descendantAnchor = element.querySelector?.("a[href]");
-      const targetHref = ownAnchor?.href || descendantAnchor?.href || "";
-      const candidates = [
-        [rect.x + rect.width * 0.5, rect.y + rect.height * 0.5, "center"],
-        [rect.x + rect.width * 0.5, rect.y + Math.min(rect.height - margin, 32), "upper"],
-        [rect.x + rect.width * 0.5, rect.y + Math.max(margin, rect.height - 32), "lower"],
-        [rect.x + Math.min(rect.width - margin, 32), rect.y + rect.height * 0.5, "left_center"],
-      ];
-
-      for (const [x, y, label] of candidates) {
-        if (x < margin || x > window.innerWidth - margin || y < topGuard || y > window.innerHeight - margin) {
-          continue;
-        }
-        const hit = document.elementFromPoint(x, y);
-        if (!hit) {
-          continue;
-        }
-        const hitAnchor = hit.closest?.("a[href]");
-        const hrefMatches = Boolean(targetHref && hitAnchor?.href === targetHref);
-        const elementOwnsHit = element === hit || element.contains(hit);
-        if (hrefMatches || elementOwnsHit) {
-          return {
-            x,
-            y,
-            label,
-            href: hitAnchor?.href || targetHref,
-            hitClass: String(hit.className || ""),
-          };
-        }
-      }
-      return null;
-    }).catch(() => null);
-    if (point) {
-      return point;
-    }
-  }
-
   const box = await locator.boundingBox().catch(() => null);
   if (!box) {
     return null;
@@ -753,24 +1138,14 @@ export async function closeDetailAfterCollection(handle) {
   if (handle.page.keyboard?.press) {
     await handle.page.keyboard.press("Escape").catch(() => {});
   }
-  if (handle.page.waitForTimeout) {
-    await handle.page.waitForTimeout(1000).catch(() => {});
-  }
+  await humanWait(handle.page, [900, 1800]).catch(() => {});
   if (beforeUrl && (await isBackOnExpectedSearchPage(handle.page, beforeUrl))) {
     return;
   }
   if (handle.page.goBack) {
     await handle.page.goBack({ waitUntil: "domcontentloaded", timeout: 8000 }).catch(() => {});
   }
-  if (handle.page.waitForTimeout) {
-    await handle.page.waitForTimeout(1000).catch(() => {});
-  }
-  if (beforeUrl && !(await isBackOnExpectedSearchPage(handle.page, beforeUrl)) && handle.page.goto) {
-    await handle.page.goto(beforeUrl, { waitUntil: "domcontentloaded", timeout: 12_000 }).catch(() => {});
-    if (handle.page.waitForTimeout) {
-      await handle.page.waitForTimeout(1200).catch(() => {});
-    }
-  }
+  await humanWait(handle.page, [900, 1800]).catch(() => {});
 }
 
 async function isBackOnExpectedSearchPage(page, beforeUrl) {
@@ -814,7 +1189,7 @@ export async function expandVisibleCommentReplies(page, maxExpansions = 4) {
       await humanMouseClickLocator(page, candidate);
       clicked += 1;
       clickedThisPass = true;
-      await page.waitForTimeout(900);
+      await humanWait(page, [900, 1800]);
       break;
     }
     if (!clickedThisPass) {
@@ -825,7 +1200,7 @@ export async function expandVisibleCommentReplies(page, maxExpansions = 4) {
 }
 
 export async function captureDetailScreenshot(page, path) {
-  const viewport = page.viewportSize() ?? { width: 1366, height: 900 };
+  const viewport = page.viewportSize?.() ?? { width: 1366, height: 900 };
   const selectors = [
     "#noteContainer",
     ".note-detail-mask .note-container",
@@ -899,39 +1274,442 @@ async function quietWait(page, milliseconds) {
   await page.waitForTimeout(milliseconds);
 }
 
-export async function detectManualAction(page) {
-  const state = await page.evaluate(() => {
-    const bodyText = document.body?.innerText ?? "";
-    const isVisible = (element) => {
-      const rect = element.getBoundingClientRect();
-      const style = window.getComputedStyle(element);
-      return rect.width >= 120 && rect.height >= 80 && style.visibility !== "hidden" && style.display !== "none";
-    };
-    const blockingText = Array.from(
-      document.querySelectorAll("[role='dialog'], [class*='login'], [class*='captcha'], [class*='verify'], [class*='modal']"),
-    )
-      .filter(isVisible)
-      .map((element) => element.innerText || element.textContent || "")
-      .filter(Boolean)
-      .join("\n")
-      .slice(0, 4000);
-    return {
-      url: location.href,
-      title: document.title,
-      text: bodyText.slice(0, 8000),
-      blockingText,
-      hasDetailContainer: Boolean(document.querySelector("#noteContainer, .note-detail-mask, .note-container, .note-detail")),
-    };
+function normalizePace(pace = {}) {
+  return {
+    ...DEFAULT_PACE,
+    ...pace,
+    detail_delay_range_seconds: numericRange(pace.detail_delay_range_seconds, DEFAULT_PACE.detail_delay_range_seconds),
+    scroll_delay_range_seconds: numericRange(pace.scroll_delay_range_seconds, DEFAULT_PACE.scroll_delay_range_seconds),
+    scroll_distance_viewport_range: numericRange(pace.scroll_distance_viewport_range, DEFAULT_PACE.scroll_distance_viewport_range),
+    batch_rest_after_cards_range: numericRange(pace.batch_rest_after_cards_range, DEFAULT_PACE.batch_rest_after_cards_range),
+    batch_rest_seconds_range: numericRange(pace.batch_rest_seconds_range, DEFAULT_PACE.batch_rest_seconds_range),
+    click_delay_range_ms: numericRange(pace.click_delay_range_ms, DEFAULT_PACE.click_delay_range_ms),
+    detail_scroll_distance_viewport_range: numericRange(
+      pace.detail_scroll_distance_viewport_range,
+      DEFAULT_PACE.detail_scroll_distance_viewport_range,
+    ),
+    max_relocate_scrolls: Math.max(1, Number(pace.max_relocate_scrolls || DEFAULT_PACE.max_relocate_scrolls)),
+    max_screenshot_media_per_post: Math.max(
+      0,
+      Number(pace.max_screenshot_media_per_post ?? DEFAULT_PACE.max_screenshot_media_per_post),
+    ),
+  };
+}
+
+function numericRange(value, fallback) {
+  if (!Array.isArray(value) || value.length < 2) {
+    return [...fallback];
+  }
+  const left = Number(value[0]);
+  const right = Number(value[1]);
+  if (!Number.isFinite(left) || !Number.isFinite(right)) {
+    return [...fallback];
+  }
+  return [Math.min(left, right), Math.max(left, right)];
+}
+
+function secondsRangeToMs(range) {
+  const normalized = numericRange(range, [0, 0]);
+  return [Math.round(normalized[0] * 1000), Math.round(normalized[1] * 1000)];
+}
+
+function randomInt(min, max) {
+  const left = Math.ceil(Math.min(Number(min), Number(max)));
+  const right = Math.floor(Math.max(Number(min), Number(max)));
+  if (!Number.isFinite(left) || !Number.isFinite(right)) {
+    return 0;
+  }
+  return left + Math.floor(Math.random() * (right - left + 1));
+}
+
+function randomIntFromRange(range) {
+  const normalized = numericRange(range, [0, 0]);
+  return randomInt(normalized[0], normalized[1]);
+}
+
+function randomFloatFromRange(range) {
+  const normalized = numericRange(range, [0, 0]);
+  return normalized[0] + Math.random() * (normalized[1] - normalized[0]);
+}
+
+async function humanWait(page, millisecondsRange) {
+  const delay = randomIntFromRange(millisecondsRange);
+  if (delay > 0) {
+    await page.waitForTimeout(delay);
+  }
+  return delay;
+}
+
+async function performSearchFromHome(page, request, events) {
+  const keyword = String(request.keyword || "").trim();
+  if (!keyword) {
+    return;
+  }
+  const input = await firstUsableLocator(page, [
+    "input[placeholder*='搜索']",
+    "input[type='search']",
+    "input[aria-label*='搜索']",
+    "input",
+  ]);
+  if (!input) {
+    throw new Error("未找到小红书搜索输入框，已停止直接 URL 搜索访问。");
+  }
+  await humanMouseClickLocator(page, input);
+  await input.fill("").catch(() => {});
+  await humanWait(page, [250, 900]);
+  if (input.pressSequentially) {
+    await input.pressSequentially(keyword, { delay: randomInt(60, 180) });
+  } else {
+    await input.fill(keyword);
+  }
+  await humanWait(page, [300, 1200]);
+  await input.press("Enter").catch(async () => {
+    if (page.keyboard?.press) {
+      await page.keyboard.press("Enter");
+    }
   });
+  events.write("info", "xiaohongshu", "search_submitted", "已通过页面搜索框提交关键词", {
+    run_id: request.run_id,
+    platform: request.platform,
+    keyword,
+    access_policy: request.access_policy,
+  });
+}
+
+async function firstUsableLocator(pageOrLocator, selectors, { minimumSize = 8 } = {}) {
+  for (const selector of selectors) {
+    try {
+      const collection = pageOrLocator.locator(selector);
+      const count = await safeLocatorCount(collection);
+      for (let index = 0; index < Math.min(count, 20); index += 1) {
+        const locator = collection.nth(index);
+        const box = await locator.boundingBox().catch(() => null);
+        if (box && box.width >= minimumSize && box.height >= minimumSize) {
+          return locator;
+        }
+      }
+    } catch {
+      // Try the next selector.
+    }
+  }
+  return null;
+}
+
+async function safeLocatorCount(locator) {
+  try {
+    return locator?.count ? await locator.count() : 0;
+  } catch {
+    return 0;
+  }
+}
+
+async function safeLocatorText(locator, limit = 4000) {
+  try {
+    const text = locator?.innerText ? await locator.innerText({ timeout: 1000 }) : "";
+    return normalizeWhitespace(text).slice(0, limit);
+  } catch {
+    try {
+      const text = locator?.textContent ? await locator.textContent({ timeout: 1000 }) : "";
+      return normalizeWhitespace(text).slice(0, limit);
+    } catch {
+      return "";
+    }
+  }
+}
+
+async function safeLocatorAttribute(locator, name) {
+  try {
+    return normalizeWhitespace((await locator.getAttribute(name, { timeout: 1000 })) || "");
+  } catch {
+    return "";
+  }
+}
+
+async function firstVisibleText(root, selectors, limit = 1000) {
+  for (const selector of selectors) {
+    try {
+      const collection = root.locator(selector);
+      const count = await safeLocatorCount(collection);
+      for (let index = 0; index < Math.min(count, 10); index += 1) {
+        const locator = collection.nth(index);
+        const box = await locator.boundingBox().catch(() => null);
+        if (!box || box.width < 1 || box.height < 1) {
+          continue;
+        }
+        const text = await safeLocatorText(locator, limit);
+        if (text) {
+          return text;
+        }
+      }
+    } catch {
+      // Try the next selector.
+    }
+  }
+  return "";
+}
+
+async function visibleTextForSelectors(page, selectors, limit = 8000, { minimumSize = 1 } = {}) {
+  const chunks = [];
+  for (const selector of selectors) {
+    try {
+      const collection = page.locator(selector);
+      const count = await safeLocatorCount(collection);
+      for (let index = 0; index < Math.min(count, 12); index += 1) {
+        const locator = collection.nth(index);
+        const box = await locator.boundingBox().catch(() => null);
+        if (!box || box.width < minimumSize || box.height < minimumSize) {
+          continue;
+        }
+        const text = await safeLocatorText(locator, limit);
+        if (text) {
+          chunks.push(text);
+        }
+      }
+    } catch {
+      // Try the next selector.
+    }
+  }
+  return chunks.join("\n").slice(0, limit);
+}
+
+async function safePageTitle(page) {
+  try {
+    return await page.title();
+  } catch {
+    return "";
+  }
+}
+
+async function detailRootLocator(page) {
+  return (
+    (await firstUsableLocator(page, ["#noteContainer", ".note-detail-mask .note-container", ".note-container", ".note-detail", "main"], {
+      minimumSize: 120,
+    })) || page.locator("body")
+  );
+}
+
+async function extractInteractionMetrics(root) {
+  const selectors = [
+    "button",
+    "[role='button']",
+    "[class*='like']",
+    "[class*='collect']",
+    "[class*='favorite']",
+    "[class*='comment']",
+    "[class*='chat']",
+    "[class*='interact'] span",
+    "[class*='engage'] span",
+    "[class*='bottom'] span",
+  ];
+  const collection = root.locator(selectors.join(","));
+  const count = await safeLocatorCount(collection);
+  const metrics = [];
+  const seen = new Set();
+  for (let index = 0; index < Math.min(count, 80); index += 1) {
+    const locator = collection.nth(index);
+    const box = await locator.boundingBox().catch(() => null);
+    if (!box || box.width < 1 || box.height < 1) {
+      continue;
+    }
+    const text = await safeLocatorText(locator, 500);
+    const label = (await safeLocatorAttribute(locator, "aria-label")) || (await safeLocatorAttribute(locator, "title"));
+    const className = await safeLocatorAttribute(locator, "class");
+    const role = normalizeMetricRole(`${className} ${label} ${text}`).replace(/s$/, "");
+    if (!role) {
+      continue;
+    }
+    const key = `${role}\n${text}\n${label}\n${className}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    metrics.push({ role, text, label, className });
+  }
+  return metrics;
+}
+
+async function extractVisibleComments(root, maxComments) {
+  const limit = Math.max(0, Number(maxComments || 0));
+  if (limit <= 0) {
+    return [];
+  }
+  const collection = root.locator(".comment-item, [class*='comment-item'], [class*='reply-item']");
+  const count = await safeLocatorCount(collection);
+  const comments = [];
+  for (let index = 0; index < count && comments.length < limit; index += 1) {
+    const locator = collection.nth(index);
+    const box = await locator.boundingBox().catch(() => null);
+    if (!box || box.width < 80 || box.height < 12) {
+      continue;
+    }
+    const rawText = await safeLocatorText(locator, 2000);
+    if (rawText.length < 2) {
+      continue;
+    }
+    const author = await firstVisibleText(locator, ["[class*='author']", "[class*='name']", "a[href*='/user/profile']"], 160);
+    const content =
+      (await firstVisibleText(locator, ["[class*='content']", "[class*='text']", "p"], 1200)) ||
+      rawText
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .find((line) => line && line !== author) ||
+      "";
+    const likeText = await firstVisibleText(locator, ["[class*='like']", "[class*='count']"], 160);
+    const replyTo = await firstVisibleText(locator, ["[class*='reply-to']", "[class*='replyTarget']", "[class*='target']"], 160);
+    const className = await safeLocatorAttribute(locator, "class");
+    comments.push({
+      author,
+      content,
+      likeText,
+      rawText,
+      commentType: replyTo || /reply/i.test(className) || /回复/.test(className) ? "reply" : "comment",
+      replyTo,
+    });
+  }
+  return comments;
+}
+
+async function scrollDetailPage(page, request = {}) {
+  const viewport = page.viewportSize?.() ?? { width: 1366, height: 900 };
+  const ratio = randomFloatFromRange(
+    request.pace?.detail_scroll_distance_viewport_range || DEFAULT_PACE.detail_scroll_distance_viewport_range,
+  );
+  const deltaY = Math.max(120, Math.round(viewport.height * ratio));
+  await page.mouse.wheel(0, deltaY);
+  await humanWait(page, [900, 1800]);
+}
+
+export async function captureVisibleMediaScreenshots({ page, request, assetsPath, stem, postId, events }) {
+  if (request.media_policy !== "visible_screenshot") {
+    return [];
+  }
+  const root = await detailRootLocator(page);
+  const images = root.locator("img");
+  const count = await safeLocatorCount(images);
+  const limit = Math.min(count, Number(request.pace?.max_screenshot_media_per_post || DEFAULT_PACE.max_screenshot_media_per_post));
+  const records = [];
+  for (let index = 0; index < limit; index += 1) {
+    const image = images.nth(index);
+    const box = await image.boundingBox().catch(() => null);
+    if (!box || box.width < 120 || box.height < 90) {
+      continue;
+    }
+    const assetId = `${stem}-visible-image-${records.length + 1}`;
+    const path = join(assetsPath, `${assetId}.png`);
+    try {
+      await image.screenshot({ path, timeout: 5000 });
+      const body = await readFile(path);
+      records.push({
+        type: "media_asset",
+        run_id: request.run_id,
+        platform: request.platform,
+        asset_id: assetId,
+        post_id: postId,
+        media_type: "image",
+        path,
+        mime_type: "image/png",
+        sha256: createHash("sha256").update(body).digest("hex"),
+        url: "",
+        source: "visible_screenshot",
+      });
+    } catch (error) {
+      events.write("warning", "xiaohongshu", "media_screenshot_failed", "可见图片局部截图失败，已保留详情页截图", {
+        run_id: request.run_id,
+        platform: request.platform,
+        post_id: postId,
+        asset_id: assetId,
+        error: error.message,
+      });
+    }
+  }
+  return records;
+}
+
+export async function restBetweenCards(page, request, events, paceState) {
+  const detailDelay = await humanWait(page, secondsRangeToMs(request.pace.detail_delay_range_seconds));
+  events.write("info", "xiaohongshu", "collector_pace_wait", "详情之间已按人类节奏等待", {
+    run_id: request.run_id,
+    platform: request.platform,
+    wait_ms: detailDelay,
+    reason: "detail_interval",
+  });
+  paceState.attemptedSinceBatchRest += 1;
+  if (paceState.attemptedSinceBatchRest < paceState.nextBatchRestAfter) {
+    return;
+  }
+  const restDelay = await humanWait(page, secondsRangeToMs(request.pace.batch_rest_seconds_range));
+  events.write("info", "xiaohongshu", "collector_batch_rest", "小批量采集后已大停等待", {
+    run_id: request.run_id,
+    platform: request.platform,
+    wait_ms: restDelay,
+    after_cards: paceState.attemptedSinceBatchRest,
+  });
+  paceState.attemptedSinceBatchRest = 0;
+  paceState.nextBatchRestAfter = randomIntFromRange(request.pace.batch_rest_after_cards_range);
+}
+
+function checkpointPathForAssets(assetsPath) {
+  return join(dirname(assetsPath), "checkpoint.json");
+}
+
+async function readCheckpoint(path, request) {
+  if (request.checkpoint_enabled === false) {
+    return {};
+  }
+  try {
+    const payload = JSON.parse(await readFile(path, "utf8"));
+    if (payload?.run_id !== request.run_id || payload?.platform !== request.platform) {
+      return {};
+    }
+    return payload;
+  } catch {
+    return {};
+  }
+}
+
+async function writeCheckpoint(path, request, { collectedIds, skippedIds, failedIds, pending, paceState }) {
+  if (request.checkpoint_enabled === false) {
+    return;
+  }
+  const payload = {
+    run_id: request.run_id,
+    platform: request.platform,
+    profile: request.profile,
+    keyword: request.keyword,
+    updated_at: new Date().toISOString(),
+    collected_ids: Array.from(collectedIds),
+    skipped_ids: Array.from(skippedIds),
+    failed_ids: Array.from(failedIds),
+    pending_posts: pending.slice(0, Math.max(0, Number(request.max_posts || 0))),
+    attempted_since_batch_rest: paceState.attemptedSinceBatchRest,
+    next_batch_rest_after: paceState.nextBatchRestAfter,
+  };
+  await writeFile(path, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+}
+
+export async function detectManualAction(page) {
+  const state = {
+    url: safePageUrl(page),
+    title: await safePageTitle(page),
+    text: await visibleTextForSelectors(page, ["body"], 8000),
+    blockingText: await visibleTextForSelectors(
+      page,
+      ["[role='dialog']", "[class*='login']", "[class*='captcha']", "[class*='verify']", "[class*='modal']"],
+      4000,
+      { minimumSize: 80 },
+    ),
+    hasDetailContainer: await hasDetailContainer(page),
+  };
   if (state.hasDetailContainer && !state.blockingText) {
     return null;
   }
   const manualText = state.hasDetailContainer ? state.blockingText : state.text;
   const haystack = `${state.url}\n${state.title}\n${manualText}`.toLowerCase();
   const checks = [
+    ["account_risk_warning", ["账号违规预警", "第三方工具", "自动浏览", "使用脚本", "脚本", "技术手段模拟真人行为"]],
     ["app_scan_required", ["当前笔记暂时无法浏览", "打开小红书app扫码", "扫码查看", "请打开小红书app"]],
     ["login_required", ["login", "signin", "登录", "注册", "验证码", "手机号"]],
-    ["risk_control", ["risk", "安全验证", "环境异常", "访问异常", "操作频繁", "滑块", "验证"]],
+    ["platform_risk_circuit_breaker", ["risk", "安全验证", "环境异常", "访问异常", "操作频繁", "滑块", "验证", "疑似异常", "请稍后再试"]],
     ["verification_required", ["captcha", "verify", "verification", "人机验证", "身份验证"]],
   ];
 
@@ -1006,63 +1784,57 @@ function evidenceRecord({ request, evidenceId, scope, path, payload }) {
 
 async function bestEffortScroll(page) {
   for (let index = 0; index < 3; index += 1) {
-    await page.mouse.wheel(0, 700);
-    await quietWait(page, 1200);
+    await scrollSearchResults(page);
   }
 }
 
 async function extractVisibleSnapshot(page, maxCandidates) {
-  return page.evaluate((limit) => {
-    const selectors = [
-      "section",
-      "article",
-      ".note-item",
-      ".feeds-page .note-card",
-      "a[href*='/explore/']",
-      "a[href*='/search_result/']",
-    ];
-    const candidates = Array.from(document.querySelectorAll(selectors.join(",")));
-    const posts = [];
+  const selectors = [
+    ".note-item",
+    ".feeds-page .note-card",
+    "section",
+    "article",
+    "a[href*='/explore/']",
+    "a[href*='/search_result/']",
+  ];
+  const candidates = page.locator(selectors.join(","));
+  const count = await safeLocatorCount(candidates);
+  const posts = [];
+  const limit = Math.min(count, Math.max(1, Number(maxCandidates || 20)) * 2);
 
-    for (const [cardIndex, element] of candidates.entries()) {
-      if (posts.length >= limit) {
-        break;
-      }
-      const anchor = element.matches("a[href]") ? element : element.querySelector("a[href*='/explore/'], a[href*='/search_result/'], a[href]");
-      const href = anchor?.href || "";
-      const text = (element.innerText || element.textContent || "").trim();
-      if (!href && text.length < 8) {
-        continue;
-      }
-      const image = element.querySelector("img")?.currentSrc || element.querySelector("img")?.src || "";
-      const title =
-        element.querySelector("[class*='title'], [class*='desc'], h1, h2, h3")?.textContent?.trim() ||
-        "";
-      const author =
-        element.querySelector("[class*='author'], [class*='user'], [class*='name']")?.textContent?.trim() ||
-        "";
-      const likesText =
-        element.querySelector("[class*='like'], [class*='count']")?.textContent?.trim() ||
-        "";
-
-      posts.push({
-        href,
-        title,
-        text,
-        author,
-        image,
-        likesText,
-        cardIndex,
-      });
+  for (let cardIndex = 0; cardIndex < limit && posts.length < maxCandidates; cardIndex += 1) {
+    const element = candidates.nth(cardIndex);
+    const box = await element.boundingBox().catch(() => null);
+    if (!box || box.width < 80 || box.height < 80) {
+      continue;
     }
+    const text = await safeLocatorText(element);
+    const anchor = element.locator("a[href*='/explore/'], a[href*='/search_result/'], a[href]").first();
+    const href = await safeLocatorAttribute(anchor, "href");
+    if (!href && text.length < 8) {
+      continue;
+    }
+    const title = await firstVisibleText(element, ["[class*='title']", "[class*='desc']", "h1", "h2", "h3"]);
+    const author = await firstVisibleText(element, ["[class*='author']", "[class*='user']", "[class*='name']"]);
+    const likesText = await firstVisibleText(element, ["[class*='like']", "[class*='count']"]);
 
-    return {
-      url: location.href,
-      title: document.title,
-      collected_at: new Date().toISOString(),
-      posts,
-    };
-  }, maxCandidates);
+    posts.push({
+      href,
+      title,
+      text,
+      author,
+      image: "",
+      likesText,
+      cardIndex,
+    });
+  }
+
+  return {
+    url: safePageUrl(page),
+    title: await safePageTitle(page),
+    collected_at: new Date().toISOString(),
+    posts,
+  };
 }
 
 function cssEscape(value) {
@@ -1070,158 +1842,34 @@ function cssEscape(value) {
 }
 
 export async function extractDetailSnapshot(page, maxComments) {
-  return page.evaluate((commentLimit) => {
-    const textOf = (root, selectors) => {
-      for (const selector of selectors) {
-        const value = root.querySelector(selector)?.innerText || root.querySelector(selector)?.textContent || "";
-        const cleaned = value.trim();
-        if (cleaned) {
-          return cleaned;
-        }
-      }
-      return "";
-    };
-    const detailRoot = document.querySelector("#noteContainer, .note-detail-mask .note-container, .note-container, .note-detail") || document;
-    const classOf = (element) => {
-      if (!element) return "";
-      if (typeof element.className === "string") return element.className;
-      return element.className?.baseVal || "";
-    };
-    const attrOf = (element, name) => element?.getAttribute?.(name) || "";
-    const metricRole = (element) => {
-      const parent = element?.parentElement;
-      const grand = parent?.parentElement;
-      const haystack = [
-        classOf(element),
-        classOf(parent),
-        classOf(grand),
-        attrOf(element, "aria-label"),
-        attrOf(parent, "aria-label"),
-        attrOf(element, "title"),
-        attrOf(parent, "title"),
-        element?.innerText || element?.textContent || "",
-      ].join(" ").toLowerCase();
-      if (/collect|favorite|fav|star|save|收藏/.test(haystack)) return "collect";
-      if (/comment|chat|reply|评论|回复/.test(haystack)) return "comment";
-      if (/like|heart|赞|点赞|喜欢/.test(haystack)) return "like";
-      return "";
-    };
-    const metricText = (element) => {
-      const scoped =
-        element?.closest?.("[class*='like'], [class*='collect'], [class*='favorite'], [class*='comment'], [class*='chat'], [class*='interact']") ||
-        element;
-      return (scoped?.innerText || scoped?.textContent || element?.innerText || element?.textContent || "").trim();
-    };
-    const metricElements = Array.from(
-      detailRoot.querySelectorAll(
-        [
-          "button",
-          "[role='button']",
-          "[class*='like']",
-          "[class*='collect']",
-          "[class*='favorite']",
-          "[class*='comment']",
-          "[class*='chat']",
-          "[class*='interact'] span",
-          "[class*='engage'] span",
-          "[class*='bottom'] span",
-        ].join(","),
-      ),
-    );
-    const interactionMetrics = [];
-    const seenMetricElements = new Set();
-    for (const element of metricElements) {
-      if (element?.closest?.(".comment-item, [class*='comment-item'], [class*='reply-item']")) {
-        continue;
-      }
-      const role = metricRole(element);
-      if (!role) continue;
-      const text = metricText(element);
-      const key = `${role}\n${text}\n${classOf(element)}`;
-      if (seenMetricElements.has(key)) continue;
-      seenMetricElements.add(key);
-      interactionMetrics.push({
-        role,
-        text,
-        label: attrOf(element, "aria-label") || attrOf(element, "title"),
-        className: classOf(element),
-      });
-    }
-    const parseReplyPrefix = (value) => {
-      const text = (value || "").trim();
-      const match = text.match(/^(?:回复|Reply)\s+(.+?)[：:]\s*(.+)$/i);
-      if (!match) {
-        return { replyTo: "", content: text };
-      }
-      return { replyTo: match[1].trim(), content: match[2].trim() };
-    };
-    const title = textOf(detailRoot, ["#detail-title", "[class*='title']", "h1"]);
-    const body = textOf(detailRoot, ["#detail-desc", "[class*='desc']", ".note-content", "[class*='content']"]);
-    const author = textOf(detailRoot, [
-      "a[href*='/user/profile']",
-      "[class*='author'] [class*='name']",
-      "[class*='user'] [class*='name']",
-      "[class*='nickname']",
-    ]);
-    const interactionText = textOf(detailRoot, [
-      "[class*='interact']",
-      "[class*='engage']",
-      "[class*='like']",
-      "[class*='bottom-bar']",
-    ]);
-    const imageUrls = Array.from(detailRoot.querySelectorAll("img"))
-      .filter((image) => (image.width || image.naturalWidth || 0) >= 160 && (image.height || image.naturalHeight || 0) >= 120)
-      .map((image) => image.currentSrc || image.src)
-      .filter((url) => !/avatar/i.test(url))
-      .filter(Boolean);
-    const commentElements = Array.from(
-      new Set([
-        ...detailRoot.querySelectorAll(".comment-item, [class*='comment-item']"),
-        ...detailRoot.querySelectorAll("[class*='reply-item']"),
-      ]),
-    );
-    const comments = [];
-    for (const element of commentElements) {
-      if (comments.length >= commentLimit) {
-        break;
-      }
-      const rawText = (element.innerText || element.textContent || "").trim();
-      if (rawText.length < 2) {
-        continue;
-      }
-      const commentAuthor = textOf(element, ["[class*='author']", "[class*='name']", "a[href*='/user/profile']"]);
-      const commentContent =
-        textOf(element, ["[class*='content']", "[class*='text']", "p"]) ||
-        rawText
-          .split(/\r?\n/)
-          .map((line) => line.trim())
-          .find((line) => line && line !== commentAuthor) ||
-        "";
-      const likeText = textOf(element, ["[class*='like']", "[class*='count']"]);
-      const parsedReply = parseReplyPrefix(commentContent) || parseReplyPrefix(rawText);
-      const replyTo = textOf(element, ["[class*='reply-to']", "[class*='replyTarget']", "[class*='target']"]) || parsedReply.replyTo;
-      const className = classOf(element);
-      const commentType = replyTo || /reply/i.test(className) || /回复/.test(className) ? "reply" : "comment";
-      comments.push({
-        author: commentAuthor,
-        content: parsedReply.content || commentContent,
-        likeText,
-        rawText,
-        commentType,
-        replyTo,
-      });
-    }
-    return {
-      url: location.href,
-      title,
-      body,
-      author,
-      interactionText,
-      interactionMetrics,
-      images: Array.from(new Set(imageUrls)).slice(0, 8),
-      comments,
-    };
-  }, maxComments);
+  const detailRoot = await detailRootLocator(page);
+  const title = await firstVisibleText(detailRoot, ["#detail-title", "[class*='title']", "h1"]);
+  const body = await firstVisibleText(detailRoot, ["#detail-desc", "[class*='desc']", ".note-content", "[class*='content']"]);
+  const author = await firstVisibleText(detailRoot, [
+    "a[href*='/user/profile']",
+    "[class*='author'] [class*='name']",
+    "[class*='user'] [class*='name']",
+    "[class*='nickname']",
+  ]);
+  const interactionText = await firstVisibleText(detailRoot, [
+    "[class*='interact']",
+    "[class*='engage']",
+    "[class*='like']",
+    "[class*='bottom-bar']",
+  ]);
+  const interactionMetrics = await extractInteractionMetrics(detailRoot);
+  const comments = await extractVisibleComments(detailRoot, maxComments);
+
+  return {
+    url: safePageUrl(page),
+    title,
+    body,
+    author,
+    interactionText,
+    interactionMetrics,
+    images: [],
+    comments,
+  };
 }
 
 export function normalizeDetailSnapshot(raw) {
@@ -1333,52 +1981,6 @@ function metricString(value) {
   return parsed === undefined ? "" : String(parsed);
 }
 
-async function downloadImage(page, imageUrl, assetsPath, assetId) {
-  let body;
-  let mimeType = "";
-  if (imageUrl.startsWith("data:image/")) {
-    const match = imageUrl.match(/^data:([^;,]+)(;base64)?,(.*)$/);
-    if (!match) {
-      throw new Error("Invalid data image URL");
-    }
-    mimeType = match[1];
-    body = match[2] ? Buffer.from(match[3], "base64") : Buffer.from(decodeURIComponent(match[3]), "utf8");
-  } else {
-    const response = await page.context().request.get(imageUrl, { timeout: 20_000 });
-    if (!response.ok()) {
-      throw new Error(`HTTP ${response.status()}`);
-    }
-    mimeType = (response.headers()["content-type"] || "").split(";")[0].trim() || "application/octet-stream";
-    body = await response.body();
-  }
-  if (!body?.length) {
-    throw new Error("empty image response");
-  }
-  const sha256 = createHash("sha256").update(body).digest("hex");
-  const extension = extensionForMime(mimeType) || extensionFromUrl(imageUrl) || ".bin";
-  const path = join(assetsPath, `${assetId}-${sha256.slice(0, 12)}${extension}`);
-  await writeFile(path, body);
-  return { path, mime_type: mimeType, sha256 };
-}
-
-function extensionForMime(mimeType) {
-  const normalized = mimeType.toLowerCase();
-  if (normalized === "image/jpeg") return ".jpg";
-  if (normalized === "image/png") return ".png";
-  if (normalized === "image/webp") return ".webp";
-  if (normalized === "image/gif") return ".gif";
-  return "";
-}
-
-function extensionFromUrl(value) {
-  try {
-    const extension = extname(new URL(value).pathname).toLowerCase();
-    return extension && extension.length <= 6 ? extension : "";
-  } catch {
-    return "";
-  }
-}
-
 function uniqueStrings(values) {
   return Array.from(new Set((values ?? []).map((value) => normalizeWhitespace(value)).filter(Boolean)));
 }
@@ -1437,6 +2039,8 @@ function safeAssetStem(value) {
 
 function manualReasonLabel(reason) {
   return {
+    account_risk_warning: "账号违规预警",
+    platform_risk_circuit_breaker: "平台风险熔断",
     login_required: "登录或账号确认",
     risk_control: "平台风控或安全验证",
     verification_required: "验证码或人机验证",

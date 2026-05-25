@@ -4,6 +4,7 @@ import re
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from urllib.parse import urlencode
 from typing import Optional
 from uuid import uuid4
 
@@ -359,6 +360,30 @@ def create_app(
             profile_root=app.state.profile_root,
         )
 
+    def profile_safety_states(repository: FalconRepository) -> dict[tuple[str, str], dict]:
+        service = collector_service(repository)
+        states: dict[tuple[str, str], dict] = {}
+        safety_root = app.state.runtime_root / "profile-safety"
+        if safety_root.exists():
+            for path in safety_root.glob("*/*.json"):
+                try:
+                    payload = json.loads(path.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    continue
+                platform = str(payload.get("platform") or path.parent.name)
+                profile = str(payload.get("profile") or path.stem)
+                try:
+                    safe_collector_identifier(platform, "platform")
+                    safe_collector_identifier(profile, "profile")
+                except ValueError:
+                    continue
+                states[(platform, profile)] = payload
+        for run in repository.list_collection_runs(limit=1000):
+            state = service.profile_safety_state(run.platform, run.profile)
+            if state:
+                states[(run.platform, run.profile)] = state
+        return states
+
     def collector_create_context(repository: FalconRepository):
         profile_entries = [
             entry
@@ -366,8 +391,9 @@ def create_app(
                 app.state.profile_root,
                 repository.list_collection_runs(limit=1000),
                 [item["key"] for item in _collector_platforms()],
+                profile_safety_states(repository),
             )
-            if entry.platform == "xiaohongshu" and entry.path_exists
+            if entry.platform == "xiaohongshu" and entry.path_exists and not entry.safety_locked
         ]
         default_profile = next((entry.profile for entry in profile_entries if entry.profile == "default"), "")
         if not default_profile and profile_entries:
@@ -377,8 +403,8 @@ def create_app(
             "defaults": {
                 "platform": "xiaohongshu",
                 "profile": default_profile,
-                "max_posts": 20,
-                "max_comments_per_post": 10,
+                "max_posts": 8,
+                "max_comments_per_post": 5,
             },
         }
 
@@ -422,6 +448,9 @@ def create_app(
     def profile_is_busy(repository: FalconRepository, run: CollectionRun) -> bool:
         return (run.platform, run.profile) in busy_profile_keys(repository, ignore_run_id=run.run_id)
 
+    def profile_is_safety_locked(repository: FalconRepository, run: CollectionRun) -> bool:
+        return collector_service(repository).is_profile_safety_locked(run.platform, run.profile)
+
     def dispatch_queued_runs(
         repository: FalconRepository,
         background_tasks: Optional[BackgroundTasks] = None,
@@ -440,6 +469,8 @@ def create_app(
             if only_profile is not None and profile_key != only_profile:
                 continue
             if profile_key in busy:
+                continue
+            if service.is_profile_safety_locked(run.platform, run.profile):
                 continue
             service.prepare_run_request(run, headed=True, dry_run=False)
             repository.update_collection_run(
@@ -745,7 +776,7 @@ def create_app(
         )
 
     @app.post("/keywords/default")
-    def write_keywords(path: str = Form("data/collection_keywords.csv"), theme: str = Form("生图小程序")):
+    def write_keywords(path: str = Form("data/collection_keywords.csv"), theme: str = Form("内容运营")):
         write_default_keyword_pool(Path(path), theme=theme)
         return RedirectResponse(f"/keywords?path={path}", status_code=303)
 
@@ -831,6 +862,7 @@ def create_app(
             app.state.profile_root,
             runs,
             [item["key"] for item in _collector_platforms()],
+            profile_safety_states(repository),
         )
         return templates.TemplateResponse(
             request,
@@ -842,6 +874,9 @@ def create_app(
                 "profile_groups": _profile_groups(profile_entries),
                 "profile_summary": _profile_command_summary(profile_entries),
                 "profile_notice": _profile_notice(profile_action, profile_platform, profile_name),
+                "profile_action": profile_action,
+                "profile_platform": profile_platform,
+                "profile_name": profile_name,
                 "profile_login_supported_platforms": SUPPORTED_PROFILE_LOGIN_PLATFORMS,
             },
         )
@@ -857,7 +892,14 @@ def create_app(
             safe_collector_identifier(clean_platform, "platform")
             clean_profile = safe_collector_identifier(clean_profile, "profile")
         except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+            query = urlencode(
+                {
+                    "profile_action": "invalid",
+                    "profile_platform": clean_platform,
+                    "profile_name": clean_profile,
+                }
+            )
+            return RedirectResponse(f"/collector/accounts?{query}", status_code=303)
         if clean_platform not in SUPPORTED_PROFILE_LOGIN_PLATFORMS:
             raise HTTPException(status_code=400, detail="Profile login is not supported for this platform yet")
 
@@ -920,6 +962,22 @@ def create_app(
             status_code=303,
         )
 
+    @app.post("/collector/profiles/clear-safety-lock")
+    def clear_collector_profile_safety_lock(platform: str = Form(...), profile: str = Form(...)):
+        clean_platform = platform.strip() or "xiaohongshu"
+        clean_profile = profile.strip() or "default"
+        try:
+            clean_platform = safe_collector_identifier(clean_platform, "platform")
+            clean_profile = safe_collector_identifier(clean_profile, "profile")
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        repository = repo()
+        collector_service(repository).clear_profile_safety_lock(clean_platform, clean_profile)
+        return RedirectResponse(
+            f"/collector/accounts?profile_action=safety_cleared&profile_platform={clean_platform}&profile_name={clean_profile}",
+            status_code=303,
+        )
+
     @app.get("/collector/create")
     def collector_create_page(request: Request):
         repository = repo()
@@ -939,8 +997,8 @@ def create_app(
         profile: str = Form(...),
         keyword: str = Form(""),
         keywords: str = Form(""),
-        max_posts: int = Form(20),
-        max_comments_per_post: int = Form(10),
+        max_posts: int = Form(8),
+        max_comments_per_post: int = Form(5),
     ):
         clean_platform = platform.strip() or "xiaohongshu"
         allowed_platforms = {item["key"] for item in _collector_platforms()}
@@ -952,6 +1010,8 @@ def create_app(
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         repository = repo()
+        if collector_service(repository).is_profile_safety_locked(clean_platform, clean_profile):
+            raise HTTPException(status_code=400, detail="Collector profile is safety locked")
         keyword_items = _split_keywords(keywords or keyword)
         if not keyword_items:
             raise HTTPException(status_code=400, detail="At least one collector keyword is required")
@@ -967,8 +1027,8 @@ def create_app(
                 status="queued",
                 progress=0,
                 current_step="等待浏览器采集调度",
-                max_posts=max(1, max_posts),
-                max_comments_per_post=max(0, max_comments_per_post),
+                max_posts=min(30, max(1, max_posts)),
+                max_comments_per_post=min(20, max(0, max_comments_per_post)),
             )
             repository.create_collection_run(run)
             service.prepare_run_request(run, headed=True, dry_run=False)
@@ -1028,6 +1088,8 @@ def create_app(
             raise HTTPException(status_code=400, detail=f"Collection run cannot start from status: {run.status}")
         if profile_is_busy(repository, run):
             raise HTTPException(status_code=400, detail="Collector profile is already busy")
+        if profile_is_safety_locked(repository, run):
+            raise HTTPException(status_code=400, detail="Collector profile is safety locked")
 
         collector_service(repository).prepare_run_request(run, headed=True, dry_run=False)
         repository.update_collection_run(
@@ -1096,6 +1158,8 @@ def create_app(
             raise HTTPException(status_code=400, detail=f"Collection run cannot resume from status: {run.status}")
         if profile_is_busy(repository, run):
             raise HTTPException(status_code=400, detail="Collector profile is already busy")
+        if profile_is_safety_locked(repository, run):
+            raise HTTPException(status_code=400, detail="Collector profile is safety locked")
 
         collector_service(repository).prepare_run_request(run, headed=True, dry_run=False)
         repository.update_collection_run(
@@ -1575,8 +1639,12 @@ def _environment_summary(checks):
 
 
 def _profile_notice(action: str, platform: str, profile: str) -> str:
+    if action == "invalid":
+        return "Profile 名称只能使用英文字母、数字、点、下划线或短横线，并且必须以字母或数字开头。示例：default、creator-1、backup_2。"
     if action == "opened" and platform and profile:
         return f"已打开 {platform}/{profile} 登录窗口。请在弹出的浏览器里完成登录，完成后关闭窗口。"
     if action == "logged_out" and platform and profile:
         return f"已退出 {platform}/{profile}，本机 Profile 目录已清除。需要再次使用时请重新登录。"
+    if action == "safety_cleared" and platform and profile:
+        return f"已清除 {platform}/{profile} 的账号风控熔断锁。请确认账号状态正常后再低频采集。"
     return ""

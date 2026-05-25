@@ -9,8 +9,8 @@ class DefaultRelevanceTest(unittest.TestCase):
         post = CollectedPost(
             run_id="run-1",
             platform="xiaohongshu",
-            keyword="AI头像",
-            title="宇宙壁纸真的太好看了",
+            keyword="账号增长",
+            title="周末随手拍真的太好看了",
             content="收藏一些星空壁纸。",
             url="local://post/1",
             author="creator",
@@ -31,7 +31,7 @@ class DefaultRelevanceTest(unittest.TestCase):
         post = CollectedPost(
             run_id="run-1",
             platform="xiaohongshu",
-            keyword="AI头像",
+            keyword="账号增长",
             title="默认优质样本",
             content="采集后默认进入主分析。",
             url="local://post/2",

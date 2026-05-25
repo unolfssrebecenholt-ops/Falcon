@@ -1,7 +1,7 @@
 [project]
 name = "falcon-demand-radar"
 version = "0.1.0"
-description = "Local social demand radar and AI outreach task box for AI出图助手."
+description = "Local automation platform for collection, analysis, and operations workflows."
 requires-python = ">=3.9"
 dependencies = [
     "fastapi",

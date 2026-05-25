@@ -28,21 +28,21 @@ class DailyReportBuilder:
         else:
             lines.append("- 暂无样本。")
 
-        lines.extend(["", "## 小红书封面主报告"])
-        xhs_items = [item for item in scored_items if item["scene_tag"] == "xhs_cover"]
-        if xhs_items:
+        lines.extend(["", "## 重点内容机会"])
+        focus_items = [item for item in scored_items if item["scene_tag"] == "content_performance"]
+        if focus_items:
             seen_topics = set()
-            for item in xhs_items:
+            for item in focus_items:
                 topic = item["suggested_topic"]
                 if topic in seen_topics:
                     continue
                 seen_topics.add(topic)
                 lines.append(f"- raw_id {item['raw_id']} 选题：{topic}（意图 {item['intent_score']}）")
         else:
-            lines.append("- 暂无高价值小红书封面样本。")
+            lines.append("- 暂无高价值内容机会样本。")
 
         lines.extend(["", "## 其他入口探针"])
-        probes = [item for item in scored_items if item["scene_tag"] != "xhs_cover"]
+        probes = [item for item in scored_items if item["scene_tag"] != "content_performance"]
         if probes:
             for item in probes[:8]:
                 lines.append(

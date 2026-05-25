@@ -28,20 +28,22 @@ class HeuristicAnalyzer:
     """
 
     SCENE_KEYWORDS: Dict[str, List[str]] = {
-        "xhs_cover": [
-            "小红书封面",
+        "content_performance": [
+            "内容表现",
+            "标题",
             "封面",
-            "标题图",
             "首图",
-            "笔记没人看",
             "点击率",
-            "爆款封面",
+            "转化率",
+            "没人看",
+            "没人点",
+            "爆款",
             "笔记封面",
         ],
-        "poster": ["海报", "活动", "促销", "门店", "开业", "团购", "课程"],
-        "avatar": ["头像", "微信头像", "ai头像", "AI头像", "情侣头像", "宠物头像"],
-        "moments": ["朋友圈背景", "朋友圈封面", "背景图", "朋友圈主页"],
-        "free": ["生图", "画画", "AI绘画", "ai绘画", "生成图片", "图片生成"],
+        "marketing_asset": ["海报", "活动", "促销", "门店", "开业", "团购", "课程", "素材", "落地页"],
+        "brand_asset": ["品牌图", "主视觉", "logo", "Logo", "账号形象", "品牌形象", "视觉风格"],
+        "audience_growth": ["粉丝", "涨粉", "互动", "评论", "私域", "社群", "转化", "留资"],
+        "tool_workflow": ["工具", "模板", "流程", "工作流", "自动化", "批量", "数据", "采集", "分析", "报表"],
     }
 
     ACTION_SIGNALS = [
@@ -120,7 +122,7 @@ class HeuristicAnalyzer:
 
     def _content_value(self, intent_score: int, scene_tag: str, action_hits: Iterable[str], pain_hits: Iterable[str]) -> int:
         value = intent_score - 8
-        if scene_tag == "xhs_cover":
+        if scene_tag == "content_performance":
             value += 8
         if action_hits:
             value += 5
@@ -133,7 +135,7 @@ class HeuristicAnalyzer:
             return "ignore"
         if item.source_type == "comment" and intent_score >= 75:
             return "comment_reply"
-        if scene_tag == "xhs_cover" and intent_score >= 80:
+        if scene_tag == "content_performance" and intent_score >= 80:
             return "comment_reply" if item.source_type == "comment" else "topic_only"
         if content_value_score >= 75:
             return "topic_only"
@@ -156,27 +158,27 @@ class HeuristicAnalyzer:
         return "low"
 
     def _pain_point(self, scene_tag: str, pain_hits: Iterable[str]) -> str:
-        if scene_tag == "xhs_cover":
-            return "小红书封面点击率或排版问题"
-        if scene_tag == "poster":
-            return "需要快速生成可发布活动海报"
-        if scene_tag == "avatar":
-            return "想快速生成可用微信头像"
-        if scene_tag == "moments":
-            return "想生成朋友圈背景表达状态"
-        if scene_tag == "free":
-            return "想用一句话生成图片"
+        if scene_tag == "content_performance":
+            return "内容点击率、表达结构或转化表现问题"
+        if scene_tag == "marketing_asset":
+            return "需要快速整理可发布的营销素材"
+        if scene_tag == "brand_asset":
+            return "需要统一品牌视觉或账号形象"
+        if scene_tag == "audience_growth":
+            return "需要提升互动、转化或用户沉淀效率"
+        if scene_tag == "tool_workflow":
+            return "需要更高效的工具流程或自动化方案"
         if pain_hits:
-            return "表达了图片生成相关痛点"
+            return "表达了明确的运营痛点"
         return "暂无明确痛点"
 
     def _suggested_topic(self, scene_tag: str, pain_point: str) -> str:
         topics = {
-            "xhs_cover": "小红书封面没人点？3 个标题图排版方法",
-            "poster": "门店活动海报怎么做？一张图说清优惠信息",
-            "avatar": "想换微信头像？3 种 AI 头像风格可以先试",
-            "moments": "朋友圈背景图怎么做得有氛围感？",
-            "free": "一句话生图怎么玩？把脑洞变成可保存图片",
+            "content_performance": "内容没人点？先检查标题、首图和利益点",
+            "marketing_asset": "活动素材怎么做？先把目标、利益点和行动入口说清楚",
+            "brand_asset": "账号视觉怎么统一？先建立可复用的品牌表达规范",
+            "audience_growth": "互动和转化怎么提升？先拆评论需求和行动路径",
+            "tool_workflow": "运营流程太慢？先找出可自动化的重复步骤",
         }
         return topics.get(scene_tag, pain_point)
 

@@ -24,7 +24,7 @@ class CollectorServiceTest(unittest.TestCase):
                 "--profile",
                 "default",
                 "--keyword",
-                "AI出图助手",
+                "运营助手",
                 "--max-posts",
                 "5",
             ]
@@ -39,7 +39,7 @@ class CollectorServiceTest(unittest.TestCase):
                 "--profile",
                 "default",
                 "--keyword",
-                "AI cover",
+                "content ops",
                 "--max-posts",
                 "5",
             ]
@@ -81,7 +81,7 @@ class CollectorServiceTest(unittest.TestCase):
                     "--profile",
                     "default",
                     "--keyword",
-                    "AI出图助手",
+                    "运营助手",
                     "--run-id",
                     "cli-dry-run",
                     "--runtime-root",
@@ -114,7 +114,7 @@ class CollectorServiceTest(unittest.TestCase):
                         "--profile",
                         "default",
                         "--keyword",
-                        "AI cover",
+                        "content ops",
                         "--run-id",
                         "cli-real-missing",
                         "--runtime-root",
@@ -150,7 +150,7 @@ class CollectorServiceTest(unittest.TestCase):
             run = service.run_dry_run(
                 platform="xiaohongshu",
                 profile="default",
-                keyword="AI出图助手",
+                keyword="运营助手",
                 max_posts=2,
                 max_comments_per_post=1,
                 headed=False,
@@ -166,6 +166,18 @@ class CollectorServiceTest(unittest.TestCase):
             self.assertTrue((run_dir / "events.jsonl").exists())
             self.assertTrue((run_dir / "records.jsonl").exists())
             self.assertTrue((run_dir / "assets" / "dry-run-xiaohongshu-placeholder.txt").exists())
+            request_payload = json.loads(request_path.read_text(encoding="utf-8"))
+            self.assertEqual(request_payload["safety_profile"], "respectful_human")
+            self.assertEqual(request_payload["automation_boundary"], "browser_control")
+            self.assertEqual(
+                request_payload["access_policy"],
+                {"js_access": False, "direct_url_access": False, "network_api_access": False},
+            )
+            self.assertEqual(request_payload["media_policy"], "visible_screenshot")
+            self.assertTrue(request_payload["checkpoint_enabled"])
+            self.assertEqual(request_payload["pace"]["detail_delay_range_seconds"], [8, 18])
+            self.assertEqual(request_payload["pace"]["scroll_delay_range_seconds"], [5, 12])
+            self.assertEqual(request_payload["pace"]["batch_rest_after_cards_range"], [5, 11])
 
             events = repo.list_collection_events("xhs-dry-run")
             posts = repo.list_collected_posts("xhs-dry-run")
@@ -176,7 +188,7 @@ class CollectorServiceTest(unittest.TestCase):
             self.assertIn("run_completed", {event.event for event in events})
             self.assertEqual(len(posts), 1)
             self.assertEqual(posts[0].platform, "xiaohongshu")
-            self.assertEqual(posts[0].keyword, "AI出图助手")
+            self.assertEqual(posts[0].keyword, "运营助手")
             self.assertEqual(posts[0].comment_count, "1")
             self.assertEqual(len(assets), 1)
             self.assertEqual(assets[0].post_id, posts[0].post_id)
@@ -231,7 +243,7 @@ class CollectorServiceTest(unittest.TestCase):
             run = service.run_dry_run(
                 platform="unsupported",
                 profile="default",
-                keyword="AI出图助手",
+                keyword="运营助手",
                 run_id="bad-platform",
             )
 
@@ -239,6 +251,93 @@ class CollectorServiceTest(unittest.TestCase):
             self.assertIn("Unsupported platform", run.failed_reason)
             events = repo.list_collection_events("bad-platform")
             self.assertEqual(events[-1].event, "run_failed")
+
+    def test_ingest_account_risk_manual_action_locks_profile(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            repo = FalconRepository(tmp_path / "falcon.sqlite3")
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="risk-run",
+                    platform="xiaohongshu",
+                    keyword="content ops",
+                    profile="default",
+                    status="running",
+                )
+            )
+            service = CollectorService(
+                repo,
+                runtime_root=tmp_path / "runtime" / "collector",
+                profile_root=tmp_path / "browser-profiles",
+            )
+            run_dir = tmp_path / "runtime" / "collector" / "risk-run"
+            run_dir.mkdir(parents=True)
+            events_path = run_dir / "events.jsonl"
+            records_path = run_dir / "records.jsonl"
+            events_path.write_text(
+                json.dumps(
+                    {
+                        "sequence": 1,
+                        "time": "2026-05-25T00:00:00+00:00",
+                        "level": "warning",
+                        "scope": "xiaohongshu",
+                        "event": "manual_action_required",
+                        "message": "检测到账号违规预警，需要人工处理后再继续。",
+                        "payload": {"reason": "account_risk_warning"},
+                    },
+                    ensure_ascii=False,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            records_path.write_text("", encoding="utf-8")
+
+            service.ingest_outputs("risk-run", events_path, records_path)
+
+            run = repo.get_collection_run("risk-run")
+            state = service.profile_safety_state("xiaohongshu", "default")
+            self.assertEqual(run.status, "manual_action_required")
+            self.assertTrue(state["locked"])
+            self.assertEqual(state["reason"], "account_risk_warning")
+            self.assertEqual(state["run_id"], "risk-run")
+
+    def test_safety_locked_profile_blocks_prepared_run_until_cleared(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            repo = FalconRepository(tmp_path / "falcon.sqlite3")
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="locked-run",
+                    platform="xiaohongshu",
+                    keyword="content ops",
+                    profile="default",
+                    status="queued",
+                )
+            )
+            service = CollectorService(
+                repo,
+                runtime_root=tmp_path / "runtime" / "collector",
+                profile_root=tmp_path / "browser-profiles",
+            )
+            service.lock_profile_safety(
+                "xiaohongshu",
+                "default",
+                reason="account_risk_warning",
+                run_id="previous-run",
+                message="风险提示",
+            )
+
+            blocked = service.start_prepared_run("locked-run", headed=True, dry_run=False)
+            events = repo.list_collection_events("locked-run")
+
+            self.assertEqual(blocked.status, "manual_action_required")
+            self.assertEqual(events[-1].event, "manual_action_required")
+            self.assertIn("账号风控熔断", events[-1].message)
+            self.assertTrue(service.is_profile_safety_locked("xiaohongshu", "default"))
+            service.clear_profile_safety_lock("xiaohongshu", "default")
+            self.assertFalse(service.is_profile_safety_locked("xiaohongshu", "default"))
 
     def test_cli_collector_ingest_updates_run_status_from_sidecar_events(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -250,7 +349,7 @@ class CollectorServiceTest(unittest.TestCase):
                 CollectionRun(
                     run_id="ingest-run",
                     platform="xiaohongshu",
-                    keyword="AI cover",
+                    keyword="content ops",
                     profile="default",
                     status="queued",
                 )
@@ -293,7 +392,7 @@ class CollectorServiceTest(unittest.TestCase):
                         "run_id": "ingest-run",
                         "platform": "xiaohongshu",
                         "post_id": "post-1",
-                        "keyword": "AI cover",
+                        "keyword": "content ops",
                         "title": "Ingested post",
                         "body": "Collected by external sidecar run.",
                         "url": "https://example.test/post/ingested",
@@ -333,7 +432,7 @@ class CollectorServiceTest(unittest.TestCase):
                 CollectionRun(
                     run_id="resume-run",
                     platform="xiaohongshu",
-                    keyword="AI cover",
+                    keyword="content ops",
                     profile="default",
                     status="manual_action_required",
                     progress=50,
@@ -401,7 +500,7 @@ class CollectorServiceTest(unittest.TestCase):
                 CollectionRun(
                     run_id="post-progress-run",
                     platform="xiaohongshu",
-                    keyword="AI cover",
+                    keyword="content ops",
                     profile="default",
                     status="running",
                     progress=15,
@@ -458,7 +557,7 @@ class CollectorServiceTest(unittest.TestCase):
                 CollectionRun(
                     run_id="post-opening-run",
                     platform="xiaohongshu",
-                    keyword="AI cover",
+                    keyword="content ops",
                     profile="default",
                     status="running",
                     progress=15,
@@ -503,7 +602,7 @@ class CollectorServiceTest(unittest.TestCase):
                 CollectionRun(
                     run_id="repeat-run",
                     platform="xiaohongshu",
-                    keyword="AI cover",
+                    keyword="content ops",
                     profile="default",
                 )
             )
@@ -548,7 +647,7 @@ class CollectorServiceTest(unittest.TestCase):
                             "run_id": "repeat-run",
                             "platform": "xiaohongshu",
                             "post_id": "post-1",
-                            "keyword": "AI cover",
+                            "keyword": "content ops",
                             "title": "Repeat post",
                             "body": "Collected once.",
                             "url": "https://example.test/post/repeat",
@@ -605,7 +704,7 @@ class CollectorServiceTest(unittest.TestCase):
                 CollectionRun(
                     run_id="metric-run",
                     platform="xiaohongshu",
-                    keyword="AI cover",
+                    keyword="content ops",
                     profile="default",
                 )
             )
@@ -638,7 +737,7 @@ class CollectorServiceTest(unittest.TestCase):
                             "run_id": "metric-run",
                             "platform": "xiaohongshu",
                             "post_id": "xiaohongshu:65abc123",
-                            "keyword": "AI cover",
+                            "keyword": "content ops",
                             "title": "Clean metrics post",
                             "body": "Collected from detail.",
                             "url": "https://www.xiaohongshu.com/explore/65abc123",
