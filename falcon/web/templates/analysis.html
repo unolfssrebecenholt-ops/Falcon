@@ -4,12 +4,12 @@
 <header class="page-header">
   <div>
     <div class="eyebrow">analysis home</div>
-    <h1>分析首页</h1>
-    <p>只放分析概况、关键词趋势、高价值样本入口和选题洞察。样本长表拆到分析样本页。</p>
+    <h1>分析总览</h1>
+    <p>按平台选择采集数据包，输入分析意图，用 GPT-5.5 生成可编辑探针并手动执行语义分析。</p>
   </div>
   <form method="post" action="/analysis/promote" class="action-row">
     <a class="button" href="/analysis/samples">分析样本</a>
-    <button class="button primary" type="submit">送入意向分析队列 · {{ stats.promotable_count }}</button>
+    <button class="button primary" type="submit">送入旧分析队列 · {{ stats.promotable_count }}</button>
   </form>
 </header>
 
@@ -20,58 +20,91 @@
   <div class="metric"><span>模型层</span><strong class="fit-text">GPT-5.5</strong></div>
 </section>
 
-<section class="panel analysis-quality-panel">
+<section class="panel">
   <div class="section-head">
     <div>
-      <h2>采集质量入口</h2>
-      <p class="muted">这里只承接已经完成相关性评分的采集结果：优质进入主分析，中等进入参考，劣质跳过。</p>
+      <h2>平台数据包</h2>
+      <p class="muted">v1 只分析同一平台下的一个或多个采集任务；历史组合可一键复用。</p>
     </div>
-    <span class="pill">可推进 {{ quality_pool.promotable }} 条</span>
+    <div class="action-row">
+      {% for platform in platforms %}
+      <a class="button small {{ 'primary' if platform.key == selected_platform else '' }}" href="/analysis?platform={{ platform.key }}">{{ platform.name }}</a>
+      {% endfor %}
+    </div>
   </div>
-  <div class="relevance-flow analysis-quality-flow">
-    <span>优质主分析 {{ quality_pool.roles.primary }} 条</span>
-    <span>中等参考 {{ quality_pool.roles.reference }} 条</span>
-    <span>劣质跳过 {{ quality_pool.roles.discard }} 条</span>
-    <span>未评分 {{ quality_pool.roles.pending }} 条</span>
-  </div>
-  {% if last_run %}
-  <p class="notice">{{ last_run.message }}</p>
-  {% endif %}
+
+  <form method="post" action="/analysis/tasks" class="form-layout intent-task-form">
+    <input type="hidden" name="platform" value="{{ selected_platform }}">
+    <div class="field-grid">
+      <label>
+        <span>分析意图</span>
+        <textarea name="user_intent" rows="3" placeholder="例如：我想分析生图软件的市场，或者我想知道哪些人需要生图软件">{{ prefill_user_intent }}</textarea>
+      </label>
+    </div>
+    <div class="intent-run-picker">
+      <div class="intent-run-head">
+        <span>采集任务</span>
+        <small>关键词 · 开始时间</small>
+      </div>
+      <div class="intent-run-list" role="group" aria-label="采集任务">
+        {% for run in analysis_runs %}
+        <label class="intent-run-option">
+          <input type="checkbox" name="run_ids" value="{{ run.run_id }}" {% if run.run_id in prefill_run_ids %}checked{% endif %}>
+          <span class="intent-run-copy">
+            <strong>{{ run.keyword or "未命名关键词" }} · {{ run.created_at|readable_time }}</strong>
+            <small>{{ run.run_id }}</small>
+          </span>
+        </label>
+        {% else %}
+        <p class="muted intent-run-empty">当前平台还没有可分析的已完成采集任务。</p>
+        {% endfor %}
+      </div>
+    </div>
+    <div class="action-row left-actions">
+      <button class="button primary" type="submit">创建意向分析任务</button>
+    </div>
+  </form>
 </section>
 
 <section class="layout-grid analysis-home-grid">
   <section class="panel">
     <div class="section-head">
       <div>
-        <h2>关键词趋势</h2>
-        <p class="muted">首页看方向，完整样本进入分析样本页。</p>
+        <h2>历史组合</h2>
+        <p class="muted">点击复用会创建一个新的分析任务，原历史记录不被修改。</p>
       </div>
-      <a class="button small" href="/analysis/samples">打开样本</a>
     </div>
     <div class="trend-list">
-      {% for item in keyword_stats[:6] %}
-      <div class="trend-row">
-        <span>{{ item.keyword }}</span>
-        <div class="trend-track"><i style="width: {{ [item.avg_intent, 100]|min }}%"></i></div>
-        <strong>{{ item.high_intent }}/{{ item.count }}</strong>
+      {% for history in intent_histories %}
+      <div class="trend-row intent-history-row">
+        <span>{{ history.task.user_intent }}</span>
+        <strong>{{ history.sources|length }} 个任务</strong>
+        <a class="button small" href="/analysis?platform={{ history.task.platform }}&reuse_task_id={{ history.task.task_id }}">复选</a>
       </div>
       {% else %}
-      <p class="muted">暂无关键词统计。</p>
+      <p class="muted">暂无意向分析历史。</p>
       {% endfor %}
     </div>
   </section>
 
   <div class="analysis-side-stack">
-    <section class="panel">
-      <h2>高价值样本入口</h2>
-      <div class="summary-list compact-summary-list">
-        <div><dt>样本</dt><dd>{{ stats.scored_count }}</dd></div>
-        <div><dt>高意图</dt><dd>{{ stats.high_intent_count }}</dd></div>
+    <section class="panel analysis-quality-panel">
+      <div class="section-head">
+        <div>
+          <h2>采集质量入口</h2>
+          <p class="muted">旧分析链路仍保留：优质进入主分析，中等进入参考，劣质跳过。</p>
+        </div>
+        <span class="pill">可推进 {{ quality_pool.promotable }} 条</span>
       </div>
-      <div class="action-row left-actions">
-        <a class="button primary" href="/analysis/samples">进入分析样本</a>
-        <a class="button" href="/review">开始复核</a>
+      <div class="relevance-flow analysis-quality-flow">
+        <span>优质主分析 {{ quality_pool.roles.primary }} 条</span>
+        <span>中等参考 {{ quality_pool.roles.reference }} 条</span>
+        <span>劣质跳过 {{ quality_pool.roles.discard }} 条</span>
+        <span>未评分 {{ quality_pool.roles.pending }} 条</span>
       </div>
+      {% if last_run %}
+      <p class="notice">{{ last_run.message }}</p>
+      {% endif %}
     </section>
 
     <section class="panel">

@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% block title %}意向分析任务 - Falcon{% endblock %}
+{% block content %}
+<header class="page-header">
+  <div>
+    <div class="eyebrow">intent analysis</div>
+    <h1>意向分析任务 #{{ task.task_id }}</h1>
+    <p>{{ task.user_intent }}</p>
+  </div>
+  <div class="action-row">
+    <a class="button" href="/analysis?platform={{ task.platform }}">返回分析首页</a>
+    <button class="button primary" type="submit" form="probe-editor-form" name="next_action" value="execute">保存并执行分析</button>
+  </div>
+</header>
+
+<section class="metrics">
+  <div class="metric"><span>平台</span><strong>{{ task.platform|platform_label }}</strong></div>
+  <div class="metric"><span>状态</span><strong>{{ task.status }}</strong></div>
+  <div class="metric"><span>数据包</span><strong>{{ sources|length }}</strong></div>
+  <div class="metric"><span>探针</span><strong>{{ probes|length }}</strong></div>
+</section>
+
+{% if task.failed_reason %}
+<section class="panel">
+  <p class="notice">{{ task.failed_reason }}</p>
+</section>
+{% endif %}
+
+<section class="panel">
+  <div class="section-head">
+    <div>
+      <h2>数据包</h2>
+      <p class="muted">数据包包含所选采集任务内的标题、正文和评论。</p>
+    </div>
+  </div>
+  <div class="relevance-flow">
+    {% for source in sources %}
+    <span>{{ source.run_id }} · {{ source.keyword }}</span>
+    {% else %}
+    <span>暂无数据源</span>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="panel">
+  <div class="section-head">
+    <div>
+      <h2>意向探针</h2>
+      <p class="muted">GPT-5.5 默认生成 5 个探针；执行前可增、删、改，启用数量需为 1-12 个。</p>
+    </div>
+    <form method="post" action="/analysis/tasks/{{ task.task_id }}/probes/generate">
+      <button class="button" type="submit">生成 5 个探针</button>
+    </form>
+  </div>
+
+  <form id="probe-editor-form" method="post" action="/analysis/tasks/{{ task.task_id }}/probes" class="probe-editor">
+    {% for probe in probes %}
+    <article class="probe-card">
+      <input type="hidden" name="probe_ids" value="{{ probe.probe_id }}">
+      <input type="hidden" name="probe_key_{{ probe.probe_id }}" value="{{ probe.probe_key }}">
+      <div class="field-grid">
+        <label><span>标题</span><input name="title_{{ probe.probe_id }}" value="{{ probe.title }}"></label>
+        <label><span>排序</span><input name="sort_order_{{ probe.probe_id }}" value="{{ probe.sort_order }}"></label>
+      </div>
+      <label><span>描述</span><textarea name="description_{{ probe.probe_id }}" rows="2">{{ probe.description }}</textarea></label>
+      <div class="field-grid">
+        <label><span>正向信号</span><textarea name="positive_signals_{{ probe.probe_id }}" rows="3">{{ probe.positive_signals }}</textarea></label>
+        <label><span>排除信号</span><textarea name="negative_signals_{{ probe.probe_id }}" rows="3">{{ probe.negative_signals }}</textarea></label>
+      </div>
+      <label class="inline-check"><input type="checkbox" name="enabled_{{ probe.probe_id }}" {% if probe.enabled %}checked{% endif %}> 启用</label>
+      <label class="inline-check"><input type="checkbox" name="delete_probe_ids" value="{{ probe.probe_id }}"> 删除这个探针</label>
+    </article>
+    {% else %}
+    <p class="muted">还没有探针。先点击“生成 5 个探针”，或手动新增一个探针。</p>
+    {% endfor %}
+
+    <article class="probe-card">
+      <h3>新增探针</h3>
+      <label><span>标题</span><input name="new_title"></label>
+      <label><span>描述</span><textarea name="new_description" rows="2"></textarea></label>
+      <div class="field-grid">
+        <label><span>正向信号</span><textarea name="new_positive_signals" rows="3"></textarea></label>
+        <label><span>排除信号</span><textarea name="new_negative_signals" rows="3"></textarea></label>
+      </div>
+    </article>
+    <div class="action-row left-actions">
+      <button class="button primary" type="submit" name="next_action" value="save">保存探针</button>
+      <button class="button" type="submit" name="next_action" value="execute">保存并执行分析</button>
+    </div>
+  </form>
+</section>
+
+<section class="panel">
+  <div class="section-head">
+    <div>
+      <h2>双层证据</h2>
+      <p class="muted">先看帖子级聚合，再展开评论级命中证据。</p>
+    </div>
+  </div>
+  {% for item in result_posts %}
+  <article class="intent-result-post">
+    <h3>{{ item.post.title }}</h3>
+    <p>{{ item.post.content }}</p>
+    {% for match in item.post_matches %}
+    <div class="intent-match post-match">
+      <strong>{{ match.probe_title or match.probe_key }} · 帖子级 · {{ match.score }}</strong>
+      {% if match.summary %}<span>{{ match.summary }}</span>{% endif %}
+      <span>{{ match.excerpt }}</span>
+      <small>{{ match.reason }}</small>
+    </div>
+    {% endfor %}
+    {% for match in item.comment_matches %}
+    <div class="intent-match comment-match">
+      <strong>{{ match.probe_title or match.probe_key }} · 评论级 · {{ match.score }}</strong>
+      <span>{{ match.excerpt }}</span>
+      <small>{{ match.reason }}</small>
+    </div>
+    {% endfor %}
+  </article>
+  {% else %}
+  <p class="muted">暂无命中结果。保存探针后点击“执行分析”。</p>
+  {% endfor %}
+</section>
+{% endblock %}

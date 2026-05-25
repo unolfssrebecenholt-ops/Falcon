@@ -5,7 +5,7 @@ from collections import Counter
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlencode
-from typing import Optional
+from typing import List, Optional
 from uuid import uuid4
 
 from fastapi import BackgroundTasks, FastAPI, Form, HTTPException, Request
@@ -16,8 +16,9 @@ from fastapi.templating import Jinja2Templates
 from ..collector import CollectorService, safe_collector_identifier
 from ..db import FalconRepository
 from ..doctor import build_doctor_report, checks_for_web
+from ..intent_analysis import IntentAnalysisService
 from ..keyword_pool import load_keyword_tasks, write_default_keyword_pool
-from ..models import CollectionEvent, CollectionRun
+from ..models import CollectionEvent, CollectionRun, IntentAnalysisProbe, IntentAnalysisTask
 from ..profiles import (
     SUPPORTED_PROFILE_LOGIN_PLATFORMS,
     clear_profile_directory,
@@ -112,6 +113,11 @@ EVIDENCE_SCOPE_LABELS = {
     "detail_screenshot": "详情页截图",
     "screenshot": "截图",
     "manual_action_required": "人工处理",
+    "manual_action_snapshot": "人工处理快照",
+    "manual_action_screenshot": "人工处理截图",
+    "failure_snapshot": "失败快照",
+    "failure_screenshot": "失败截图",
+    "search_not_confirmed": "搜索未确认",
 }
 
 
@@ -275,6 +281,18 @@ def run_can_start(run: CollectionRun) -> bool:
     return run.status == "queued"
 
 
+def latest_manual_action_reason(events: list[CollectionEvent]) -> str:
+    for event in reversed(events):
+        if event.event != "manual_action_required":
+            continue
+        try:
+            payload = json.loads(event.payload_json or "{}")
+        except json.JSONDecodeError:
+            return ""
+        return str(payload.get("reason") or "")
+    return ""
+
+
 def _parse_time(value: str) -> Optional[datetime]:
     if not value:
         return None
@@ -323,6 +341,7 @@ def create_app(
     profile_root=None,
     profile_login_launcher=None,
     collector_run_launcher=None,
+    intent_analysis_service_factory=None,
 ) -> FastAPI:
     app = FastAPI(title="Falcon 控制台")
     app.state.db_path = Path(db_path)
@@ -332,6 +351,7 @@ def create_app(
     app.state.project_root = Path(__file__).resolve().parents[2]
     app.state.doctor_report_builder = doctor_report_builder or build_doctor_report
     app.state.profile_login_launcher = profile_login_launcher or launch_profile_login
+    app.state.intent_analysis_service_factory = intent_analysis_service_factory
 
     def default_collector_run_launcher(run_id: str) -> None:
         repository = FalconRepository(app.state.db_path)
@@ -359,6 +379,11 @@ def create_app(
             runtime_root=app.state.runtime_root,
             profile_root=app.state.profile_root,
         )
+
+    def intent_analysis_service(repository: FalconRepository):
+        if app.state.intent_analysis_service_factory is not None:
+            return app.state.intent_analysis_service_factory(repository)
+        return IntentAnalysisService(repository)
 
     def profile_safety_states(repository: FalconRepository) -> dict[tuple[str, str], dict]:
         service = collector_service(repository)
@@ -450,6 +475,23 @@ def create_app(
 
     def profile_is_safety_locked(repository: FalconRepository, run: CollectionRun) -> bool:
         return collector_service(repository).is_profile_safety_locked(run.platform, run.profile)
+
+    def safety_lock_accounts_url(platform: str, profile: str) -> str:
+        return (
+            "/collector/accounts?"
+            f"profile_action=safety_locked&profile_platform={platform}&profile_name={profile}"
+        )
+
+    def safety_lock_run_url(run: CollectionRun) -> str:
+        return f"/collector/runs/{run.run_id}?run_notice=safety_locked"
+
+    def run_notice_message(action: str, run: CollectionRun) -> str:
+        if action == "safety_locked":
+            return (
+                f"账号风控熔断锁正在保护 {run.platform}/{run.profile}，Falcon 已停止启动采集。"
+                "请先在账号管理确认账号状态，必要时打开登录窗口处理平台提示，再手动解除熔断。"
+            )
+        return ""
 
     def dispatch_queued_runs(
         repository: FalconRepository,
@@ -722,6 +764,120 @@ def create_app(
 
     def all_collected_relevance(repository: FalconRepository):
         return relevance_summary(repository.list_collected_posts(limit=1000))
+
+    def analysis_platform_context(repository: FalconRepository, platform: str, reuse_task_id: Optional[int] = None):
+        allowed = {item["key"] for item in _collector_platforms()}
+        selected = platform if platform in allowed else "xiaohongshu"
+        runs = [
+            run
+            for run in repository.list_collection_runs(limit=1000)
+            if run.platform == selected and run.status == "completed"
+        ]
+        tasks = repository.list_intent_analysis_tasks(platform=selected, limit=8)
+        histories = []
+        for task in tasks:
+            sources = repository.list_intent_analysis_sources(task.task_id or 0)
+            histories.append({"task": task, "sources": sources})
+        prefill_run_ids: list[str] = []
+        prefill_user_intent = ""
+        if reuse_task_id is not None:
+            reuse_task = repository.get_intent_analysis_task(reuse_task_id)
+            if reuse_task is not None and reuse_task.platform == selected:
+                prefill_user_intent = reuse_task.user_intent
+                prefill_run_ids = [
+                    source.run_id
+                    for source in repository.list_intent_analysis_sources(reuse_task_id)
+                ]
+        return {
+            "selected_platform": selected,
+            "platforms": _collector_platforms(),
+            "analysis_runs": runs,
+            "intent_tasks": tasks,
+            "intent_histories": histories,
+            "prefill_run_ids": prefill_run_ids,
+            "prefill_user_intent": prefill_user_intent,
+        }
+
+    def intent_task_detail_context(repository: FalconRepository, task_id: int):
+        task = repository.get_intent_analysis_task(task_id)
+        if task is None:
+            raise HTTPException(status_code=404, detail="Intent analysis task not found")
+        sources = repository.list_intent_analysis_sources(task_id)
+        probes = repository.list_intent_analysis_probes(task_id)
+        matches = repository.list_intent_analysis_matches(task_id)
+        matches_by_post: dict[int, list] = {}
+        for match in matches:
+            matches_by_post.setdefault(match.post_id, []).append(match)
+        result_posts = []
+        for post in repository.build_intent_analysis_package(task_id):
+            post_id = int(post["post_id"])
+            post_matches = matches_by_post.get(post_id, [])
+            comment_matches = [match for match in post_matches if match.level == "comment"]
+            if post_matches:
+                result_posts.append(
+                    {
+                        "post": post,
+                        "post_matches": [match for match in post_matches if match.level == "post"],
+                        "comment_matches": comment_matches,
+                    }
+                )
+        return {
+            "task": task,
+            "sources": sources,
+            "probes": probes,
+            "result_posts": result_posts,
+            "package": repository.build_intent_analysis_package(task_id),
+        }
+
+    def save_intent_analysis_probes_from_form(repository: FalconRepository, task_id: int, form) -> None:
+        def parse_sort_order(value: object, fallback: int) -> int:
+            try:
+                return int(str(value or "").strip() or fallback)
+            except ValueError:
+                return fallback
+
+        seen_ids = set()
+        delete_ids = {int(str(item)) for item in form.getlist("delete_probe_ids") if str(item).isdigit()}
+        for raw_probe_id in form.getlist("probe_ids"):
+            probe_id_text = str(raw_probe_id or "").strip()
+            if not probe_id_text:
+                continue
+            probe_id = int(probe_id_text)
+            if probe_id in delete_ids:
+                repository.delete_intent_analysis_probe(probe_id, task_id=task_id)
+                continue
+            existing = repository.get_intent_analysis_probe(probe_id)
+            if existing is None or existing.task_id != task_id:
+                continue
+            seen_ids.add(probe_id)
+            repository.save_intent_analysis_probe(
+                IntentAnalysisProbe(
+                    probe_id=probe_id,
+                    task_id=task_id,
+                    probe_key=str(form.get(f"probe_key_{probe_id}") or f"probe-{probe_id}").strip(),
+                    title=str(form.get(f"title_{probe_id}") or "").strip(),
+                    description=str(form.get(f"description_{probe_id}") or "").strip(),
+                    positive_signals=str(form.get(f"positive_signals_{probe_id}") or "").strip(),
+                    negative_signals=str(form.get(f"negative_signals_{probe_id}") or "").strip(),
+                    sort_order=parse_sort_order(form.get(f"sort_order_{probe_id}"), existing.sort_order),
+                    enabled=form.get(f"enabled_{probe_id}") == "on",
+                )
+            )
+        new_titles = [str(item).strip() for item in form.getlist("new_title") if str(item).strip()]
+        for index, title in enumerate(new_titles, start=1):
+            sort_order = len(seen_ids) + index
+            repository.save_intent_analysis_probe(
+                IntentAnalysisProbe(
+                    task_id=task_id,
+                    probe_key=f"probe-new-{uuid4().hex[:6]}",
+                    title=title,
+                    description=str(form.get("new_description") or "").strip(),
+                    positive_signals=str(form.get("new_positive_signals") or "").strip(),
+                    negative_signals=str(form.get("new_negative_signals") or "").strip(),
+                    sort_order=sort_order,
+                )
+            )
+        repository.update_intent_analysis_task(task_id, status="probes_ready", failed_reason="")
 
     @app.get("/")
     def dashboard(request: Request):
@@ -1011,7 +1167,7 @@ def create_app(
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         repository = repo()
         if collector_service(repository).is_profile_safety_locked(clean_platform, clean_profile):
-            raise HTTPException(status_code=400, detail="Collector profile is safety locked")
+            return RedirectResponse(safety_lock_accounts_url(clean_platform, clean_profile), status_code=303)
         keyword_items = _split_keywords(keywords or keyword)
         if not keyword_items:
             raise HTTPException(status_code=400, detail="At least one collector keyword is required")
@@ -1028,7 +1184,7 @@ def create_app(
                 progress=0,
                 current_step="等待浏览器采集调度",
                 max_posts=min(30, max(1, max_posts)),
-                max_comments_per_post=min(20, max(0, max_comments_per_post)),
+                max_comments_per_post=min(50, max(0, max_comments_per_post)),
             )
             repository.create_collection_run(run)
             service.prepare_run_request(run, headed=True, dry_run=False)
@@ -1045,12 +1201,13 @@ def create_app(
         return RedirectResponse(f"/collector/runs?status=queued&created={len(created_runs)}", status_code=303)
 
     @app.get("/collector/runs/{run_id}")
-    def collector_run_detail(request: Request, run_id: str):
+    def collector_run_detail(request: Request, run_id: str, run_notice: str = ""):
         repository = repo()
         run = repository.get_collection_run(run_id)
         if run is None:
             raise HTTPException(status_code=404, detail="Collection run not found")
         run = refresh_running_run(repository, run)
+        events = repository.list_collection_events(run_id)
         collected_posts = repository.list_collected_posts(run_id=run_id)
         return templates.TemplateResponse(
             request,
@@ -1059,7 +1216,12 @@ def create_app(
                 "active": "collector_run",
                 "current_run": run,
                 "run": run,
-                "events": repository.list_collection_events(run_id),
+                "events": events,
+                "manual_action_reason": latest_manual_action_reason(events),
+                "run_notice": run_notice_message(run_notice, run),
+                "run_notice_action_url": safety_lock_accounts_url(run.platform, run.profile)
+                if run_notice == "safety_locked"
+                else "",
                 "posts": posts_with_relevance(collected_posts),
                 "relevance_summary": relevance_summary(collected_posts),
                 "assets": repository.list_media_assets(run_id),
@@ -1089,7 +1251,7 @@ def create_app(
         if profile_is_busy(repository, run):
             raise HTTPException(status_code=400, detail="Collector profile is already busy")
         if profile_is_safety_locked(repository, run):
-            raise HTTPException(status_code=400, detail="Collector profile is safety locked")
+            return RedirectResponse(safety_lock_run_url(run), status_code=303)
 
         collector_service(repository).prepare_run_request(run, headed=True, dry_run=False)
         repository.update_collection_run(
@@ -1123,6 +1285,11 @@ def create_app(
             raise HTTPException(status_code=400, detail="Collection run does not require manual action")
         if run.platform not in SUPPORTED_PROFILE_LOGIN_PLATFORMS:
             raise HTTPException(status_code=400, detail="Profile login is not supported for this platform yet")
+        if latest_manual_action_reason(repository.list_collection_events(run_id)) == "profile_window_busy":
+            raise HTTPException(
+                status_code=400,
+                detail="Please close the existing profile window before resuming collection.",
+            )
 
         profile_path = app.state.profile_root / run.platform / run.profile
         target_url = manual_action_target_url(repository, run)
@@ -1159,7 +1326,7 @@ def create_app(
         if profile_is_busy(repository, run):
             raise HTTPException(status_code=400, detail="Collector profile is already busy")
         if profile_is_safety_locked(repository, run):
-            raise HTTPException(status_code=400, detail="Collector profile is safety locked")
+            return RedirectResponse(safety_lock_run_url(run), status_code=303)
 
         collector_service(repository).prepare_run_request(run, headed=True, dry_run=False)
         repository.update_collection_run(
@@ -1351,12 +1518,13 @@ def create_app(
         return local_media_response(evidence.path)
 
     @app.get("/analysis")
-    def analysis_page(request: Request):
+    def analysis_page(request: Request, platform: str = "xiaohongshu", reuse_task_id: Optional[int] = None):
         repository = repo()
         scored_items = repository.list_scored_items(limit=100)
         keyword_stats = _keyword_stats(scored_items)
         high_intent = [item for item in scored_items if int(item.get("intent_score") or 0) >= 80]
         quality_pool = all_collected_relevance(repository)
+        platform_context = analysis_platform_context(repository, platform, reuse_task_id=reuse_task_id)
         return templates.TemplateResponse(
             request,
             "analysis.html",
@@ -1366,6 +1534,7 @@ def create_app(
                 "keyword_stats": keyword_stats,
                 "quality_pool": quality_pool,
                 "last_run": app.state.last_run,
+                **platform_context,
                 "stats": {
                     "scored_count": len(scored_items),
                     "high_intent_count": len(high_intent),
@@ -1374,6 +1543,70 @@ def create_app(
                 },
             },
         )
+
+    @app.post("/analysis/tasks")
+    async def create_intent_analysis_task(request: Request):
+        form = await request.form()
+        platform = str(form.get("platform") or "xiaohongshu").strip()
+        allowed = {item["key"] for item in _collector_platforms()}
+        if platform not in allowed:
+            raise HTTPException(status_code=400, detail="Unsupported analysis platform")
+        run_ids = [str(item).strip() for item in form.getlist("run_ids") if str(item).strip()]
+        user_intent = str(form.get("user_intent") or "").strip()
+        if not user_intent:
+            raise HTTPException(status_code=400, detail="Analysis intent is required")
+        repository = repo()
+        task_id = repository.create_intent_analysis_task(
+            IntentAnalysisTask(platform=platform, user_intent=user_intent)
+        )
+        try:
+            repository.add_intent_analysis_sources(task_id, run_ids)
+        except ValueError as exc:
+            repository.update_intent_analysis_task(task_id, status="failed", failed_reason=str(exc))
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return RedirectResponse(f"/analysis/tasks/{task_id}", status_code=303)
+
+    @app.get("/analysis/tasks/{task_id}")
+    def intent_analysis_task_page(request: Request, task_id: int):
+        repository = repo()
+        return templates.TemplateResponse(
+            request,
+            "analysis_task.html",
+            {
+                "active": "analysis",
+                **intent_task_detail_context(repository, task_id),
+            },
+        )
+
+    @app.post("/analysis/tasks/{task_id}/probes/generate")
+    def generate_intent_analysis_probes(task_id: int):
+        repository = repo()
+        try:
+            intent_analysis_service(repository).generate_probes(task_id)
+        except Exception as exc:
+            repository.update_intent_analysis_task(task_id, status="failed", failed_reason=str(exc))
+        return RedirectResponse(f"/analysis/tasks/{task_id}", status_code=303)
+
+    @app.post("/analysis/tasks/{task_id}/probes")
+    async def save_intent_analysis_probes(request: Request, task_id: int):
+        form = await request.form()
+        repository = repo()
+        save_intent_analysis_probes_from_form(repository, task_id, form)
+        if form.get("next_action") == "execute":
+            try:
+                intent_analysis_service(repository).execute_task(task_id)
+            except Exception as exc:
+                repository.update_intent_analysis_task(task_id, status="failed", failed_reason=str(exc))
+        return RedirectResponse(f"/analysis/tasks/{task_id}", status_code=303)
+
+    @app.post("/analysis/tasks/{task_id}/execute")
+    def execute_intent_analysis_task(task_id: int):
+        repository = repo()
+        try:
+            intent_analysis_service(repository).execute_task(task_id)
+        except Exception as exc:
+            repository.update_intent_analysis_task(task_id, status="failed", failed_reason=str(exc))
+        return RedirectResponse(f"/analysis/tasks/{task_id}", status_code=303)
 
     @app.get("/analysis/samples")
     def analysis_samples_page(request: Request):
@@ -1647,4 +1880,9 @@ def _profile_notice(action: str, platform: str, profile: str) -> str:
         return f"已退出 {platform}/{profile}，本机 Profile 目录已清除。需要再次使用时请重新登录。"
     if action == "safety_cleared" and platform and profile:
         return f"已清除 {platform}/{profile} 的账号风控熔断锁。请确认账号状态正常后再低频采集。"
+    if action == "safety_locked" and platform and profile:
+        return (
+            f"账号风控熔断锁正在保护 {platform}/{profile}。"
+            "请先确认账号页面没有验证码、登录异常或平台风险提示；确认正常后再点“解除熔断”。"
+        )
     return ""

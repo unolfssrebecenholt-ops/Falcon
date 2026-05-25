@@ -18,6 +18,9 @@ from falcon.models import (
     CollectionRun,
     Draft,
     Evidence,
+    IntentAnalysisMatch,
+    IntentAnalysisProbe,
+    IntentAnalysisTask,
     MediaAsset,
     RawItem,
 )
@@ -1066,9 +1069,9 @@ class WebAppTest(unittest.TestCase):
             self.assertIn('name="keyword"', response.text)
             self.assertIn('name="max_posts"', response.text)
             self.assertIn('name="max_posts" type="number" min="1" max="30" value="8"', response.text)
-            self.assertIn('name="max_comments_per_post" type="number" min="0" max="20" value="5"', response.text)
-            self.assertIn("截图保存", response.text)
-            self.assertIn("不下载原图", response.text)
+            self.assertIn('name="max_comments_per_post" type="number" min="0" max="50" value="5"', response.text)
+            self.assertIn("保存已加载图片", response.text)
+            self.assertIn("截图回退", response.text)
             assert_no_legacy_collection_markers(self, response.text)
 
     def test_collector_create_get_renders_huashu_keyword_group_builder(self):
@@ -1170,8 +1173,11 @@ class WebAppTest(unittest.TestCase):
             self.assertEqual(accounts_page.status_code, 200)
             self.assertIn("账号风控熔断", accounts_page.text)
             self.assertIn("解除熔断", accounts_page.text)
-            self.assertEqual(blocked_create.status_code, 400)
-            self.assertIn("safety locked", blocked_create.text)
+            self.assertEqual(blocked_create.status_code, 303)
+            self.assertIn("profile_action=safety_locked", blocked_create.headers["location"])
+            blocked_notice = client.get(blocked_create.headers["location"])
+            self.assertIn("账号风控熔断锁正在保护 xiaohongshu/default", blocked_notice.text)
+            self.assertIn("解除熔断", blocked_notice.text)
             self.assertEqual(cleared.status_code, 303)
             cleared_state = json.loads(safety_path.read_text(encoding="utf-8"))
             self.assertFalse(cleared_state["locked"])
@@ -1249,6 +1255,34 @@ class WebAppTest(unittest.TestCase):
             request_path = tmp_path / "runtime" / "collector" / runs[0].run_id / "request.json"
             self.assertTrue(request_path.exists())
             self.assertIn('"platform": "xiaohongshu"', request_path.read_text(encoding="utf-8"))
+
+    def test_collector_create_post_clamps_comments_to_fifty(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            db_path = tmp_path / "falcon.sqlite3"
+            client = TestClient(create_app(db_path))
+
+            response = client.post(
+                "/collector/create",
+                data={
+                    "platform": "xiaohongshu",
+                    "profile": "creator",
+                    "keyword": "内容表现",
+                    "max_posts": "7",
+                    "max_comments_per_post": "80",
+                },
+                follow_redirects=False,
+            )
+
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            runs = repo.list_collection_runs()
+            self.assertEqual(response.status_code, 303)
+            self.assertEqual(len(runs), 1)
+            self.assertEqual(runs[0].max_comments_per_post, 50)
+            request_path = tmp_path / "runtime" / "collector" / runs[0].run_id / "request.json"
+            request_payload = json.loads(request_path.read_text(encoding="utf-8"))
+            self.assertEqual(request_payload["max_comments_per_post"], 50)
 
     def test_collector_create_post_splits_multiple_keywords_into_runs(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1391,6 +1425,92 @@ class WebAppTest(unittest.TestCase):
             self.assertIn("显示 7 条", response.text)
             self.assertLess(response.text.index("采集样本"), response.text.index("事件链"))
             assert_no_legacy_collection_markers(self, response.text)
+
+    def test_collector_run_detail_shows_evidence_payload_summary_without_platform_links(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "falcon.sqlite3"
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="xhs-evidence-summary",
+                    platform="xiaohongshu",
+                    keyword="content ops",
+                    profile="default",
+                    status="manual_action_required",
+                )
+            )
+            repo.save_evidence(
+                Evidence(
+                    run_id="xhs-evidence-summary",
+                    evidence_type="manual_action_snapshot",
+                    scope="manual_action_snapshot",
+                    path="runtime/collector/xhs-evidence-summary/assets/manual-action.json",
+                    payload_json=json.dumps(
+                        {
+                            "reason": "account_risk_warning",
+                            "url": "https://www.xiaohongshu.com/explore",
+                            "title": "Account risk warning",
+                            "matched_signals": ["risk control", "captcha"],
+                        }
+                    ),
+                )
+            )
+            repo.save_evidence(
+                Evidence(
+                    run_id="xhs-evidence-summary",
+                    evidence_type="manual_action_screenshot",
+                    scope="manual_action_screenshot",
+                    path="runtime/collector/xhs-evidence-summary/assets/manual-action.png",
+                    payload_json=json.dumps({"reason": "account_risk_warning"}),
+                )
+            )
+            repo.save_evidence(
+                Evidence(
+                    run_id="xhs-evidence-summary",
+                    evidence_type="failure_snapshot",
+                    scope="failure_snapshot",
+                    path="runtime/collector/xhs-evidence-summary/assets/failure.json",
+                    payload_json=json.dumps(
+                        {
+                            "reason": "SEARCH_NOT_CONFIRMED",
+                            "url": "https://www.xiaohongshu.com/search_result",
+                            "title": "Search confirmation failed",
+                            "matched_signals": ["keyword not visible"],
+                        }
+                    ),
+                )
+            )
+            repo.save_evidence(
+                Evidence(
+                    run_id="xhs-evidence-summary",
+                    evidence_type="failure_screenshot",
+                    scope="failure_screenshot",
+                    path="runtime/collector/xhs-evidence-summary/assets/failure-search_not_confirmed.png",
+                    payload_json=json.dumps({"reason": "SEARCH_NOT_CONFIRMED"}),
+                )
+            )
+            client = TestClient(create_app(db_path))
+
+            response = client.get("/collector/runs/xhs-evidence-summary")
+
+            self.assertEqual(response.status_code, 200)
+            self.assertIn("manual_action_snapshot", response.text)
+            self.assertIn("manual_action_screenshot", response.text)
+            self.assertIn("failure_snapshot", response.text)
+            self.assertIn("failure_screenshot", response.text)
+            self.assertIn("失败快照", response.text)
+            self.assertIn("失败截图", response.text)
+            self.assertIn("manual-action.json", response.text)
+            self.assertIn("manual-action.png", response.text)
+            self.assertIn("failure.json", response.text)
+            self.assertIn("failure-search_not_confirmed.png", response.text)
+            self.assertIn("account_risk_warning", response.text)
+            self.assertIn("SEARCH_NOT_CONFIRMED", response.text)
+            self.assertIn("https://www.xiaohongshu.com/explore", response.text)
+            self.assertIn("Account risk warning", response.text)
+            self.assertIn("risk control", response.text)
+            self.assertNotIn('href="https://www.xiaohongshu.com/explore"', response.text)
 
     def test_collector_run_detail_ledger_css_limits_panels_to_seven_scrollable_rows(self):
         css = (Path(__file__).resolve().parents[1] / "falcon" / "web" / "static" / "app.css").read_text(
@@ -1636,7 +1756,7 @@ class WebAppTest(unittest.TestCase):
             self.assertEqual(run.status, "queued")
             self.assertEqual(launches, [])
 
-    def test_collector_start_and_resume_reject_safety_locked_profile(self):
+    def test_collector_start_and_resume_redirect_safety_locked_profile_to_friendly_notice(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             db_path = tmp_path / "falcon.sqlite3"
@@ -1684,13 +1804,21 @@ class WebAppTest(unittest.TestCase):
 
             start = client.post("/collector/runs/xhs-locked-start/start", follow_redirects=False)
             resume = client.post("/collector/runs/xhs-locked-resume/resume", follow_redirects=False)
+            start_notice = client.get(start.headers["location"])
+            resume_notice = client.get(resume.headers["location"])
 
             repo = FalconRepository(db_path)
             repo.init_schema()
-            self.assertEqual(start.status_code, 400)
-            self.assertEqual(resume.status_code, 400)
-            self.assertIn("safety locked", start.text)
-            self.assertIn("safety locked", resume.text)
+            self.assertEqual(start.status_code, 303)
+            self.assertEqual(resume.status_code, 303)
+            self.assertIn("run_notice=safety_locked", start.headers["location"])
+            self.assertIn("run_notice=safety_locked", resume.headers["location"])
+            self.assertIn("账号风控熔断锁正在保护 xiaohongshu/default", start_notice.text)
+            self.assertIn("账号风控熔断锁正在保护 xiaohongshu/creator", resume_notice.text)
+            self.assertIn("去账号管理解除熔断", start_notice.text)
+            self.assertIn("去账号管理解除熔断", resume_notice.text)
+            self.assertNotIn("Collector profile is safety locked", start_notice.text)
+            self.assertNotIn("Collector profile is safety locked", resume_notice.text)
             self.assertEqual(repo.get_collection_run("xhs-locked-start").status, "queued")
             self.assertEqual(repo.get_collection_run("xhs-locked-resume").status, "manual_action_required")
             self.assertEqual(launches, [])
@@ -1797,6 +1925,50 @@ class WebAppTest(unittest.TestCase):
             self.assertEqual(launches[0]["profile_path"], profile_root / "xiaohongshu" / "creator")
             self.assertEqual(launches[0]["url"], "https://www.xiaohongshu.com/")
             self.assertIn("manual_action_window_opened", {event.event for event in events})
+
+    def test_collector_profile_busy_manual_action_does_not_open_another_window(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "falcon.sqlite3"
+            profile_root = Path(tmp) / "browser-profiles"
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="xhs-profile-busy",
+                    platform="xiaohongshu",
+                    keyword="内容表现",
+                    profile="default",
+                    status="manual_action_required",
+                    progress=5,
+                    current_step="浏览器 Profile 正在被其他窗口占用。",
+                )
+            )
+            repo.append_collection_event(
+                CollectionEvent(
+                    run_id="xhs-profile-busy",
+                    sequence=1,
+                    scope="xiaohongshu",
+                    event="manual_action_required",
+                    message="profile busy",
+                    payload_json='{"reason": "profile_window_busy"}',
+                )
+            )
+            launches = []
+
+            def fake_launcher(**kwargs):
+                launches.append(kwargs)
+
+            client = TestClient(create_app(db_path, profile_root=profile_root, profile_login_launcher=fake_launcher))
+
+            detail = client.get("/collector/runs/xhs-profile-busy")
+            response = client.post("/collector/runs/xhs-profile-busy/open-manual-action", follow_redirects=False)
+
+            self.assertEqual(detail.status_code, 200)
+            self.assertNotIn('action="/collector/runs/xhs-profile-busy/open-manual-action"', detail.text)
+            self.assertIn("关闭已打开的 xiaohongshu/default 浏览器窗口", detail.text)
+            self.assertEqual(response.status_code, 400)
+            self.assertIn("close the existing profile window", response.text)
+            self.assertEqual(launches, [])
 
     def test_collector_manual_action_window_does_not_reopen_blocked_post_url(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -2785,6 +2957,260 @@ class WebAppTest(unittest.TestCase):
             self.assertIn("Content performance checklist", response.text)
             self.assertIn('href="/analysis/samples"', response.text)
             assert_no_legacy_collection_markers(self, response.text)
+
+    def test_analysis_home_groups_runs_by_platform_and_creates_intent_task(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "falcon.sqlite3"
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            for index, (run_id, keyword) in enumerate([("xhs-market-1", "生图软件"), ("xhs-market-2", "AI 工具")], start=1):
+                repo.create_collection_run(
+                    CollectionRun(
+                        run_id=run_id,
+                        platform="xiaohongshu",
+                        keyword=keyword,
+                        profile="default",
+                        status="completed",
+                        created_at=f"2026-05-25T0{index}:00:00+00:00",
+                    )
+                )
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="douyin-market-1",
+                    platform="douyin",
+                    keyword="生图软件",
+                    profile="default",
+                    status="completed",
+                )
+            )
+            client = TestClient(create_app(db_path))
+
+            home = client.get("/analysis?platform=xiaohongshu")
+            response = client.post(
+                "/analysis/tasks",
+                data={
+                    "platform": "xiaohongshu",
+                    "run_ids": ["xhs-market-1", "xhs-market-2"],
+                    "user_intent": "我想分析生图软件的市场",
+                },
+                follow_redirects=False,
+            )
+
+            self.assertEqual(home.status_code, 200)
+            self.assertIn("小红书", home.text)
+            self.assertIn("抖音", home.text)
+            self.assertIn('action="/analysis/tasks"', home.text)
+            self.assertIn('class="intent-run-list"', home.text)
+            self.assertIn("生图软件 · 2026-05-25 09:00:00", home.text)
+            self.assertIn("AI 工具 · 2026-05-25 10:00:00", home.text)
+            self.assertIn("xhs-market-1", home.text)
+            self.assertNotIn('value="douyin-market-1"', home.text)
+            self.assertIn('action="/analysis/promote"', home.text)
+            self.assertEqual(response.status_code, 303)
+            task_id = int(response.headers["location"].rsplit("/", 1)[-1])
+            task = repo.get_intent_analysis_task(task_id)
+            self.assertEqual(task.platform, "xiaohongshu")
+            self.assertEqual(task.user_intent, "我想分析生图软件的市场")
+            self.assertEqual([source.run_id for source in repo.list_intent_analysis_sources(task_id)], ["xhs-market-1", "xhs-market-2"])
+
+            history = client.get(f"/analysis?platform=xiaohongshu&reuse_task_id={task_id}")
+            self.assertEqual(history.status_code, 200)
+            self.assertIn('value="xhs-market-1" checked', history.text)
+            self.assertIn('value="xhs-market-2" checked', history.text)
+            self.assertIn("我想分析生图软件的市场", history.text)
+
+    def test_analysis_task_detail_generates_edits_and_executes_probes(self):
+        class FakeIntentService:
+            def __init__(self, repository):
+                self.repository = repository
+
+            def generate_probes(self, task_id):
+                probe_id = self.repository.save_intent_analysis_probe(
+                    IntentAnalysisProbe(
+                        task_id=task_id,
+                        probe_key="probe-1",
+                        title="求推荐生图工具",
+                        description="识别正在寻找生图软件的人",
+                        positive_signals="跪求\n推荐",
+                        negative_signals="纯展示作品",
+                        sort_order=1,
+                    )
+                )
+                return [self.repository.get_intent_analysis_probe(probe_id)]
+
+            def execute_task(self, task_id):
+                package = self.repository.build_intent_analysis_package(task_id)
+                probe = self.repository.list_intent_analysis_probes(task_id)[0]
+                post_id = int(package[0]["post_id"])
+                comment_id = int(package[0]["comments"][0]["comment_id"])
+                match = IntentAnalysisMatch(
+                    task_id=task_id,
+                    probe_id=probe.probe_id or 0,
+                    probe_key=probe.probe_key,
+                    post_id=post_id,
+                    comment_id=comment_id,
+                    level="comment",
+                    score=94,
+                    reason="评论直接求推荐",
+                    excerpt="跪求好用的 image2 生图软件",
+                )
+                self.repository.save_intent_analysis_match(match)
+                self.repository.update_intent_analysis_task(task_id, status="completed", completed_at="2026-05-25T00:00:00Z")
+                return [match]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "falcon.sqlite3"
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="xhs-intent-detail",
+                    platform="xiaohongshu",
+                    keyword="生图软件",
+                    profile="default",
+                    status="completed",
+                )
+            )
+            post_id = repo.save_collected_post(
+                CollectedPost(
+                    run_id="xhs-intent-detail",
+                    platform="xiaohongshu",
+                    keyword="生图软件",
+                    title="生图软件对比",
+                    content="想知道哪些人需要生图软件。",
+                    url="local://intent-detail/post-1",
+                    detail_fingerprint="intent-detail-1",
+                )
+            )
+            repo.save_collected_comment(
+                CollectedComment(
+                    post_id=post_id,
+                    run_id="xhs-intent-detail",
+                    commenter="reader",
+                    content="跪求好用的 image2 生图软件推荐。",
+                )
+            )
+            task_id = repo.create_intent_analysis_task(
+                IntentAnalysisTask(platform="xiaohongshu", user_intent="我想知道哪些人需要生图软件")
+            )
+            repo.add_intent_analysis_sources(task_id, ["xhs-intent-detail"])
+            client = TestClient(create_app(db_path, intent_analysis_service_factory=FakeIntentService))
+
+            detail = client.get(f"/analysis/tasks/{task_id}")
+            generated = client.post(f"/analysis/tasks/{task_id}/probes/generate", follow_redirects=False)
+            edited = client.post(
+                f"/analysis/tasks/{task_id}/probes",
+                data={
+                    "probe_ids": "1",
+                    "probe_key_1": "probe-1",
+                    "title_1": "避雷生图工具",
+                    "description_1": "识别正在吐槽或避雷生图软件的人",
+                    "positive_signals_1": "避雷\n踩坑",
+                    "negative_signals_1": "求推荐",
+                    "enabled_1": "on",
+                    "sort_order_1": "1",
+                    "next_action": "execute",
+                },
+                follow_redirects=False,
+            )
+            final_detail = client.get(f"/analysis/tasks/{task_id}")
+
+            self.assertEqual(detail.status_code, 200)
+            self.assertIn("我想知道哪些人需要生图软件", detail.text)
+            self.assertIn("xhs-intent-detail", detail.text)
+            self.assertIn('action="/analysis/tasks/%d/probes/generate"' % task_id, detail.text)
+            self.assertIn('form="probe-editor-form"', detail.text)
+            self.assertEqual(generated.status_code, 303)
+            self.assertEqual(edited.status_code, 303)
+            self.assertEqual(repo.list_intent_analysis_probes(task_id)[0].title, "避雷生图工具")
+            self.assertEqual(repo.get_intent_analysis_task(task_id).status, "completed")
+            self.assertIn("双层证据", final_detail.text)
+            self.assertIn("生图软件对比", final_detail.text)
+            self.assertIn("跪求好用的 image2 生图软件", final_detail.text)
+            self.assertIn("评论直接求推荐", final_detail.text)
+
+    def test_analysis_task_probe_edit_cannot_mutate_other_task_probe(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "falcon.sqlite3"
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            task_one = repo.create_intent_analysis_task(
+                IntentAnalysisTask(platform="xiaohongshu", user_intent="任务一")
+            )
+            task_two = repo.create_intent_analysis_task(
+                IntentAnalysisTask(platform="xiaohongshu", user_intent="任务二")
+            )
+            other_probe_id = repo.save_intent_analysis_probe(
+                IntentAnalysisProbe(
+                    task_id=task_two,
+                    probe_key="probe-1",
+                    title="原始探针",
+                    description="不能被任务一修改",
+                    positive_signals="原始",
+                    negative_signals="排除",
+                    sort_order=1,
+                )
+            )
+            client = TestClient(create_app(db_path))
+
+            response = client.post(
+                f"/analysis/tasks/{task_one}/probes",
+                data={
+                    "probe_ids": str(other_probe_id),
+                    f"probe_key_{other_probe_id}": "probe-1",
+                    f"title_{other_probe_id}": "被篡改",
+                    f"description_{other_probe_id}": "跨任务修改",
+                    f"positive_signals_{other_probe_id}": "篡改",
+                    f"negative_signals_{other_probe_id}": "篡改",
+                    f"enabled_{other_probe_id}": "on",
+                    f"sort_order_{other_probe_id}": "1",
+                },
+                follow_redirects=False,
+            )
+
+            self.assertEqual(response.status_code, 303)
+            self.assertEqual(repo.get_intent_analysis_probe(other_probe_id).title, "原始探针")
+
+    def test_analysis_task_probe_edit_ignores_malformed_sort_order(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "falcon.sqlite3"
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            task_id = repo.create_intent_analysis_task(
+                IntentAnalysisTask(platform="xiaohongshu", user_intent="任务")
+            )
+            probe_id = repo.save_intent_analysis_probe(
+                IntentAnalysisProbe(
+                    task_id=task_id,
+                    probe_key="probe-1",
+                    title="原始探针",
+                    description="原始描述",
+                    positive_signals="原始",
+                    negative_signals="排除",
+                    sort_order=3,
+                )
+            )
+            client = TestClient(create_app(db_path))
+
+            response = client.post(
+                f"/analysis/tasks/{task_id}/probes",
+                data={
+                    "probe_ids": str(probe_id),
+                    f"probe_key_{probe_id}": "probe-1",
+                    f"title_{probe_id}": "更新探针",
+                    f"description_{probe_id}": "更新描述",
+                    f"positive_signals_{probe_id}": "更新",
+                    f"negative_signals_{probe_id}": "排除",
+                    f"enabled_{probe_id}": "on",
+                    f"sort_order_{probe_id}": "abc",
+                },
+                follow_redirects=False,
+            )
+
+            self.assertEqual(response.status_code, 303)
+            probe = repo.get_intent_analysis_probe(probe_id)
+            self.assertEqual(probe.title, "更新探针")
+            self.assertEqual(probe.sort_order, 3)
 
     def test_analysis_promote_collected_posts_creates_raw_items(self):
         with tempfile.TemporaryDirectory() as tmp:

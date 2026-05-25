@@ -1,4 +1,5 @@
 import { mkdir } from "node:fs/promises";
+import { selectUsableBrowserPage } from "./xiaohongshu.mjs";
 
 const LOGIN_URLS = {
   xiaohongshu: "https://www.xiaohongshu.com/",
@@ -40,7 +41,7 @@ const context = await chromium.launchPersistentContext(profilePath, {
   viewport: { width: 1366, height: 900 },
   locale: "zh-CN",
 });
-const page = context.pages()[0] ?? (await context.newPage());
+const page = await selectUsableBrowserPage(context, { preferredHost: "xiaohongshu.com" });
 
 console.log(`Falcon profile login window opened for ${platform}/${profile}`);
 console.log(`Profile path: ${profilePath}`);

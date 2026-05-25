@@ -13,6 +13,10 @@ from .models import (
     CollectionRun,
     Draft,
     Evidence,
+    IntentAnalysisMatch,
+    IntentAnalysisProbe,
+    IntentAnalysisSource,
+    IntentAnalysisTask,
     MediaAsset,
     OutreachTask,
     RawItem,
@@ -193,6 +197,68 @@ class FalconRepository:
                 );
                 CREATE UNIQUE INDEX IF NOT EXISTS idx_evidences_run_path_scope
                     ON evidences(run_id, evidence_type, path, scope);
+
+                CREATE TABLE IF NOT EXISTS intent_analysis_tasks (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    platform TEXT NOT NULL,
+                    user_intent TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'draft',
+                    model_name TEXT NOT NULL DEFAULT 'gpt-5.5',
+                    failed_reason TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    completed_at TEXT NOT NULL DEFAULT ''
+                );
+
+                CREATE TABLE IF NOT EXISTS intent_analysis_sources (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    task_id INTEGER NOT NULL,
+                    run_id TEXT NOT NULL,
+                    platform TEXT NOT NULL,
+                    keyword TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY(task_id) REFERENCES intent_analysis_tasks(id)
+                );
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_intent_analysis_sources_task_run
+                    ON intent_analysis_sources(task_id, run_id);
+
+                CREATE TABLE IF NOT EXISTS intent_analysis_probes (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    task_id INTEGER NOT NULL,
+                    probe_key TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    description TEXT NOT NULL,
+                    positive_signals TEXT NOT NULL,
+                    negative_signals TEXT NOT NULL,
+                    sort_order INTEGER NOT NULL,
+                    enabled INTEGER NOT NULL DEFAULT 1,
+                    model_name TEXT NOT NULL DEFAULT 'gpt-5.5',
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY(task_id) REFERENCES intent_analysis_tasks(id)
+                );
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_intent_analysis_probes_task_key
+                    ON intent_analysis_probes(task_id, probe_key);
+
+                CREATE TABLE IF NOT EXISTS intent_analysis_matches (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    task_id INTEGER NOT NULL,
+                    probe_id INTEGER NOT NULL,
+                    probe_key TEXT NOT NULL,
+                    probe_title TEXT NOT NULL DEFAULT '',
+                    post_id INTEGER NOT NULL,
+                    comment_id INTEGER,
+                    level TEXT NOT NULL,
+                    score INTEGER NOT NULL,
+                    reason TEXT NOT NULL,
+                    excerpt TEXT NOT NULL,
+                    summary TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY(task_id) REFERENCES intent_analysis_tasks(id),
+                    FOREIGN KEY(probe_id) REFERENCES intent_analysis_probes(id)
+                );
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_intent_analysis_matches_exact
+                    ON intent_analysis_matches(task_id, probe_id, post_id, level, comment_id, excerpt);
                 """
             )
             self._ensure_column(conn, "raw_items", "parent_url", "TEXT NOT NULL DEFAULT ''")
@@ -219,6 +285,8 @@ class FalconRepository:
             self._ensure_column(conn, "collected_posts", "manual_relevance_note", "TEXT NOT NULL DEFAULT ''")
             self._ensure_column(conn, "collected_comments", "comment_type", "TEXT NOT NULL DEFAULT 'comment'")
             self._ensure_column(conn, "collected_comments", "reply_to", "TEXT NOT NULL DEFAULT ''")
+            self._ensure_column(conn, "intent_analysis_matches", "probe_title", "TEXT NOT NULL DEFAULT ''")
+            self._ensure_column(conn, "intent_analysis_matches", "summary", "TEXT NOT NULL DEFAULT ''")
 
     def create_collection_run(self, run: CollectionRun) -> str:
         with self._connect() as conn:
@@ -586,6 +654,340 @@ class FalconRepository:
             ).fetchall()
         return [self._row_to_evidence(row) for row in rows]
 
+    def create_intent_analysis_task(self, task: IntentAnalysisTask) -> int:
+        with self._connect() as conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO intent_analysis_tasks (
+                    platform, user_intent, status, model_name, failed_reason,
+                    created_at, updated_at, completed_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    task.platform,
+                    task.user_intent,
+                    task.status,
+                    task.model_name,
+                    task.failed_reason,
+                    task.created_at,
+                    task.updated_at,
+                    task.completed_at,
+                ),
+            )
+            return int(cursor.lastrowid)
+
+    def get_intent_analysis_task(self, task_id: int) -> Optional[IntentAnalysisTask]:
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM intent_analysis_tasks WHERE id = ?", (task_id,)).fetchone()
+        if row is None:
+            return None
+        return self._row_to_intent_analysis_task(row)
+
+    def list_intent_analysis_tasks(
+        self,
+        platform: Optional[str] = None,
+        status: Optional[str] = None,
+        limit: Optional[int] = None,
+    ) -> List[IntentAnalysisTask]:
+        sql = "SELECT * FROM intent_analysis_tasks"
+        params: List[object] = []
+        clauses: List[str] = []
+        if platform:
+            clauses.append("platform = ?")
+            params.append(platform)
+        if status:
+            clauses.append("status = ?")
+            params.append(status)
+        if clauses:
+            sql += " WHERE " + " AND ".join(clauses)
+        sql += " ORDER BY id DESC"
+        if limit:
+            sql += " LIMIT ?"
+            params.append(limit)
+        with self._connect() as conn:
+            rows = conn.execute(sql, params).fetchall()
+        return [self._row_to_intent_analysis_task(row) for row in rows]
+
+    def update_intent_analysis_task(
+        self,
+        task_id: int,
+        status: Optional[str] = None,
+        failed_reason: Optional[str] = None,
+        completed_at: Optional[str] = None,
+    ) -> None:
+        updates: List[str] = ["updated_at = ?"]
+        params: List[object] = [utc_now_iso()]
+        fields = {
+            "status": status,
+            "failed_reason": failed_reason,
+            "completed_at": completed_at,
+        }
+        for column, value in fields.items():
+            if value is not None:
+                updates.append(f"{column} = ?")
+                params.append(value)
+        params.append(task_id)
+        with self._connect() as conn:
+            conn.execute(
+                f"UPDATE intent_analysis_tasks SET {', '.join(updates)} WHERE id = ?",
+                params,
+            )
+
+    def add_intent_analysis_sources(self, task_id: int, run_ids: List[str]) -> List[int]:
+        task = self.get_intent_analysis_task(task_id)
+        if task is None:
+            raise ValueError("Intent analysis task not found")
+        unique_run_ids = list(dict.fromkeys([run_id for run_id in run_ids if run_id]))
+        if not unique_run_ids:
+            raise ValueError("At least one collection run is required")
+        runs = []
+        for run_id in unique_run_ids:
+            run = self.get_collection_run(run_id)
+            if run is None:
+                raise ValueError(f"Collection run not found: {run_id}")
+            if run.platform != task.platform:
+                raise ValueError("Intent analysis sources must use the same platform as the task")
+            if run.status != "completed":
+                raise ValueError("Intent analysis sources must be completed collection runs")
+            runs.append(run)
+        source_ids: List[int] = []
+        with self._connect() as conn:
+            for run in runs:
+                conn.execute(
+                    """
+                    INSERT OR IGNORE INTO intent_analysis_sources (
+                        task_id, run_id, platform, keyword, created_at
+                    ) VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (task_id, run.run_id, run.platform, run.keyword, utc_now_iso()),
+                )
+                row = conn.execute(
+                    """
+                    SELECT id FROM intent_analysis_sources
+                    WHERE task_id = ? AND run_id = ?
+                    """,
+                    (task_id, run.run_id),
+                ).fetchone()
+                source_ids.append(int(row["id"]))
+        return source_ids
+
+    def list_intent_analysis_sources(self, task_id: int) -> List[IntentAnalysisSource]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM intent_analysis_sources
+                WHERE task_id = ?
+                ORDER BY id ASC
+                """,
+                (task_id,),
+            ).fetchall()
+        return [self._row_to_intent_analysis_source(row) for row in rows]
+
+    def save_intent_analysis_probe(self, probe: IntentAnalysisProbe) -> int:
+        now = utc_now_iso()
+        with self._connect() as conn:
+            if probe.probe_id is not None:
+                conn.execute(
+                    """
+                    UPDATE intent_analysis_probes
+                    SET probe_key = ?,
+                        title = ?,
+                        description = ?,
+                        positive_signals = ?,
+                        negative_signals = ?,
+                        sort_order = ?,
+                        enabled = ?,
+                        model_name = ?,
+                        updated_at = ?
+                    WHERE id = ? AND task_id = ?
+                    """,
+                    (
+                        probe.probe_key,
+                        probe.title,
+                        probe.description,
+                        probe.positive_signals,
+                        probe.negative_signals,
+                        probe.sort_order,
+                        1 if probe.enabled else 0,
+                        probe.model_name,
+                        now,
+                        probe.probe_id,
+                        probe.task_id,
+                    ),
+                )
+                return probe.probe_id
+            cursor = conn.execute(
+                """
+                INSERT INTO intent_analysis_probes (
+                    task_id, probe_key, title, description, positive_signals, negative_signals,
+                    sort_order, enabled, model_name, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(task_id, probe_key) DO UPDATE SET
+                    title = excluded.title,
+                    description = excluded.description,
+                    positive_signals = excluded.positive_signals,
+                    negative_signals = excluded.negative_signals,
+                    sort_order = excluded.sort_order,
+                    enabled = excluded.enabled,
+                    model_name = excluded.model_name,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    probe.task_id,
+                    probe.probe_key,
+                    probe.title,
+                    probe.description,
+                    probe.positive_signals,
+                    probe.negative_signals,
+                    probe.sort_order,
+                    1 if probe.enabled else 0,
+                    probe.model_name,
+                    probe.created_at,
+                    now,
+                ),
+            )
+            if cursor.lastrowid:
+                return int(cursor.lastrowid)
+            row = conn.execute(
+                """
+                SELECT id FROM intent_analysis_probes
+                WHERE task_id = ? AND probe_key = ?
+                """,
+                (probe.task_id, probe.probe_key),
+            ).fetchone()
+            return int(row["id"])
+
+    def get_intent_analysis_probe(self, probe_id: int) -> Optional[IntentAnalysisProbe]:
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM intent_analysis_probes WHERE id = ?", (probe_id,)).fetchone()
+        if row is None:
+            return None
+        return self._row_to_intent_analysis_probe(row)
+
+    def list_intent_analysis_probes(self, task_id: int, enabled_only: bool = False) -> List[IntentAnalysisProbe]:
+        sql = "SELECT * FROM intent_analysis_probes WHERE task_id = ?"
+        params: List[object] = [task_id]
+        if enabled_only:
+            sql += " AND enabled = 1"
+        sql += " ORDER BY sort_order ASC, id ASC"
+        with self._connect() as conn:
+            rows = conn.execute(sql, params).fetchall()
+        return [self._row_to_intent_analysis_probe(row) for row in rows]
+
+    def delete_intent_analysis_probe(self, probe_id: int, task_id: Optional[int] = None) -> None:
+        with self._connect() as conn:
+            if task_id is None:
+                conn.execute("DELETE FROM intent_analysis_probes WHERE id = ?", (probe_id,))
+            else:
+                conn.execute(
+                    "DELETE FROM intent_analysis_probes WHERE id = ? AND task_id = ?",
+                    (probe_id, task_id),
+                )
+
+    def save_intent_analysis_match(self, match: IntentAnalysisMatch) -> int:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT id FROM intent_analysis_matches
+                WHERE task_id = ? AND probe_id = ? AND post_id = ? AND level = ?
+                    AND ((comment_id IS NULL AND ? IS NULL) OR comment_id = ?)
+                    AND excerpt = ?
+                """,
+                (
+                    match.task_id,
+                    match.probe_id,
+                    match.post_id,
+                    match.level,
+                    match.comment_id,
+                    match.comment_id,
+                    match.excerpt,
+                ),
+            ).fetchone()
+            if row is not None:
+                return int(row["id"])
+            cursor = conn.execute(
+                """
+                INSERT INTO intent_analysis_matches (
+                    task_id, probe_id, probe_key, probe_title, post_id, comment_id,
+                    level, score, reason, excerpt, summary, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    match.task_id,
+                    match.probe_id,
+                    match.probe_key,
+                    match.probe_title,
+                    match.post_id,
+                    match.comment_id,
+                    match.level,
+                    match.score,
+                    match.reason,
+                    match.excerpt,
+                    match.summary,
+                    match.created_at,
+                ),
+            )
+            return int(cursor.lastrowid)
+
+    def clear_intent_analysis_matches(self, task_id: int) -> None:
+        with self._connect() as conn:
+            conn.execute("DELETE FROM intent_analysis_matches WHERE task_id = ?", (task_id,))
+
+    def list_intent_analysis_matches(
+        self,
+        task_id: int,
+        post_id: Optional[int] = None,
+    ) -> List[IntentAnalysisMatch]:
+        sql = "SELECT * FROM intent_analysis_matches WHERE task_id = ?"
+        params: List[object] = [task_id]
+        if post_id is not None:
+            sql += " AND post_id = ?"
+            params.append(post_id)
+        sql += " ORDER BY post_id ASC, probe_id ASC, level ASC, id ASC"
+        with self._connect() as conn:
+            rows = conn.execute(sql, params).fetchall()
+        return [self._row_to_intent_analysis_match(row) for row in rows]
+
+    def build_intent_analysis_package(self, task_id: int) -> List[Dict[str, object]]:
+        sources = self.list_intent_analysis_sources(task_id)
+        run_ids = [source.run_id for source in sources]
+        if not run_ids:
+            return []
+        posts: List[CollectedPost] = []
+        for run_id in run_ids:
+            posts.extend(self.list_collected_posts(run_id=run_id))
+        seen: set[str] = set()
+        package: List[Dict[str, object]] = []
+        for post in posts:
+            key = post.detail_fingerprint or f"{post.url}|{post.title}"
+            if key in seen:
+                continue
+            seen.add(key)
+            comments = self.list_collected_comments(post_id=post.post_id)
+            package.append(
+                {
+                    "post_id": post.post_id,
+                    "run_id": post.run_id,
+                    "platform": post.platform,
+                    "keyword": post.keyword,
+                    "title": post.title,
+                    "content": post.content,
+                    "author": post.author,
+                    "url": post.url,
+                    "comments": [
+                        {
+                            "comment_id": comment.comment_id,
+                            "commenter": comment.commenter,
+                            "content": comment.content,
+                            "like_count": comment.like_count,
+                            "comment_rank": comment.comment_rank,
+                        }
+                        for comment in comments
+                    ],
+                }
+            )
+        return package
+
     def collector_dashboard(self) -> Dict[str, int]:
         with self._connect() as conn:
             row = conn.execute(
@@ -951,6 +1353,62 @@ class FalconRepository:
             path=row["path"],
             scope=row["scope"],
             payload_json=row["payload_json"],
+            created_at=row["created_at"],
+        )
+
+    def _row_to_intent_analysis_task(self, row: sqlite3.Row) -> IntentAnalysisTask:
+        return IntentAnalysisTask(
+            task_id=int(row["id"]),
+            platform=row["platform"],
+            user_intent=row["user_intent"],
+            status=row["status"],
+            model_name=row["model_name"],
+            failed_reason=row["failed_reason"],
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+            completed_at=row["completed_at"],
+        )
+
+    def _row_to_intent_analysis_source(self, row: sqlite3.Row) -> IntentAnalysisSource:
+        return IntentAnalysisSource(
+            source_id=int(row["id"]),
+            task_id=int(row["task_id"]),
+            run_id=row["run_id"],
+            platform=row["platform"],
+            keyword=row["keyword"],
+            created_at=row["created_at"],
+        )
+
+    def _row_to_intent_analysis_probe(self, row: sqlite3.Row) -> IntentAnalysisProbe:
+        return IntentAnalysisProbe(
+            probe_id=int(row["id"]),
+            task_id=int(row["task_id"]),
+            probe_key=row["probe_key"],
+            title=row["title"],
+            description=row["description"],
+            positive_signals=row["positive_signals"],
+            negative_signals=row["negative_signals"],
+            sort_order=int(row["sort_order"]),
+            enabled=bool(int(row["enabled"])),
+            model_name=row["model_name"],
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+        )
+
+    def _row_to_intent_analysis_match(self, row: sqlite3.Row) -> IntentAnalysisMatch:
+        return IntentAnalysisMatch(
+            match_id=int(row["id"]),
+            task_id=int(row["task_id"]),
+            probe_id=int(row["probe_id"]),
+            probe_key=row["probe_key"],
+            probe_title=row["probe_title"],
+            post_id=int(row["post_id"]),
+            comment_id=int(row["comment_id"]) if row["comment_id"] is not None else None,
+            level=row["level"],
+            score=int(row["score"]),
+            reason=row["reason"],
+            excerpt=row["excerpt"],
+            summary=row["summary"],
             created_at=row["created_at"],
         )
 

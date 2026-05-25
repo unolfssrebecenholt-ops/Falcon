@@ -45,7 +45,9 @@ DEFAULT_COLLECTOR_PACE = {
     "scroll_delay_range_seconds": [5, 12],
     "scroll_distance_viewport_range": [0.45, 0.85],
     "batch_rest_after_cards_range": [5, 11],
-    "batch_rest_seconds_range": [15, 20],
+    "batch_rest_seconds_range": [6, 10],
+    "comment_scroll_delay_range_seconds": [4, 9],
+    "reply_expand_delay_range_seconds": [5, 8],
 }
 DEFAULT_COLLECTOR_ACCESS_POLICY = {
     "js_access": False,
@@ -326,7 +328,7 @@ class CollectorService:
             "safety_profile": "respectful_human",
             "automation_boundary": "browser_control",
             "access_policy": DEFAULT_COLLECTOR_ACCESS_POLICY,
-            "media_policy": "visible_screenshot",
+            "media_policy": "browser_loaded_image",
             "pace": DEFAULT_COLLECTOR_PACE,
             "checkpoint_enabled": True,
         }

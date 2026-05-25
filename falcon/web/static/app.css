@@ -448,6 +448,24 @@ p {
   background: rgba(223, 103, 103, 0.08);
 }
 
+.run-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.run-notice div {
+  display: grid;
+  gap: 4px;
+}
+
+.run-notice span {
+  color: var(--text);
+  font-weight: 650;
+  line-height: 1.55;
+}
+
 .metrics {
   display: grid;
   grid-template-columns: repeat(4, minmax(140px, 1fr));
@@ -2819,6 +2837,208 @@ textarea:focus {
 
 .analysis-sample-table table {
   min-width: 1040px;
+}
+
+.intent-task-form textarea,
+.intent-run-option,
+.probe-editor textarea,
+.probe-editor input,
+.intent-result-post,
+.intent-match,
+.intent-history-row {
+  overflow-wrap: anywhere;
+}
+
+.intent-task-form {
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 0.64fr);
+}
+
+.intent-task-form .field-grid {
+  grid-template-columns: 1fr;
+}
+
+.intent-task-form .left-actions {
+  grid-column: 1 / -1;
+}
+
+.intent-run-picker {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(22, 34, 41, 0.32);
+  overflow: hidden;
+}
+
+.intent-run-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 44px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink-strong);
+  font-weight: 900;
+}
+
+.intent-run-head small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.intent-run-list {
+  max-height: 360px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(116, 136, 118, 0.58) rgba(28, 40, 48, 0.82);
+}
+
+.intent-run-list::-webkit-scrollbar {
+  width: 8px;
+}
+
+.intent-run-list::-webkit-scrollbar-track {
+  background: rgba(28, 40, 48, 0.82);
+}
+
+.intent-run-list::-webkit-scrollbar-thumb {
+  border: 2px solid rgba(28, 40, 48, 0.82);
+  border-radius: 999px;
+  background: rgba(116, 136, 118, 0.72);
+  background-clip: content-box;
+}
+
+.intent-run-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(137, 156, 139, 0.9);
+  background-clip: content-box;
+}
+
+.intent-run-option {
+  min-height: 72px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+}
+
+.intent-run-option:last-child {
+  border-bottom: 0;
+}
+
+.intent-run-option:hover {
+  background: rgba(116, 136, 118, 0.07);
+}
+
+.intent-run-option input {
+  width: 16px;
+  height: 16px;
+  min-height: 16px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.intent-run-copy {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.intent-run-copy strong {
+  color: var(--ink-strong);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.intent-run-copy small,
+.intent-run-empty {
+  color: var(--muted);
+}
+
+.intent-run-copy small {
+  font: 11px/1.35 "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
+}
+
+.intent-run-empty {
+  padding: 14px;
+}
+
+.probe-editor {
+  display: grid;
+  gap: 16px;
+}
+
+.probe-card {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid rgba(66, 76, 66, 0.14);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.58);
+}
+
+.probe-card h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.inline-check {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+}
+
+.intent-history-row {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+
+.intent-result-post {
+  display: grid;
+  gap: 12px;
+  padding: 16px 0;
+  border-top: 1px solid rgba(66, 76, 66, 0.12);
+}
+
+.intent-result-post:first-of-type {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.intent-result-post h3 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.intent-result-post p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.intent-match {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(235, 239, 229, 0.72);
+}
+
+.comment-match {
+  border-left: 3px solid rgba(93, 116, 89, 0.62);
+}
+
+.post-match {
+  border-left: 3px solid rgba(103, 99, 83, 0.62);
+}
+
+.intent-match span,
+.intent-match small {
+  color: var(--muted);
 }
 
 .table-wrap {

@@ -2,6 +2,65 @@
 
 本文件是 Windows 和 M1 Mac 双机开发的接手入口。每次提交前必须更新。
 
+## 2026-05-26 Collector evidence-chain logging
+
+- 本次围绕用户反馈的 `xiaohongshu-20260525-152703-0952d0` 人工处理状态补强采集证据链：
+  - 历史 run 只能看到 `manual_action_required`、`reason=account_risk_warning`，截图字段为空且截图失败原因为 `Target page, context or browser has been closed`，没有 posts/comments/assets/evidences；因此不能事后证明当时页面一定是真警告，只能判断当时触发了风险规则且证据不足。
+  - 未来 `manual_action_required` 会在 sidecar 内写入 `manual-action-<reason>-snapshot.json`，即使截图失败也保留 run/profile/keyword、URL、title、可见文本、阻塞文本、截图错误和 `matched_signals`。
+  - 截图成功时额外写入 `manual_action_screenshot` evidence；截图失败时仍写入 `manual_action_snapshot` evidence。
+  - `manual_action_required` 事件 payload 现在包含 `snapshot`、`evidence_chain_path`、`screenshot_error` 和 `matched_signals`，便于从事件链回溯具体命中的规则和页面信号。
+  - Xiaohongshu 搜索确认失败会在判定失败当下重新截取 `failure-search_not_confirmed.png`，并写入 `failure-search_not_confirmed-snapshot.json`；`run_failed` 事件 payload 会复用这份 snapshot 的 URL、title、`matched_signals` 和截图错误上下文。
+  - 其他 Xiaohongshu 失败路径会写入 `run-failed-snapshot.json`，以 `failure_snapshot` evidence 入库，并在 `run_failed` 事件 payload 中带上 `failure_evidence`。
+  - Web 任务详情页会展示 evidence scope、中文标签、路径和 payload JSON；小红书平台 URL 只作为文本证据展示，不渲染成可点击外链。
+- 同步修正风险误判边界：
+  - 普通页面文本中的“脚本”不再单独触发 `account_risk_warning`；账号风险需要命中“账号违规预警”“技术手段模拟真人行为”“第三方工具或自动浏览脚本”等更强信号，或同时出现“第三方工具”与“自动浏览/使用脚本”。
+- 同步优化账号风控锁页面提示：
+  - 创建任务、启动任务和继续采集命中 `profile_safety_locked` 时，不再向浏览器返回裸 JSON 400。
+  - 启动/继续采集会跳回任务详情页，显示“采集启动已被账号保护拦截”提示，并提供“去账号管理解除熔断”入口。
+  - 创建任务命中锁时会跳到账号管理页，显示对应 profile 被风控熔断锁保护，以及解除前需要人工确认账号状态。
+- 验证结果：
+  - `node --check sidecar\collector\index.mjs` passed。
+  - `node --check sidecar\collector\xiaohongshu.mjs` passed。
+  - `node --check sidecar\collector\xiaohongshu-normalize.mjs` passed。
+  - `node --check sidecar\collector\profile-login.mjs` passed。
+  - TDD 红灯：新 scope 断言先在旧实现下失败，覆盖 `manual_action_snapshot`、`manual_action_screenshot`、`failure_snapshot` 和 `failure_screenshot`。
+  - `py -3 -m unittest tests.test_sidecar_contract -v`：44 tests passed。
+  - `py -3 -m unittest tests.test_collector_service -v`：17 tests passed。
+  - `py -3 -m unittest tests.test_web_app -v`：89 tests passed。
+  - `py -3 -m unittest discover -s tests`：205 tests passed。
+  - `py -3 -m compileall falcon` passed。
+  - `git diff --check` 无空白错误；Windows 仅提示 LF 后续会转换为 CRLF。
+- 已知限制：
+  - 这次没有新增视频录制或 Playwright trace；关键截图仍可能在浏览器已关闭或 page 不可用时失败。
+  - 截图失败时 JSON snapshot 是兜底证据，完整性依赖关闭前还能读取到的页面文本和信号。
+  - 历史 run 不会被补写证据链，只有后续采集 run 受益。
+- Windows/Mac 接手说明：
+  - 未新增第三方依赖或 schema 迁移。
+  - 运行产物仍在 ignored 的 `runtime/collector/`、`browser-profiles/`、`data/` 下，不进入 Git。
+
+## 2026-05-25 Intent probe analysis workspace v1
+
+- 本次按重新设计方案落地分析意向层 v1，作为并行的新分析 lane，保留旧 `/analysis/promote`、`ai_scores`、日报、复核和执行预览链路：
+  - `/analysis?platform=...` 改为按平台筛选分析入口，沿用小红书、抖音、微博、闲鱼平台列表；v1 只展示所选平台下已完成的采集任务作为可选数据包。
+  - 新增临时数据包选择：用户可勾选同一平台的一个或多个采集 run 创建意向分析任务；历史任务保存所选 run 组合，可在分析首页一键复用为新任务。
+  - 新增 SQLite 意向分析模型：`intent_analysis_tasks`、`intent_analysis_sources`、`intent_analysis_probes`、`intent_analysis_matches`，不迁移或改写旧 `raw_items` / `ai_scores` 数据。
+  - 新增 `IntentAnalysisService`：调用 GPT-5.5 生成正好 5 个语义探针；探针包含标题、描述、正向信号和排除信号；GPT 未配置时任务标记为 `failed`，不做本地 fallback。
+  - 任务详情页支持探针生成、编辑、新增、删除、启用/禁用和手动执行；执行时要求 1-12 个启用探针。
+  - 执行分析时把标题、正文和评论作为 JSON 数据包发送给 GPT-5.5，并保存帖子级与评论级双层证据，包括分数、摘录、理由、帖子摘要和执行时探针标题快照。
+  - Web 页面新增 `analysis_task.html`，分析首页和任务详情页补充长文本换行与探针/证据布局样式，避免探针文本撑破页面。
+  - 收尾审查后补强执行边界：点击“保存并执行分析”会先保存当前页面探针版本；空数据包不会调用 GPT；零启用探针先给探针数量错误；帖子级命中拒绝携带评论 id；重复帖子级命中在写入前去重；历史组合改为一键复选到新建表单。
+- 验证结果：
+  - TDD 红灯：`tests.test_intent_analysis` 先因 `falcon.intent_analysis` 缺失失败；Web 新用例先因 `IntentAnalysis*` 模型缺失失败。
+  - `py -3 -m unittest tests.test_intent_analysis -v`：12 tests passed。
+  - `py -3 -m unittest tests.test_web_app -v`：89 tests passed。
+  - `py -3 -m unittest discover -s tests`：204 tests passed。
+  - `py -3 -m compileall falcon`：passed。
+  - `node --check sidecar\collector\index.mjs`、`node --check sidecar\collector\xiaohongshu.mjs`、`node --check sidecar\collector\xiaohongshu-normalize.mjs`、`node --check sidecar\collector\profile-login.mjs`：passed。
+  - Browser smoke：`http://127.0.0.1:8776/analysis?platform=xiaohongshu` 和 `/analysis/tasks/1` 可打开；确认平台数据包、历史复选、探针编辑表单、保存并执行按钮、帖子级/评论级证据节点存在。
+- Windows/Mac 接手说明：
+  - 本次未新增第三方依赖；GPT-5.5 仍使用现有 `FALCON_GPT_*` 环境变量。
+  - 真实 GPT 探针生成和执行需要本机配置 GPT-5.5 中转站；未配置时页面会保留任务并显示失败原因。
+
 ## 2026-05-25 Xiaohongshu respectful screenshot collector v1
 
 - 本次按用户要求先暂停设计意向层工作，集中修小红书瀑布流采集完整性和平台友好边界：

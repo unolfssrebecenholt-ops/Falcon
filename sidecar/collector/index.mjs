@@ -1,6 +1,6 @@
 import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { collectXiaohongshu } from "./xiaohongshu.mjs";
 
@@ -77,6 +77,59 @@ export async function writePartialRecordsOnError(path, error) {
   return records.length;
 }
 
+export async function writeFailureRecordsOnError(path, error, context) {
+  const records = Array.isArray(error?.partialRecords) ? [...error.partialRecords] : [];
+  const existingFailureEvidence = records.find((record) => record?.type === "evidence" && record?.scope === "failure_snapshot");
+  const failureEvidence = existingFailureEvidence ? null : await failureEvidenceRecordForError(error, context);
+  if (failureEvidence) {
+    records.push(failureEvidence);
+  }
+  if (!records.length) {
+    return { count: 0, failureEvidence: "", failurePayload: error?.failurePayload || {} };
+  }
+  await writeRecords(path, records);
+  return {
+    count: records.length,
+    failureEvidence: failureEvidence?.path || existingFailureEvidence?.path || "",
+    failurePayload: error?.failurePayload || failureEvidence?.payload || existingFailureEvidence?.payload || {},
+  };
+}
+
+async function failureEvidenceRecordForError(error, context) {
+  const request = context?.request || {};
+  if (request.platform !== "xiaohongshu") {
+    return null;
+  }
+  const code = error?.code ?? "RUN_FAILED";
+  const path = join(context.assetsPath, "run-failed-snapshot.json");
+  const snapshot = {
+    run_id: request.run_id,
+    platform: request.platform,
+    profile: request.profile || "",
+    keyword: request.keyword || "",
+    code,
+    message: String(error?.message || error || ""),
+    ...(error?.failurePayload || {}),
+    captured_at: new Date().toISOString(),
+  };
+  await mkdir(context.assetsPath, { recursive: true });
+  await writeFile(path, `${JSON.stringify(snapshot, null, 2)}\n`, "utf8");
+  return {
+    type: "evidence",
+    run_id: request.run_id,
+    platform: request.platform,
+    evidence_id: `${request.run_id}-failure-snapshot`,
+    scope: "failure_snapshot",
+    path,
+    payload: {
+      code,
+      reason: code,
+      message: snapshot.message,
+      ...(error?.failurePayload || {}),
+    },
+  };
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const requestPath = requireArg(args, "request");
@@ -129,13 +182,16 @@ async function main() {
     await events.flush();
     return 0;
   } catch (error) {
-    const partialRecords = await writePartialRecordsOnError(outputPath, error);
-    events.write("error", "collector", "run_failed", error.message, {
+    const failureRecords = await writeFailureRecordsOnError(outputPath, error, context);
+    const failurePayload = {
       run_id: request.run_id,
       platform: request.platform,
       code: error.code ?? "RUN_FAILED",
-      partial_records: partialRecords,
-    });
+      partial_records: failureRecords.count,
+      failure_evidence: failureRecords.failureEvidence,
+      ...failureRecords.failurePayload,
+    };
+    events.write("error", "collector", "run_failed", error.message, failurePayload);
     await events.flush();
     return error.code === "UNSUPPORTED_PLATFORM" ? 2 : 1;
   }

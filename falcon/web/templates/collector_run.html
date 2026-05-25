@@ -18,13 +18,29 @@
   </div>
 </header>
 
+{% if run_notice %}
+<div class="notice run-notice">
+  <div>
+    <strong>采集启动已被账号保护拦截</strong>
+    <span>{{ run_notice }}</span>
+  </div>
+  {% if run_notice_action_url %}
+  <a class="button small" href="{{ run_notice_action_url }}">去账号管理解除熔断</a>
+  {% endif %}
+</div>
+{% endif %}
+
 <section class="run-hero status-{{ run.status }}">
   <div class="run-hero-main">
     <span class="status-dot"></span>
     <div>
       <span class="subtext">生命周期状态</span>
       <strong>{{ run|run_state_title }}</strong>
+      {% if manual_action_reason == "profile_window_busy" %}
+      <p>关闭已打开的 {{ run.platform }}/{{ run.profile }} 浏览器窗口后，再点击“继续采集”。</p>
+      {% else %}
       <p>{{ run|run_state_detail }}</p>
+      {% endif %}
     </div>
   </div>
   <div class="run-hero-meta">
@@ -61,9 +77,13 @@
     <button class="button" type="button" disabled>运行中</button>
     {% endif %}
     {% if run.status == "manual_action_required" %}
+    {% if manual_action_reason == "profile_window_busy" %}
+    <button class="button" type="button" disabled>先关闭已有窗口</button>
+    {% else %}
     <form class="inline-form" action="/collector/runs/{{ run.run_id }}/open-manual-action" method="post">
       <button class="button" type="submit">打开处理窗口</button>
     </form>
+    {% endif %}
     <form class="inline-form" action="/collector/runs/{{ run.run_id }}/resume" method="post">
       <button class="button primary" type="submit">继续采集</button>
     </form>
@@ -243,9 +263,12 @@
           <div class="run-ledger-main">
             <strong>{{ evidence.path|basename }}</strong>
             <code>{{ evidence.path }}</code>
+            {% if evidence.payload_json %}
+            <code>payload: {{ evidence.payload_json }}</code>
+            {% endif %}
           </div>
           <span class="subtext">证据</span>
-          <span class="subtext">{{ evidence.scope|evidence_scope }}</span>
+          <span class="subtext">scope: {{ evidence.scope|evidence_scope }} / {{ evidence.scope or "-" }}</span>
         </article>
         {% endfor %}
         {% if not assets and not evidences %}

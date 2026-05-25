@@ -21,17 +21,24 @@ const DEFAULT_PACE = {
   scroll_delay_range_seconds: [5, 12],
   scroll_distance_viewport_range: [0.45, 0.85],
   batch_rest_after_cards_range: [5, 11],
-  batch_rest_seconds_range: [15, 20],
+  batch_rest_seconds_range: [6, 10],
   click_delay_range_ms: [250, 900],
   detail_scroll_distance_viewport_range: [0.25, 0.55],
+  comment_scroll_delay_range_seconds: [4, 9],
+  comment_scroll_distance_viewport_range: [0.25, 0.5],
+  reply_expand_delay_range_seconds: [5, 8],
   max_relocate_scrolls: 6,
+  max_comment_scrolls_per_post: 0,
+  max_reply_expansions_per_post: 0,
   max_screenshot_media_per_post: 4,
 };
+
+const COMMENT_ITEM_SELECTOR = ".comment-item, [class*='comment-item'], [class*='reply-item']";
 
 const DEFAULT_REQUEST_POLICY = {
   safety_profile: "respectful_human",
   automation_boundary: "browser_control",
-  media_policy: "visible_screenshot",
+  media_policy: "browser_loaded_image",
   checkpoint_enabled: true,
   access_policy: DEFAULT_ACCESS_POLICY,
   pace: DEFAULT_PACE,
@@ -136,11 +143,49 @@ export function normalizeCollectorRequest(request = {}) {
   };
 }
 
+export async function selectUsableBrowserPage(context, options = {}) {
+  const pages = typeof context.pages === "function" ? context.pages() : [];
+  const preferredHost = normalizeWhitespace(options.preferredHost || "").toLowerCase();
+  const preferredPage = pages.find((page) => pageHostMatches(pageUrl(page), preferredHost));
+  const nonBlankPage = pages.find((page) => isUsableBrowserPageUrl(pageUrl(page)));
+  const page = preferredPage ?? nonBlankPage ?? pages[0] ?? (await context.newPage());
+  if (page && typeof page.bringToFront === "function") {
+    await page.bringToFront().catch(() => {});
+  }
+  return page;
+}
+
+function pageUrl(page) {
+  try {
+    return typeof page?.url === "function" ? String(page.url() || "") : "";
+  } catch {
+    return "";
+  }
+}
+
+function isUsableBrowserPageUrl(value) {
+  const url = normalizeWhitespace(value).toLowerCase();
+  return Boolean(url) && url !== "about:blank" && !url.startsWith("chrome://") && !url.startsWith("devtools://");
+}
+
+function pageHostMatches(value, preferredHost) {
+  if (!preferredHost || !isUsableBrowserPageUrl(value)) {
+    return false;
+  }
+  try {
+    const hostname = new URL(value).hostname.toLowerCase();
+    return hostname === preferredHost || hostname.endsWith(`.${preferredHost}`) || hostname.endsWith(preferredHost);
+  } catch {
+    return false;
+  }
+}
+
 async function collectXiaohongshuReal({ request, assetsPath, profilePath, events }) {
   const run_id = request.run_id;
   const platform = request.platform;
   const maxPosts = Math.max(1, Number(request.max_posts ?? 5));
   let context;
+  const loadedImages = createLoadedImageStore();
 
   await mkdir(assetsPath, { recursive: true });
   events.write("info", "xiaohongshu", "browser_launching", "小红书浏览器采集已启动", {
@@ -181,7 +226,8 @@ async function collectXiaohongshuReal({ request, assetsPath, profilePath, events
       }
       throw error;
     }
-    const page = context.pages()[0] ?? (await context.newPage());
+    const page = await selectUsableBrowserPage(context, { preferredHost: "xiaohongshu.com" });
+    loadedImages.attachPage(page);
 
     await page.goto("https://www.xiaohongshu.com/", {
       waitUntil: "domcontentloaded",
@@ -198,6 +244,7 @@ async function collectXiaohongshuReal({ request, assetsPath, profilePath, events
         events,
         reason: landingStop.reason,
         detail: landingStop.detail,
+        matchedSignals: landingStop.matched_signals,
       });
     }
 
@@ -213,7 +260,21 @@ async function collectXiaohongshuReal({ request, assetsPath, profilePath, events
         events,
         reason: searchStop.reason,
         detail: searchStop.detail,
+        matchedSignals: searchStop.matched_signals,
       });
+    }
+
+    const searchReady = await verifySearchResultsReady(page, request);
+    if (!searchReady.ok) {
+      throw createSearchNotConfirmedError(
+        searchReady,
+        await searchNotConfirmedFailureRecords({
+          page,
+          request,
+          assetsPath,
+          searchReady,
+        }),
+      );
     }
 
     const screenshotPath = join(assetsPath, "xiaohongshu-search-results.png");
@@ -280,6 +341,7 @@ async function collectXiaohongshuReal({ request, assetsPath, profilePath, events
         assetsPath,
         events,
         initialPosts: snapshot.posts,
+        loadedImages,
       });
       records.push(...detailOutcome.records);
     } catch (error) {
@@ -357,6 +419,7 @@ export async function collectWaterfallRecords({
   assetsPath,
   events,
   initialPosts = [],
+  loadedImages,
 }) {
   const maxPosts = Math.max(1, Number(request.max_posts ?? 5));
   const checkpointPath = checkpointPathForAssets(assetsPath);
@@ -460,6 +523,7 @@ export async function collectWaterfallRecords({
         posts: [searchPost],
         startIndex: collectedIds.size,
         total: maxPosts,
+        loadedImages,
       });
       records.push(...detailOutcome.records);
       if (detailOutcome.stopped) {
@@ -566,6 +630,7 @@ export async function collectDetailRecords({
   posts,
   startIndex = 0,
   total,
+  loadedImages,
 }) {
   const records = [];
   const platform = request.platform;
@@ -605,6 +670,7 @@ export async function collectDetailRecords({
         request,
       });
       const detailPage = detailHandle.page;
+      loadedImages?.attachPage?.(detailPage);
       await humanWait(detailPage, [2200, 4200]);
 
       const detailStop = await detectManualAction(detailPage);
@@ -617,6 +683,7 @@ export async function collectDetailRecords({
             events,
             reason: detailStop.reason,
             detail: detailStop.detail,
+            matchedSignals: detailStop.matched_signals,
           })),
         );
         return { records, stopped: true };
@@ -625,8 +692,8 @@ export async function collectDetailRecords({
       const detailScreenshotPath = join(assetsPath, `${stem}-detail.png`);
       await captureDetailScreenshot(detailPage, detailScreenshotPath);
       if (maxComments > 0) {
-        await scrollDetailPage(detailPage, request);
-        await expandVisibleCommentReplies(detailPage, Math.min(maxComments, 6));
+        const detailRoot = await detailRootLocator(detailPage);
+        await prepareVisibleCommentsForExtraction(detailPage, detailRoot, request, maxComments);
       }
       const detail = normalizeDetailSnapshot(await extractDetailSnapshot(detailPage, maxComments));
       const detailSnapshotPath = join(assetsPath, `${stem}-detail-snapshot.json`);
@@ -666,13 +733,14 @@ export async function collectDetailRecords({
         }),
       );
       records.push(
-        ...(await captureVisibleMediaScreenshots({
+        ...(await captureVisibleMediaAssets({
           page: detailPage,
           request,
           assetsPath,
           stem,
           postId,
           events,
+          loadedImages,
         })),
       );
 
@@ -1173,7 +1241,7 @@ function sameUrlWithoutHash(left, right) {
   }
 }
 
-export async function expandVisibleCommentReplies(page, maxExpansions = 4) {
+export async function expandVisibleCommentReplies(page, maxExpansions = 4, pace = {}) {
   const limit = Math.max(0, Number(maxExpansions || 0));
   let clicked = 0;
   for (let attempt = 0; attempt < limit; attempt += 1) {
@@ -1189,7 +1257,7 @@ export async function expandVisibleCommentReplies(page, maxExpansions = 4) {
       await humanMouseClickLocator(page, candidate);
       clicked += 1;
       clickedThisPass = true;
-      await humanWait(page, [900, 1800]);
+      await humanWait(page, secondsRangeToMs(pace.reply_expand_delay_range_seconds || DEFAULT_PACE.reply_expand_delay_range_seconds));
       break;
     }
     if (!clickedThisPass) {
@@ -1288,7 +1356,27 @@ function normalizePace(pace = {}) {
       pace.detail_scroll_distance_viewport_range,
       DEFAULT_PACE.detail_scroll_distance_viewport_range,
     ),
+    comment_scroll_delay_range_seconds: numericRange(
+      pace.comment_scroll_delay_range_seconds,
+      DEFAULT_PACE.comment_scroll_delay_range_seconds,
+    ),
+    comment_scroll_distance_viewport_range: numericRange(
+      pace.comment_scroll_distance_viewport_range,
+      DEFAULT_PACE.comment_scroll_distance_viewport_range,
+    ),
+    reply_expand_delay_range_seconds: numericRange(
+      pace.reply_expand_delay_range_seconds,
+      DEFAULT_PACE.reply_expand_delay_range_seconds,
+    ),
     max_relocate_scrolls: Math.max(1, Number(pace.max_relocate_scrolls || DEFAULT_PACE.max_relocate_scrolls)),
+    max_comment_scrolls_per_post: Math.max(
+      0,
+      Number(pace.max_comment_scrolls_per_post ?? DEFAULT_PACE.max_comment_scrolls_per_post),
+    ),
+    max_reply_expansions_per_post: Math.max(
+      0,
+      Number(pace.max_reply_expansions_per_post ?? DEFAULT_PACE.max_reply_expansions_per_post),
+    ),
     max_screenshot_media_per_post: Math.max(
       0,
       Number(pace.max_screenshot_media_per_post ?? DEFAULT_PACE.max_screenshot_media_per_post),
@@ -1376,13 +1464,169 @@ async function performSearchFromHome(page, request, events) {
   });
 }
 
-async function firstUsableLocator(pageOrLocator, selectors, { minimumSize = 8 } = {}) {
+export async function verifySearchResultsReady(page, request) {
+  const keyword = String(request.keyword || "").trim();
+  if (!keyword) {
+    return { ok: true, reason: "" };
+  }
+
+  const timeoutMs = Math.max(0, Number(request.search_confirmation_timeout_ms ?? 15_000));
+  const deadline = Date.now() + timeoutMs;
+  let lastState = {
+    url: safePageUrl(page),
+    title: await safePageTitle(page),
+    searchLinkCount: 0,
+    bodyText: "",
+  };
+
+  while (true) {
+    lastState = {
+      url: safePageUrl(page),
+      title: await safePageTitle(page),
+      searchLinkCount: await safeLocatorCount(page.locator("a[href*='/search_result/']")),
+      bodyText: await visibleTextForSelectors(page, ["body"], 2000),
+    };
+    if (isConfirmedSearchResultsPage(lastState, keyword)) {
+      return { ok: true, reason: "", ...lastState };
+    }
+    const remaining = deadline - Date.now();
+    if (remaining <= 0 || !page.waitForTimeout) {
+      break;
+    }
+    await page.waitForTimeout(Math.min(500, remaining));
+  }
+
+  return {
+    ok: false,
+    reason: "search_not_confirmed",
+    detail: `已输入关键词“${keyword}”，但页面没有进入该关键词的搜索结果。请在浏览器中确认搜索完成后再继续采集。`,
+    ...lastState,
+  };
+}
+
+export async function searchNotConfirmedFailureRecords({ page, request, assetsPath, searchReady }) {
+  const reason = "search_not_confirmed";
+  const screenshotPath = join(assetsPath, `failure-${reason}.png`);
+  const snapshotPath = join(assetsPath, `failure-${reason}-snapshot.json`);
+  let savedScreenshotPath = "";
+  let screenshotError = "";
+  try {
+    await page.screenshot({ path: screenshotPath, fullPage: true });
+    savedScreenshotPath = screenshotPath;
+  } catch (error) {
+    screenshotError = error.message || String(error);
+  }
+  const keyword = request.keyword || "";
+  const payload = {
+    run_id: request.run_id,
+    platform: request.platform,
+    profile: request.profile || "",
+    keyword,
+    code: "SEARCH_NOT_CONFIRMED",
+    reason,
+    detail: searchReady?.detail || "",
+    url: searchReady?.url || safePageUrl(page),
+    title: searchReady?.title || (await safePageTitle(page)),
+    search_link_count: Number(searchReady?.searchLinkCount || 0),
+    body_text: searchReady?.bodyText || (await visibleTextForSelectors(page, ["body"], 8000).catch(() => "")),
+    screenshot: savedScreenshotPath,
+    screenshot_error: screenshotError,
+    matched_signals: searchNotConfirmedSignals(searchReady, keyword),
+    captured_at: new Date().toISOString(),
+  };
+  await writeFile(snapshotPath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+  const records = [
+    evidenceRecord({
+      request,
+      evidenceId: `${request.run_id}-failure-${reason}-snapshot`,
+      scope: "failure_snapshot",
+      path: snapshotPath,
+      payload,
+    }),
+  ];
+  if (savedScreenshotPath) {
+    records.push(
+      evidenceRecord({
+        request,
+        evidenceId: `${request.run_id}-failure-${reason}-screenshot`,
+        scope: "failure_screenshot",
+        path: savedScreenshotPath,
+        payload: {
+          reason,
+          code: "SEARCH_NOT_CONFIRMED",
+          detail: payload.detail,
+          url: payload.url,
+          title: payload.title,
+          screenshot_error: screenshotError,
+        },
+      }),
+    );
+  }
+  return records;
+}
+
+function searchNotConfirmedSignals(searchReady, keyword) {
+  return [
+    {
+      reason: "search_not_confirmed",
+      signal: "expected_keyword_not_confirmed",
+      source: "search_confirmation",
+      expected_keyword: keyword || "",
+      observed_url: searchReady?.url || "",
+      observed_title: searchReady?.title || "",
+      search_link_count: Number(searchReady?.searchLinkCount || 0),
+    },
+  ];
+}
+
+export function createSearchNotConfirmedError(searchReady, evidence) {
+  const error = new Error(
+    searchReady?.detail || "已输入关键词，但页面没有进入该关键词的搜索结果。",
+  );
+  error.code = "SEARCH_NOT_CONFIRMED";
+  error.partialRecords = Array.isArray(evidence) ? evidence : evidence ? [evidence] : [];
+  const failureSnapshot = error.partialRecords.find((record) => record?.scope === "failure_snapshot");
+  error.failurePayload = {
+    reason: "search_not_confirmed",
+    url: searchReady?.url || "",
+    title: searchReady?.title || "",
+    search_link_count: Number(searchReady?.searchLinkCount || 0),
+    matched_signals: failureSnapshot?.payload?.matched_signals || searchNotConfirmedSignals(searchReady, ""),
+    screenshot_error: failureSnapshot?.payload?.screenshot_error || "",
+  };
+  return error;
+}
+
+function isConfirmedSearchResultsPage(state, keyword) {
+  const url = String(state.url || "");
+  const title = String(state.title || "");
+  const bodyText = String(state.bodyText || "");
+  const searchLinkCount = Number(state.searchLinkCount || 0);
+  const urlHasSearchKeyword = url.includes("/search_result") && urlKeywordMatches(url, keyword);
+  const visibleKeywordSearch = searchLinkCount > 0 && (title.includes(keyword) || bodyText.includes(keyword));
+  return urlHasSearchKeyword || visibleKeywordSearch;
+}
+
+function urlKeywordMatches(rawUrl, keyword) {
+  try {
+    const parsed = new URL(rawUrl);
+    return parsed.searchParams.get("keyword") === keyword;
+  } catch {
+    const encodedKeyword = encodeURIComponent(keyword);
+    return rawUrl.includes(`keyword=${encodedKeyword}`) || rawUrl.includes(`keyword=${keyword}`);
+  }
+}
+
+export async function firstUsableLocator(pageOrLocator, selectors, { minimumSize = 8 } = {}) {
   for (const selector of selectors) {
     try {
       const collection = pageOrLocator.locator(selector);
       const count = await safeLocatorCount(collection);
       for (let index = 0; index < Math.min(count, 20); index += 1) {
         const locator = collection.nth(index);
+        if (await locatorIsAriaHidden(locator)) {
+          continue;
+        }
         const box = await locator.boundingBox().catch(() => null);
         if (box && box.width >= minimumSize && box.height >= minimumSize) {
           return locator;
@@ -1393,6 +1637,14 @@ async function firstUsableLocator(pageOrLocator, selectors, { minimumSize = 8 } 
     }
   }
   return null;
+}
+
+async function locatorIsAriaHidden(locator) {
+  try {
+    return String((await locator.getAttribute?.("aria-hidden")) || "").toLowerCase() === "true";
+  } catch {
+    return false;
+  }
 }
 
 async function safeLocatorCount(locator) {
@@ -1533,7 +1785,7 @@ async function extractVisibleComments(root, maxComments) {
   if (limit <= 0) {
     return [];
   }
-  const collection = root.locator(".comment-item, [class*='comment-item'], [class*='reply-item']");
+  const collection = root.locator(COMMENT_ITEM_SELECTOR);
   const count = await safeLocatorCount(collection);
   const comments = [];
   for (let index = 0; index < count && comments.length < limit; index += 1) {
@@ -1569,6 +1821,83 @@ async function extractVisibleComments(root, maxComments) {
   return comments;
 }
 
+export async function prepareVisibleCommentsForExtraction(page, root, request = {}, maxComments = 0) {
+  const target = Math.max(0, Number(maxComments || 0));
+  if (target <= 0) {
+    return { scrolls: 0, replyExpansions: 0, visibleComments: 0 };
+  }
+
+  const pace = request.pace || DEFAULT_PACE;
+  let visibleComments = await countVisibleCommentNodes(root);
+  let replyExpansions = 0;
+  const replyLimit = optionalPositiveLimit(pace.max_reply_expansions_per_post);
+  const maxScrolls = optionalPositiveLimit(pace.max_comment_scrolls_per_post);
+  let scrolls = 0;
+  let stagnantPasses = 0;
+
+  while (visibleComments < target && scrolls < maxScrolls) {
+    const beforeCount = visibleComments;
+    if (replyExpansions < replyLimit) {
+      replyExpansions += await expandVisibleCommentReplies(page, 1, pace);
+      visibleComments = await countVisibleCommentNodes(root);
+      if (visibleComments >= target) {
+        break;
+      }
+    }
+
+    await scrollCommentArea(page, root, request);
+    scrolls += 1;
+    await humanWait(page, secondsRangeToMs(pace.comment_scroll_delay_range_seconds || DEFAULT_PACE.comment_scroll_delay_range_seconds));
+
+    visibleComments = await countVisibleCommentNodes(root);
+    stagnantPasses = visibleComments > beforeCount ? 0 : stagnantPasses + 1;
+    if (stagnantPasses >= 3) {
+      break;
+    }
+  }
+
+  return { scrolls, replyExpansions, visibleComments };
+}
+
+function optionalPositiveLimit(value) {
+  const numeric = Number(value ?? 0);
+  return Number.isFinite(numeric) && numeric > 0 ? numeric : Number.POSITIVE_INFINITY;
+}
+
+async function countVisibleCommentNodes(root) {
+  try {
+    return await safeLocatorCount(root.locator(COMMENT_ITEM_SELECTOR));
+  } catch {
+    return 0;
+  }
+}
+
+async function scrollCommentArea(page, root, request = {}) {
+  const pace = request.pace || DEFAULT_PACE;
+  const viewport = page.viewportSize?.() ?? { width: 1366, height: 900 };
+  const ratio = randomFloatFromRange(
+    pace.comment_scroll_distance_viewport_range || DEFAULT_PACE.comment_scroll_distance_viewport_range,
+  );
+  const deltaY = Math.max(120, Math.round(viewport.height * ratio));
+  const target = await firstUsableLocator(
+    root,
+    ["[class*='comments']", "[class*='comment-list']", "[class*='comment']", COMMENT_ITEM_SELECTOR],
+    { minimumSize: 80 },
+  );
+  if (target) {
+    const box = await target.boundingBox().catch(() => null);
+    if (box) {
+      const x = box.x + Math.min(Math.max(box.width * 0.55, 24), Math.max(24, box.width - 18));
+      const y = box.y + Math.min(Math.max(box.height * 0.55, 24), Math.max(24, box.height - 18));
+      if (x >= 0 && y >= 0) {
+        await page.mouse.move(x, y, { steps: 6 }).catch(() => {});
+      }
+    }
+  }
+  await page.mouse.wheel(0, deltaY);
+  return deltaY;
+}
+
 async function scrollDetailPage(page, request = {}) {
   const viewport = page.viewportSize?.() ?? { width: 1366, height: 900 };
   const ratio = randomFloatFromRange(
@@ -1577,6 +1906,168 @@ async function scrollDetailPage(page, request = {}) {
   const deltaY = Math.max(120, Math.round(viewport.height * ratio));
   await page.mouse.wheel(0, deltaY);
   await humanWait(page, [900, 1800]);
+}
+
+export function createLoadedImageStore({ maxBytes = 15 * 1024 * 1024 } = {}) {
+  const attachedPages = new WeakSet();
+  const byExactUrl = new Map();
+  const byCanonicalUrl = new Map();
+
+  const storeEntry = (url, response) => {
+    const cleanUrl = normalizeWhitespace(url);
+    if (!cleanUrl || byExactUrl.has(cleanUrl)) {
+      return;
+    }
+    const headers = response.headers?.() || {};
+    const mimeType = imageMimeTypeFromHeaders(headers);
+    if (!mimeType) {
+      return;
+    }
+    const entryPromise = Promise.resolve()
+      .then(() => response.body())
+      .then((body) => {
+        const buffer = Buffer.from(body || []);
+        if (!buffer.length || buffer.length > maxBytes) {
+          return null;
+        }
+        return { url: cleanUrl, body: buffer, mimeType };
+      })
+      .catch(() => null);
+    byExactUrl.set(cleanUrl, entryPromise);
+    const canonicalKey = canonicalMediaUrlKey(cleanUrl);
+    if (canonicalKey && !byCanonicalUrl.has(canonicalKey)) {
+      byCanonicalUrl.set(canonicalKey, entryPromise);
+    }
+  };
+
+  return {
+    attachPage(page) {
+      if (!page || attachedPages.has(page) || typeof page.on !== "function") {
+        return;
+      }
+      attachedPages.add(page);
+      page.on("response", (response) => {
+        try {
+          storeEntry(response.url?.() || "", response);
+        } catch {
+          // Passive capture must never interfere with browser collection.
+        }
+      });
+    },
+    async findForLocator(locator) {
+      const candidates = await visibleImageUrlCandidates(locator);
+      for (const candidate of candidates) {
+        const entry =
+          byExactUrl.get(candidate) ||
+          byCanonicalUrl.get(canonicalMediaUrlKey(candidate));
+        if (!entry) {
+          continue;
+        }
+        const resolved = await entry;
+        if (resolved) {
+          return resolved;
+        }
+      }
+      return null;
+    },
+  };
+}
+
+function imageMimeTypeFromHeaders(headers) {
+  const contentType = String(headers["content-type"] || headers["Content-Type"] || "").split(";")[0].trim().toLowerCase();
+  return contentType.startsWith("image/") ? contentType : "";
+}
+
+async function visibleImageUrlCandidates(locator) {
+  const values = [];
+  for (const name of ["src", "data-src", "data-original", "data-xhs-img"]) {
+    const value = await safeLocatorAttribute(locator, name);
+    if (value) {
+      values.push(value);
+    }
+  }
+  const srcset = await safeLocatorAttribute(locator, "srcset");
+  values.push(...parseSrcsetUrls(srcset));
+  return uniqueMediaUrls(values).filter((url) => !url.startsWith("data:"));
+}
+
+function parseSrcsetUrls(value) {
+  return String(value || "")
+    .split(",")
+    .map((part) => normalizeWhitespace(part).split(/\s+/)[0])
+    .filter(Boolean);
+}
+
+function extensionForMimeType(mimeType) {
+  return {
+    "image/jpeg": "jpg",
+    "image/jpg": "jpg",
+    "image/png": "png",
+    "image/webp": "webp",
+    "image/gif": "gif",
+    "image/avif": "avif",
+  }[String(mimeType || "").toLowerCase()] || "img";
+}
+
+export async function captureVisibleMediaAssets(options) {
+  if (options.request?.media_policy === "browser_loaded_image") {
+    const records = await captureBrowserLoadedImageAssets(options);
+    if (records.length > 0) {
+      return records;
+    }
+    return captureVisibleMediaScreenshots({
+      ...options,
+      request: { ...options.request, media_policy: "visible_screenshot" },
+    });
+  }
+  return captureVisibleMediaScreenshots(options);
+}
+
+async function captureBrowserLoadedImageAssets({ page, request, assetsPath, stem, postId, loadedImages }) {
+  if (!loadedImages) {
+    return [];
+  }
+  const root = await detailRootLocator(page);
+  const images = root.locator("img");
+  const count = await safeLocatorCount(images);
+  const limit = Math.min(count, Number(request.pace?.max_screenshot_media_per_post || DEFAULT_PACE.max_screenshot_media_per_post));
+  const records = [];
+  const seenAssetKeys = new Set();
+  for (let index = 0; index < limit; index += 1) {
+    const image = images.nth(index);
+    const box = await image.boundingBox().catch(() => null);
+    if (!box || box.width < 120 || box.height < 90) {
+      continue;
+    }
+    const loaded = await loadedImages.findForLocator(image);
+    if (!loaded) {
+      continue;
+    }
+    const sha256 = createHash("sha256").update(loaded.body).digest("hex");
+    const assetKey = canonicalMediaUrlKey(loaded.url) || sha256;
+    if (seenAssetKeys.has(assetKey)) {
+      continue;
+    }
+    seenAssetKeys.add(assetKey);
+    const assetId = `${stem}-loaded-image-${records.length + 1}`;
+    const extension = extensionForMimeType(loaded.mimeType);
+    const path = join(assetsPath, `${assetId}.${extension}`);
+    await writeFile(path, loaded.body);
+    records.push({
+      type: "media_asset",
+      run_id: request.run_id,
+      platform: request.platform,
+      asset_id: assetId,
+      post_id: postId,
+      media_type: "image",
+      path,
+      mime_type: loaded.mimeType,
+      sha256,
+      url: loaded.url,
+      source: "browser_loaded_image",
+    });
+  }
+  return records;
 }
 
 export async function captureVisibleMediaScreenshots({ page, request, assetsPath, stem, postId, events }) {
@@ -1704,24 +2195,71 @@ export async function detectManualAction(page) {
     return null;
   }
   const manualText = state.hasDetailContainer ? state.blockingText : state.text;
-  const haystack = `${state.url}\n${state.title}\n${manualText}`.toLowerCase();
+  const sources = [
+    { source: "url", text: state.url },
+    { source: "title", text: state.title },
+    { source: state.hasDetailContainer ? "blocking_text" : "body", text: manualText },
+  ];
+  const haystack = sources.map((item) => item.text).join("\n").toLowerCase();
+  const accountRiskSignals = matchedManualSignals(
+    "account_risk_warning",
+    ["账号违规预警", "技术手段模拟真人行为", "第三方工具或自动浏览脚本", "自动浏览脚本"],
+    sources,
+  );
+  if (isAccountRiskWarningText(haystack)) {
+    return {
+      reason: "account_risk_warning",
+      matched_signals: accountRiskSignals.length > 0
+        ? accountRiskSignals
+        : matchedManualSignals("account_risk_warning", ["第三方工具", "自动浏览", "使用脚本"], sources),
+      detail: `检测到 ${manualReasonLabel("account_risk_warning")}，需要人工处理后再继续。`,
+    };
+  }
   const checks = [
-    ["account_risk_warning", ["账号违规预警", "第三方工具", "自动浏览", "使用脚本", "脚本", "技术手段模拟真人行为"]],
     ["app_scan_required", ["当前笔记暂时无法浏览", "打开小红书app扫码", "扫码查看", "请打开小红书app"]],
-    ["login_required", ["login", "signin", "登录", "注册", "验证码", "手机号"]],
+    ["login_required", ["请登录", "登录后", "登录/注册", "login required", "signin required", "验证码", "手机号"]],
     ["platform_risk_circuit_breaker", ["risk", "安全验证", "环境异常", "访问异常", "操作频繁", "滑块", "验证", "疑似异常", "请稍后再试"]],
     ["verification_required", ["captcha", "verify", "verification", "人机验证", "身份验证"]],
   ];
 
   for (const [reason, needles] of checks) {
-    if (needles.some((needle) => haystack.includes(needle.toLowerCase()))) {
+    const matchedSignals = matchedManualSignals(reason, needles, sources);
+    if (matchedSignals.length > 0) {
       return {
         reason,
+        matched_signals: matchedSignals,
         detail: `检测到 ${manualReasonLabel(reason)}，需要人工处理后再继续。`,
       };
     }
   }
   return null;
+}
+
+function matchedManualSignals(reason, needles, sources) {
+  const matches = [];
+  for (const needle of needles) {
+    const normalizedNeedle = String(needle || "").toLowerCase();
+    if (!normalizedNeedle) {
+      continue;
+    }
+    const source = sources.find((item) => String(item.text || "").toLowerCase().includes(normalizedNeedle));
+    if (source) {
+      matches.push({
+        reason,
+        signal: needle,
+        source: source.source,
+      });
+    }
+  }
+  return matches;
+}
+
+function isAccountRiskWarningText(haystack) {
+  const directSignals = ["账号违规预警", "技术手段模拟真人行为", "第三方工具或自动浏览脚本", "自动浏览脚本"];
+  if (directSignals.some((signal) => haystack.includes(signal.toLowerCase()))) {
+    return true;
+  }
+  return haystack.includes("第三方工具") && (haystack.includes("自动浏览") || haystack.includes("使用脚本"));
 }
 
 export async function manualActionRecords({
@@ -1731,9 +2269,11 @@ export async function manualActionRecords({
   events,
   reason,
   detail,
+  matchedSignals = [],
   existingEvidence = [],
 }) {
   const screenshotPath = join(assetsPath, `manual-action-${reason}.png`);
+  const snapshotPath = join(assetsPath, `manual-action-${reason}-snapshot.json`);
   let savedScreenshotPath = "";
   let screenshotError = "";
   try {
@@ -1748,26 +2288,80 @@ export async function manualActionRecords({
   } catch {
     targetUrl = "";
   }
+  const snapshot = await buildManualActionSnapshot({
+    page,
+    request,
+    reason,
+    detail,
+    url: targetUrl,
+    screenshot: savedScreenshotPath,
+    screenshotError,
+    matchedSignals,
+  });
+  await writeFile(snapshotPath, `${JSON.stringify(snapshot, null, 2)}\n`, "utf8");
   events.write("warning", "xiaohongshu", "manual_action_required", detail, {
     run_id: request.run_id,
     platform: request.platform,
     reason,
     screenshot: savedScreenshotPath,
+    snapshot: snapshotPath,
+    evidence_chain_path: snapshotPath,
     url: targetUrl,
     screenshot_error: screenshotError,
+    matched_signals: snapshot.matched_signals,
   });
+  const snapshotEvidence = [
+    evidenceRecord({
+      request,
+      evidenceId: `${request.run_id}-manual-action-${reason}-snapshot`,
+      scope: "manual_action_snapshot",
+      path: snapshotPath,
+      payload: {
+        reason,
+        detail,
+        url: targetUrl,
+        screenshot: savedScreenshotPath,
+        screenshot_error: screenshotError,
+        matched_signals: snapshot.matched_signals,
+      },
+    }),
+  ];
   const screenshotEvidence = savedScreenshotPath
     ? [
         evidenceRecord({
           request,
           evidenceId: `${request.run_id}-manual-action-${reason}`,
-          scope: "manual_action_required",
+          scope: "manual_action_screenshot",
           path: savedScreenshotPath,
           payload: { reason, detail, url: targetUrl },
         }),
       ]
     : [];
-  return [...screenshotEvidence, ...existingEvidence];
+  return [...screenshotEvidence, ...snapshotEvidence, ...existingEvidence];
+}
+
+async function buildManualActionSnapshot({ page, request, reason, detail, url, screenshot, screenshotError, matchedSignals }) {
+  return {
+    run_id: request.run_id,
+    platform: request.platform,
+    profile: request.profile || "",
+    keyword: request.keyword || "",
+    reason,
+    detail,
+    url,
+    title: await safePageTitle(page),
+    body_text: await visibleTextForSelectors(page, ["body"], 8000).catch(() => ""),
+    blocking_text: await visibleTextForSelectors(
+      page,
+      ["[role='dialog']", "[class*='login']", "[class*='captcha']", "[class*='verify']", "[class*='modal']"],
+      4000,
+      { minimumSize: 80 },
+    ).catch(() => ""),
+    screenshot,
+    screenshot_error: screenshotError,
+    matched_signals: Array.isArray(matchedSignals) ? matchedSignals : [],
+    captured_at: new Date().toISOString(),
+  };
 }
 
 function evidenceRecord({ request, evidenceId, scope, path, payload }) {

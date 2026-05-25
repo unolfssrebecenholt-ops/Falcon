@@ -123,6 +123,62 @@ class Evidence:
 
 
 @dataclass
+class IntentAnalysisTask:
+    platform: str
+    user_intent: str
+    status: str = "draft"
+    model_name: str = "gpt-5.5"
+    failed_reason: str = ""
+    created_at: str = field(default_factory=utc_now_iso)
+    updated_at: str = field(default_factory=utc_now_iso)
+    completed_at: str = ""
+    task_id: Optional[int] = None
+
+
+@dataclass
+class IntentAnalysisSource:
+    task_id: int
+    run_id: str
+    platform: str
+    keyword: str = ""
+    created_at: str = field(default_factory=utc_now_iso)
+    source_id: Optional[int] = None
+
+
+@dataclass
+class IntentAnalysisProbe:
+    task_id: int
+    probe_key: str
+    title: str
+    description: str
+    positive_signals: str
+    negative_signals: str
+    sort_order: int
+    enabled: bool = True
+    model_name: str = "gpt-5.5"
+    created_at: str = field(default_factory=utc_now_iso)
+    updated_at: str = field(default_factory=utc_now_iso)
+    probe_id: Optional[int] = None
+
+
+@dataclass
+class IntentAnalysisMatch:
+    task_id: int
+    probe_id: int
+    probe_key: str
+    post_id: int
+    level: str
+    score: int
+    reason: str
+    excerpt: str
+    probe_title: str = ""
+    summary: str = ""
+    comment_id: Optional[int] = None
+    created_at: str = field(default_factory=utc_now_iso)
+    match_id: Optional[int] = None
+
+
+@dataclass
 class Draft:
     kind: str
     text: str

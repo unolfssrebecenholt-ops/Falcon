@@ -4,7 +4,7 @@
     <div class="section-head">
       <div>
         <h2>任务配置</h2>
-        <p class="muted">先选已有 Profile，再添加关键词组；默认使用低频浏览器采集和截图保存，不下载原图。</p>
+        <p class="muted">先选已有 Profile，再添加关键词组；默认低频浏览器采集，保存已加载图片，失败回退截图。</p>
       </div>
       <button class="button small primary" type="submit"{% if not profile_options %} disabled{% endif %}>加入队列</button>
     </div>
@@ -19,7 +19,7 @@
         <label class="option-card {{ 'selected' if platform.key == defaults.platform else '' }}">
           <input type="radio" name="platform" value="{{ platform.key }}" {{ "checked" if platform.key == defaults.platform else "" }} {{ "disabled" if platform.key != "xiaohongshu" else "" }}>
           <strong>{{ platform.name }} <span class="status-badge {{ 'status-completed' if platform.key == 'xiaohongshu' else 'status-cancelled' }}"><i></i>{{ platform.status }}</span></strong>
-          <p>{{ "首页搜索、瀑布流点击、详情页截图保存；低频采集，遇到风控提示立即暂停。" if platform.key == "xiaohongshu" else "保留入口，不允许误判为可运行。" }}</p>
+          <p>{{ "首页搜索、瀑布流点击、保存浏览器已加载图片；低频采集，遇到风控提示立即暂停。" if platform.key == "xiaohongshu" else "保留入口，不允许误判为可运行。" }}</p>
         </label>
         {% endfor %}
       </div>
@@ -79,7 +79,7 @@
           <span>每帖评论数</span>
           <button class="help-dot" type="button" aria-label="每帖评论数参数说明" data-tip="每个帖子最多保留的评论数量。填 0 表示只采集帖子主体。">?</button>
         </div>
-        <input name="max_comments_per_post" type="number" min="0" max="20" value="{{ defaults.max_comments_per_post }}">
+        <input name="max_comments_per_post" type="number" min="0" max="50" value="{{ defaults.max_comments_per_post }}">
         <span class="subtext">保守建议值：5；评论区只读取可见内容。</span>
       </div>
     </div>
@@ -90,7 +90,7 @@
       <div class="section-head">
         <div>
           <h2 id="create-confirm-title">确认入队</h2>
-          <p class="muted">确认后任务只进入队列；启动后使用低频浏览器采集、截图保存、不下载原图。</p>
+          <p class="muted">确认后任务只进入队列；启动后使用低频浏览器采集，保存已加载图片，失败回退截图。</p>
         </div>
       </div>
       <div class="create-confirm-summary" aria-label="任务确认信息">
@@ -100,7 +100,7 @@
         <div class="summary-row"><span>将创建 run</span><strong id="confirm-run-count">0 个</strong></div>
         <div class="summary-row"><span>最大帖子数</span><strong id="confirm-max-posts">{{ defaults.max_posts }}</strong></div>
         <div class="summary-row"><span>每帖评论数</span><strong id="confirm-max-comments">{{ defaults.max_comments_per_post }}</strong></div>
-        <div class="summary-row"><span>执行策略</span><strong id="confirm-strategy">低频浏览器采集 / 截图保存 / 不下载原图</strong></div>
+        <div class="summary-row"><span>执行策略</span><strong id="confirm-strategy">低频浏览器采集 / 已加载图片 / 截图回退</strong></div>
       </div>
       <div class="create-confirm-actions">
         <button class="button" type="button" id="confirm-create-cancel">返回修改</button>

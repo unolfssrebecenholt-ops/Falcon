@@ -170,6 +170,7 @@ console.log(JSON.stringify({ result, screenshot: calls[0] }));
             ".$$eval",
             "context().request",
             "request.get",
+            "fetch(",
             "downloadImage",
             "media_download_failed",
         ]:
@@ -177,6 +178,252 @@ console.log(JSON.stringify({ result, screenshot: calls[0] }));
         self.assertNotIn("search_result?keyword", source)
         self.assertNotRegex(source, r"\.goto\([^)]*(?:explore|search_result)")
         self.assertEqual(source.count('page.goto("https://www.xiaohongshu.com/"'), 1)
+
+    def test_xiaohongshu_search_confirmation_rejects_stale_home_feed(self):
+        script = r"""
+import { verifySearchResultsReady } from "./sidecar/collector/xiaohongshu.mjs";
+
+function emptyCollection() {
+  return {
+    first() { return emptyLocator(); },
+    nth() { return emptyLocator(); },
+    async count() { return 0; },
+    async all() { return []; },
+  };
+}
+function collection(items) {
+  return {
+    first() { return items[0] || emptyLocator(); },
+    nth(index) { return items[index] || emptyLocator(); },
+    async count() { return items.length; },
+    async all() { return items; },
+  };
+}
+function emptyLocator() {
+  return makeLocator({ box: null });
+}
+function makeLocator({ text = "", href = "", box = { x: 100, y: 100, width: 240, height: 80 }, children = {} } = {}) {
+  return {
+    first() { return this; },
+    nth() { return this; },
+    async count() { return box ? 1 : 0; },
+    async all() { return box ? [this] : []; },
+    async scrollIntoViewIfNeeded() {},
+    async boundingBox() { return box; },
+    async innerText() { return text; },
+    async textContent() { return text; },
+    async getAttribute(name) { return name === "href" ? href : ""; },
+    async fill(value) { calls.push(["fill", value]); },
+    async pressSequentially(value) { calls.push(["type", value]); },
+    async press(key) { calls.push(["press", key]); },
+    locator(selector) {
+      return children[selector] ? collection([children[selector]]) : emptyCollection();
+    },
+  };
+}
+
+const staleCard = makeLocator({
+  text: "旧首页推荐内容\n作者\n1.1万",
+  href: "https://www.xiaohongshu.com/explore/stale123",
+  box: { x: 80, y: 220, width: 260, height: 180 },
+});
+const page = {
+  url() { return "https://www.xiaohongshu.com/"; },
+  title() { return Promise.resolve("小红书 首页"); },
+  viewportSize() { return { width: 1366, height: 900 }; },
+  locator(selector) {
+    if (selector === "body") return collection([makeLocator({ text: "首页 发现 直播 发布", box: { x: 0, y: 0, width: 1000, height: 800 } })]);
+    if (selector.includes(".note-item") || selector.includes("a[href*='/explore/']")) return collection([staleCard]);
+    return emptyCollection();
+  },
+};
+const request = {
+  run_id: "search-confirmation-run",
+  platform: "xiaohongshu",
+  keyword: "AI氛围感",
+  search_confirmation_timeout_ms: 0,
+};
+const result = await verifySearchResultsReady(page, request);
+console.log(JSON.stringify(result));
+"""
+        result = subprocess.run(
+            ["node", "--input-type=module", "-e", script],
+            cwd=ROOT,
+            text=True,
+            encoding="utf-8",
+            capture_output=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["reason"], "search_not_confirmed")
+
+    def test_xiaohongshu_search_confirmation_rejects_previous_keyword_results(self):
+        script = r"""
+import { verifySearchResultsReady } from "./sidecar/collector/xiaohongshu.mjs";
+
+function emptyCollection() {
+  return {
+    first() { return emptyLocator(); },
+    nth() { return emptyLocator(); },
+    async count() { return 0; },
+    async all() { return []; },
+  };
+}
+function collection(items) {
+  return {
+    first() { return items[0] || emptyLocator(); },
+    nth(index) { return items[index] || emptyLocator(); },
+    async count() { return items.length; },
+    async all() { return items; },
+  };
+}
+function emptyLocator() {
+  return makeLocator({ box: null });
+}
+function makeLocator({ text = "", href = "", box = { x: 100, y: 100, width: 240, height: 80 }, children = {} } = {}) {
+  return {
+    first() { return this; },
+    nth() { return this; },
+    async count() { return box ? 1 : 0; },
+    async all() { return box ? [this] : []; },
+    async scrollIntoViewIfNeeded() {},
+    async boundingBox() { return box; },
+    async innerText() { return text; },
+    async textContent() { return text; },
+    async getAttribute(name) { return name === "href" ? href : ""; },
+    locator(selector) {
+      return children[selector] ? collection([children[selector]]) : emptyCollection();
+    },
+  };
+}
+
+const oldResultCard = makeLocator({
+  text: "小红书封面设计技巧\n作者\n900",
+  href: "https://www.xiaohongshu.com/search_result/old123",
+  box: { x: 80, y: 220, width: 260, height: 180 },
+});
+const page = {
+  url() { return "https://www.xiaohongshu.com/search_result?keyword=%E5%B0%8F%E7%BA%A2%E4%B9%A6%E5%B0%81%E9%9D%A2&type=51"; },
+  title() { return Promise.resolve("小红书封面 - 搜索"); },
+  locator(selector) {
+    if (selector === "body") return collection([makeLocator({ text: "小红书封面 搜索结果", box: { x: 0, y: 0, width: 1000, height: 800 } })]);
+    if (selector === "a[href*='/search_result/']") return collection([oldResultCard]);
+    return emptyCollection();
+  },
+};
+const result = await verifySearchResultsReady(page, {
+  run_id: "search-confirmation-run",
+  platform: "xiaohongshu",
+  keyword: "AI氛围感",
+  search_confirmation_timeout_ms: 0,
+});
+console.log(JSON.stringify(result));
+"""
+        result = subprocess.run(
+            ["node", "--input-type=module", "-e", script],
+            cwd=ROOT,
+            text=True,
+            encoding="utf-8",
+            capture_output=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["reason"], "search_not_confirmed")
+
+    def test_xiaohongshu_search_not_confirmed_error_is_failed_run_not_manual_action(self):
+        script = r"""
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createSearchNotConfirmedError, searchNotConfirmedFailureRecords } from "./sidecar/collector/xiaohongshu.mjs";
+
+function collection(items) {
+  return {
+    first() { return items[0]; },
+    nth(index) { return items[index]; },
+    async count() { return items.length; },
+    async all() { return items; },
+  };
+}
+const body = {
+  first() { return this; },
+  nth() { return this; },
+  async count() { return 1; },
+  async all() { return [this]; },
+  async boundingBox() { return { x: 0, y: 0, width: 1000, height: 800 }; },
+  async innerText() { return "首页 发现 直播 发布"; },
+  async textContent() { return "首页 发现 直播 发布"; },
+};
+const assetsPath = mkdtempSync(join(tmpdir(), "falcon-search-failure-"));
+const page = {
+  url() { return "https://www.xiaohongshu.com/explore"; },
+  async title() { return "小红书 首页"; },
+  locator(selector) {
+    return selector === "body" ? collection([body]) : collection([]);
+  },
+  async screenshot(options) {
+    writeFileSync(options.path, "failure-state-screenshot");
+  },
+};
+const searchReady = {
+  reason: "search_not_confirmed",
+  detail: "已输入关键词，但页面没有进入搜索结果。",
+  url: "https://www.xiaohongshu.com/explore",
+  title: "小红书 首页",
+  searchLinkCount: 0,
+  bodyText: "首页 发现 直播 发布",
+};
+const evidence = await searchNotConfirmedFailureRecords({
+  page,
+  request: {
+    run_id: "search-confirmation-run",
+    platform: "xiaohongshu",
+    profile: "default",
+    keyword: "AI氛围感",
+  },
+  assetsPath,
+  searchReady,
+});
+const error = createSearchNotConfirmedError(
+  searchReady,
+  evidence,
+);
+const snapshot = JSON.parse(readFileSync(evidence.find((record) => record.scope === "failure_snapshot").path, "utf8"));
+console.log(JSON.stringify({
+  message: error.message,
+  code: error.code,
+  partialRecords: error.partialRecords,
+  failurePayload: error.failurePayload,
+  snapshot,
+  screenshotBody: readFileSync(evidence.find((record) => record.scope === "failure_screenshot").path, "utf8"),
+}));
+rmSync(assetsPath, { recursive: true, force: true });
+"""
+        result = subprocess.run(
+            ["node", "--input-type=module", "-e", script],
+            cwd=ROOT,
+            text=True,
+            encoding="utf-8",
+            capture_output=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["code"], "SEARCH_NOT_CONFIRMED")
+        self.assertIn("没有进入搜索结果", payload["message"])
+        self.assertEqual([record["scope"] for record in payload["partialRecords"]], ["failure_snapshot", "failure_screenshot"])
+        self.assertEqual(payload["partialRecords"][0]["payload"]["keyword"], "AI氛围感")
+        self.assertEqual(payload["failurePayload"]["reason"], "search_not_confirmed")
+        self.assertEqual(payload["failurePayload"]["matched_signals"][0]["source"], "search_confirmation")
+        self.assertEqual(payload["snapshot"]["body_text"], "首页 发现 直播 发布")
+        self.assertEqual(payload["screenshotBody"], "failure-state-screenshot")
 
     def test_xiaohongshu_pace_defaults_wait_rest_and_scroll_in_safe_ranges(self):
         script = r"""
@@ -235,12 +482,14 @@ console.log(JSON.stringify({
         self.assertEqual(payload["pace"]["detail_delay_range_seconds"], [8, 18])
         self.assertEqual(payload["pace"]["scroll_delay_range_seconds"], [5, 12])
         self.assertEqual(payload["pace"]["batch_rest_after_cards_range"], [5, 11])
-        self.assertEqual(payload["pace"]["batch_rest_seconds_range"], [15, 20])
+        self.assertEqual(payload["pace"]["batch_rest_seconds_range"], [6, 10])
+        self.assertEqual(payload["pace"]["comment_scroll_delay_range_seconds"], [4, 9])
+        self.assertEqual(payload["pace"]["reply_expand_delay_range_seconds"], [5, 8])
         self.assertEqual(payload["minScroll"], 450)
         self.assertEqual(payload["maxScroll"], 850)
         self.assertIn(5000, payload["waits"])
         self.assertIn(8000, payload["waits"])
-        self.assertIn(15000, payload["waits"])
+        self.assertIn(6000, payload["waits"])
         self.assertIn("collector_batch_rest", [event["event"] for event in payload["events"]])
 
     def test_xiaohongshu_checkpoint_resume_skips_completed_cards(self):
@@ -1025,8 +1274,12 @@ console.log(JSON.stringify({ count, lines }));
     def test_xiaohongshu_manual_action_survives_closed_page_screenshot_failure(self):
         script = r"""
 import { manualActionRecords } from "./sidecar/collector/xiaohongshu.mjs";
+import { existsSync, readFileSync, rmSync, mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const events = [];
+const assetsPath = mkdtempSync(join(tmpdir(), "falcon-manual-action-"));
 const records = await manualActionRecords({
   page: {
     async screenshot() {
@@ -1040,17 +1293,23 @@ const records = await manualActionRecords({
     run_id: "manual-closed-page",
     platform: "xiaohongshu",
   },
-  assetsPath: ".",
+  assetsPath,
   events: {
     write(level, scope, event, message, payload) {
       events.push({ level, scope, event, message, payload });
     },
   },
   reason: "app_scan_required",
+  matchedSignals: [
+    { reason: "app_scan_required", signal: "扫码查看", source: "body" },
+  ],
   detail: "需要人工处理",
 });
 
-console.log(JSON.stringify({ records, event: events[0] }));
+const snapshotPath = events[0].payload.snapshot;
+const snapshot = existsSync(snapshotPath) ? JSON.parse(readFileSync(snapshotPath, "utf8")) : null;
+console.log(JSON.stringify({ records, event: events[0], snapshot }));
+rmSync(assetsPath, { recursive: true, force: true });
 """
         result = subprocess.run(
             ["node", "--input-type=module", "-e", script],
@@ -1066,7 +1325,114 @@ console.log(JSON.stringify({ records, event: events[0] }));
         self.assertEqual(payload["event"]["event"], "manual_action_required")
         self.assertEqual(payload["event"]["payload"]["screenshot"], "")
         self.assertIn("screenshot_error", payload["event"]["payload"])
-        self.assertEqual(payload["records"], [])
+        self.assertIn("snapshot", payload["event"]["payload"])
+        self.assertEqual(payload["event"]["payload"]["matched_signals"][0]["signal"], "扫码查看")
+        self.assertEqual(len(payload["records"]), 1)
+        self.assertEqual(payload["records"][0]["scope"], "manual_action_snapshot")
+        self.assertEqual(payload["records"][0]["path"], payload["event"]["payload"]["snapshot"])
+        self.assertEqual(payload["snapshot"]["reason"], "app_scan_required")
+        self.assertEqual(payload["snapshot"]["matched_signals"][0]["source"], "body")
+
+    def test_xiaohongshu_manual_action_records_snapshot_and_screenshot_evidence(self):
+        script = r"""
+import { manualActionRecords } from "./sidecar/collector/xiaohongshu.mjs";
+import { existsSync, readFileSync, rmSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+function collection(items) {
+  return {
+    first() { return items[0]; },
+    nth(index) { return items[index]; },
+    async count() { return items.length; },
+    async all() { return items; },
+  };
+}
+
+const body = {
+  first() { return this; },
+  nth() { return this; },
+  async count() { return 1; },
+  async all() { return [this]; },
+  async boundingBox() { return { x: 0, y: 0, width: 900, height: 500 }; },
+  async innerText() { return "账号违规预警：检测到第三方工具或自动浏览脚本"; },
+  async textContent() { return "账号违规预警：检测到第三方工具或自动浏览脚本"; },
+};
+const empty = {
+  first() { return this; },
+  nth() { return this; },
+  async count() { return 0; },
+  async all() { return []; },
+  async boundingBox() { return null; },
+  async innerText() { return ""; },
+  async textContent() { return ""; },
+};
+
+const events = [];
+const assetsPath = mkdtempSync(join(tmpdir(), "falcon-manual-action-success-"));
+const records = await manualActionRecords({
+  page: {
+    async screenshot(options) {
+      writeFileSync(options.path, "png");
+    },
+    url() {
+      return "https://www.xiaohongshu.com/explore";
+    },
+    async title() {
+      return "XHS warning";
+    },
+    locator(selector) {
+      return selector === "body" ? collection([body]) : collection([empty]);
+    },
+  },
+  request: {
+    run_id: "manual-action-success",
+    platform: "xiaohongshu",
+    profile: "default",
+    keyword: "content ops",
+  },
+  assetsPath,
+  events: {
+    write(level, scope, event, message, payload) {
+      events.push({ level, scope, event, message, payload });
+    },
+  },
+  reason: "account_risk_warning",
+  matchedSignals: [
+    { reason: "account_risk_warning", signal: "账号违规预警", source: "body" },
+  ],
+  detail: "检测到账号违规预警",
+});
+
+const snapshotRecord = records.find((record) => record.scope === "manual_action_snapshot");
+const screenshotRecord = records.find((record) => record.scope === "manual_action_screenshot");
+const snapshot = existsSync(snapshotRecord?.path || "") ? JSON.parse(readFileSync(snapshotRecord.path, "utf8")) : null;
+console.log(JSON.stringify({
+  records,
+  event: events[0],
+  snapshot,
+  screenshotExists: existsSync(screenshotRecord?.path || ""),
+}));
+rmSync(assetsPath, { recursive: true, force: true });
+"""
+        result = subprocess.run(
+            ["node", "--input-type=module", "-e", script],
+            cwd=ROOT,
+            text=True,
+            encoding="utf-8",
+            capture_output=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        scopes = [record["scope"] for record in payload["records"]]
+        self.assertIn("manual_action_snapshot", scopes)
+        self.assertIn("manual_action_screenshot", scopes)
+        self.assertTrue(payload["screenshotExists"])
+        self.assertEqual(payload["event"]["payload"]["evidence_chain_path"], payload["event"]["payload"]["snapshot"])
+        self.assertEqual(payload["snapshot"]["reason"], "account_risk_warning")
+        self.assertEqual(payload["snapshot"]["matched_signals"][0]["signal"], "账号违规预警")
 
     def test_xiaohongshu_profile_launch_conflict_is_detected_from_playwright_logs(self):
         script = r"""
@@ -1127,6 +1493,126 @@ console.log(JSON.stringify({
         self.assertEqual(events[-1]["payload"]["reason"], "profile_window_busy")
         self.assertIn("Profile", events[-1]["message"])
         self.assertNotIn("launchPersistentContext", events[-1]["message"])
+
+    def test_xiaohongshu_selects_existing_platform_page_over_blank_tab(self):
+        script = r"""
+import { selectUsableBrowserPage } from "./sidecar/collector/xiaohongshu.mjs";
+
+const calls = [];
+const blankPage = {
+  name: "blank",
+  url() { return "about:blank"; },
+  async bringToFront() { calls.push("blank-front"); },
+};
+const xhsPage = {
+  name: "xhs",
+  url() { return "https://www.xiaohongshu.com/explore"; },
+  async bringToFront() { calls.push("xhs-front"); },
+};
+const context = {
+  pages() { return [blankPage, xhsPage]; },
+  async newPage() {
+    calls.push("new-page");
+    return blankPage;
+  },
+};
+
+const selected = await selectUsableBrowserPage(context, { preferredHost: "xiaohongshu.com" });
+console.log(JSON.stringify({ selected: selected.name, calls }));
+"""
+        result = subprocess.run(
+            ["node", "--input-type=module", "-e", script],
+            cwd=ROOT,
+            text=True,
+            encoding="utf-8",
+            capture_output=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["selected"], "xhs")
+        self.assertEqual(payload["calls"], ["xhs-front"])
+
+    def test_xiaohongshu_selects_new_page_when_context_has_no_pages(self):
+        script = r"""
+import { selectUsableBrowserPage } from "./sidecar/collector/xiaohongshu.mjs";
+
+const calls = [];
+const createdPage = {
+  name: "created",
+  url() { return "about:blank"; },
+  async bringToFront() { calls.push("created-front"); },
+};
+const context = {
+  pages() { return []; },
+  async newPage() {
+    calls.push("new-page");
+    return createdPage;
+  },
+};
+
+const selected = await selectUsableBrowserPage(context, { preferredHost: "xiaohongshu.com" });
+console.log(JSON.stringify({ selected: selected.name, calls }));
+"""
+        result = subprocess.run(
+            ["node", "--input-type=module", "-e", script],
+            cwd=ROOT,
+            text=True,
+            encoding="utf-8",
+            capture_output=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["selected"], "created")
+        self.assertEqual(payload["calls"], ["new-page", "created-front"])
+
+    def test_xiaohongshu_usable_locator_skips_aria_hidden_input_clone(self):
+        script = r"""
+import { firstUsableLocator } from "./sidecar/collector/xiaohongshu.mjs";
+
+const hiddenClone = {
+  name: "hidden-clone",
+  async boundingBox() { return { x: 100, y: 20, width: 300, height: 40 }; },
+  async getAttribute(name) {
+    return { "aria-hidden": "true", tabindex: "-1" }[name] ?? "";
+  },
+};
+const realInput = {
+  name: "real-input",
+  async boundingBox() { return { x: 100, y: 20, width: 300, height: 40 }; },
+  async getAttribute(name) {
+    return { id: "search-input", tabindex: "", "aria-hidden": "" }[name] ?? "";
+  },
+};
+const collection = {
+  async count() { return 2; },
+  nth(index) { return index === 0 ? hiddenClone : realInput; },
+};
+const page = {
+  locator(selector) {
+    if (selector !== "input") throw new Error(`unexpected selector ${selector}`);
+    return collection;
+  },
+};
+
+const selected = await firstUsableLocator(page, ["input"]);
+console.log(JSON.stringify({ selected: selected.name }));
+"""
+        result = subprocess.run(
+            ["node", "--input-type=module", "-e", script],
+            cwd=ROOT,
+            text=True,
+            encoding="utf-8",
+            capture_output=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["selected"], "real-input")
 
     def test_xiaohongshu_detail_target_closed_becomes_manual_action(self):
         script = r"""
@@ -1272,6 +1758,96 @@ console.log(JSON.stringify({ result }));
         payload = json.loads(result.stdout)
         self.assertIsNone(payload["result"])
 
+    def test_xiaohongshu_home_feed_login_link_does_not_trigger_manual_action(self):
+        script = r"""
+import { detectManualAction } from "./sidecar/collector/xiaohongshu.mjs";
+
+const body = {
+  first() { return this; },
+  nth() { return this; },
+  async count() { return 1; },
+  async all() { return [this]; },
+  async boundingBox() { return { x: 0, y: 0, width: 1200, height: 800 }; },
+  async innerText() { return "发现 直播 发布 通知 我 登录 推荐 穿搭 美食"; },
+  async textContent() { return "发现 直播 发布 通知 我 登录 推荐 穿搭 美食"; },
+};
+const empty = {
+  first() { return this; },
+  nth() { return this; },
+  async count() { return 0; },
+  async all() { return []; },
+  async boundingBox() { return null; },
+  async innerText() { return ""; },
+  async textContent() { return ""; },
+};
+
+const result = await detectManualAction({
+  url() { return "https://www.xiaohongshu.com/explore"; },
+  async title() { return "小红书 - 你的生活兴趣社区"; },
+  locator(selector) {
+    return selector === "body" ? body : empty;
+  },
+});
+
+console.log(JSON.stringify({ result }));
+"""
+        result = subprocess.run(
+            ["node", "--input-type=module", "-e", script],
+            cwd=ROOT,
+            text=True,
+            encoding="utf-8",
+            capture_output=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertIsNone(payload["result"])
+
+    def test_xiaohongshu_plain_script_word_does_not_trigger_account_risk(self):
+        script = r"""
+import { detectManualAction } from "./sidecar/collector/xiaohongshu.mjs";
+
+const body = {
+  first() { return this; },
+  nth() { return this; },
+  async count() { return 1; },
+  async all() { return [this]; },
+  async boundingBox() { return { x: 0, y: 0, width: 1200, height: 800 }; },
+  async innerText() { return "AI \u811a\u672c\u7f16\u5199\u6559\u7a0b \u5185\u5bb9\u521b\u4f5c\u5de5\u5177 \u9996\u9875\u63a8\u8350"; },
+  async textContent() { return "AI \u811a\u672c\u7f16\u5199\u6559\u7a0b \u5185\u5bb9\u521b\u4f5c\u5de5\u5177 \u9996\u9875\u63a8\u8350"; },
+};
+const empty = {
+  first() { return this; },
+  nth() { return this; },
+  async count() { return 0; },
+  async all() { return []; },
+  async boundingBox() { return null; },
+};
+
+const result = await detectManualAction({
+  url() { return "https://www.xiaohongshu.com/explore"; },
+  async title() { return "\u5c0f\u7ea2\u4e66"; },
+  locator(selector) {
+    return selector === "body" ? body : empty;
+  },
+});
+
+console.log(JSON.stringify({ result }));
+"""
+        result = subprocess.run(
+            ["node", "--input-type=module", "-e", script],
+            cwd=ROOT,
+            text=True,
+            encoding="utf-8",
+            capture_output=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertIsNone(payload["result"])
+
     def test_xiaohongshu_account_risk_warning_triggers_manual_action(self):
         script = r"""
 import { detectManualAction } from "./sidecar/collector/xiaohongshu.mjs";
@@ -1315,6 +1891,8 @@ console.log(JSON.stringify(result));
         self.assertEqual(result.returncode, 0, result.stderr)
         payload = json.loads(result.stdout)
         self.assertEqual(payload["reason"], "account_risk_warning")
+        self.assertEqual(payload["matched_signals"][0]["reason"], "account_risk_warning")
+        self.assertEqual(payload["matched_signals"][0]["source"], "body")
 
     def test_xiaohongshu_detail_snapshot_reads_visible_detail_container_without_image_urls(self):
         script = r"""
@@ -1504,6 +2082,247 @@ rmSync(assetsPath, { recursive: true, force: true });
         self.assertEqual(record["mime_type"], "image/png")
         self.assertTrue(record["sha256"])
 
+    def test_xiaohongshu_browser_loaded_image_media_asset_uses_cached_response_body(self):
+        script = r"""
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { captureVisibleMediaAssets, createLoadedImageStore, normalizeCollectorRequest } from "./sidecar/collector/xiaohongshu.mjs";
+
+function emptyCollection() {
+  return {
+    first() { return emptyLocator(); },
+    nth() { return emptyLocator(); },
+    async count() { return 0; },
+    async all() { return []; },
+  };
+}
+
+function collection(items) {
+  return {
+    first() { return items[0] || emptyLocator(); },
+    nth(index) { return items[index] || emptyLocator(); },
+    async count() { return items.length; },
+    async all() { return items; },
+  };
+}
+
+function emptyLocator() {
+  return makeLocator({ box: null });
+}
+
+function makeLocator({ box = { x: 0, y: 0, width: 320, height: 240 }, attrs = {}, lists = {}, screenshotBody = "" } = {}) {
+  return {
+    screenshotCalls: [],
+    first() { return this; },
+    nth() { return this; },
+    async count() { return box ? 1 : 0; },
+    async all() { return box ? [this] : []; },
+    async boundingBox() { return box; },
+    async getAttribute(name) { return attrs[name] ?? ""; },
+    locator(selector) {
+      if (lists[selector]) return collection(lists[selector]);
+      return emptyCollection();
+    },
+    async screenshot(options) {
+      this.screenshotCalls.push(options);
+      writeFileSync(options.path, screenshotBody || "visible-image");
+    },
+  };
+}
+
+function fakePage(root, response) {
+  const handlers = {};
+  return {
+    on(event, handler) {
+      handlers[event] = handlers[event] || [];
+      handlers[event].push(handler);
+    },
+    async emitResponse() {
+      for (const handler of handlers.response || []) {
+        handler(response);
+      }
+      await response.bodySettled;
+    },
+    locator(selector) {
+      return selector === "#noteContainer" ? collection([root]) : emptyCollection();
+    },
+  };
+}
+
+function fakeResponse({ url, mimeType, body }) {
+  let settle;
+  const bodySettled = new Promise((resolve) => { settle = resolve; });
+  return {
+    bodySettled,
+    url() { return url; },
+    headers() { return { "content-type": mimeType }; },
+    async body() {
+      settle();
+      return Buffer.from(body);
+    },
+  };
+}
+
+const assetsPath = mkdtempSync(join(tmpdir(), "falcon-loaded-media-"));
+const imageUrl = "https://sns-webpic-qc.xhscdn.com/notes_pre_post/loaded-image-id!nd_dft_wlteh_webp_3";
+const response = fakeResponse({ url: imageUrl, mimeType: "image/jpeg", body: "loaded-image-body" });
+const image = makeLocator({
+  box: { x: 12, y: 20, width: 320, height: 240 },
+  attrs: { src: imageUrl },
+  screenshotBody: "screenshot-fallback-body",
+});
+const duplicateImage = makeLocator({
+  box: { x: 24, y: 40, width: 320, height: 240 },
+  attrs: { src: imageUrl },
+  screenshotBody: "duplicate-screenshot-fallback-body",
+});
+const root = makeLocator({
+  box: { x: 0, y: 0, width: 900, height: 700 },
+  lists: { "img": [image, duplicateImage] },
+});
+const page = fakePage(root, response);
+const loadedImages = createLoadedImageStore();
+loadedImages.attachPage(page);
+await page.emitResponse();
+
+const events = [];
+const records = await captureVisibleMediaAssets({
+  page,
+  request: normalizeCollectorRequest({
+    run_id: "loaded-media-run",
+    platform: "xiaohongshu",
+    media_policy: "browser_loaded_image",
+  }),
+  assetsPath,
+  stem: "post-1",
+  postId: "xiaohongshu:post-1",
+  events: {
+    write(level, scope, event, message, payload) {
+      events.push({ level, scope, event, message, payload });
+    },
+  },
+  loadedImages,
+});
+
+const fileBody = records[0] ? readFileSync(records[0].path, "utf8") : "";
+console.log(JSON.stringify({ records, events, fileBody, screenshotCalls: image.screenshotCalls.length }));
+rmSync(assetsPath, { recursive: true, force: true });
+"""
+        result = subprocess.run(
+            ["node", "--input-type=module", "-e", script],
+            cwd=ROOT,
+            text=True,
+            encoding="utf-8",
+            capture_output=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(len(payload["records"]), 1)
+        record = payload["records"][0]
+        self.assertEqual(record["type"], "media_asset")
+        self.assertEqual(record["source"], "browser_loaded_image")
+        self.assertEqual(record["url"], "https://sns-webpic-qc.xhscdn.com/notes_pre_post/loaded-image-id!nd_dft_wlteh_webp_3")
+        self.assertEqual(record["mime_type"], "image/jpeg")
+        self.assertTrue(record["path"].endswith(".jpg"))
+        self.assertEqual(payload["fileBody"], "loaded-image-body")
+        self.assertEqual(payload["screenshotCalls"], 0)
+
+    def test_xiaohongshu_browser_loaded_image_media_asset_falls_back_to_screenshot(self):
+        script = r"""
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { captureVisibleMediaAssets, createLoadedImageStore, normalizeCollectorRequest } from "./sidecar/collector/xiaohongshu.mjs";
+
+function emptyCollection() {
+  return {
+    first() { return emptyLocator(); },
+    nth() { return emptyLocator(); },
+    async count() { return 0; },
+    async all() { return []; },
+  };
+}
+
+function collection(items) {
+  return {
+    first() { return items[0] || emptyLocator(); },
+    nth(index) { return items[index] || emptyLocator(); },
+    async count() { return items.length; },
+    async all() { return items; },
+  };
+}
+
+function emptyLocator() {
+  return makeLocator({ box: null });
+}
+
+function makeLocator({ box = { x: 0, y: 0, width: 320, height: 240 }, attrs = {}, lists = {}, screenshotBody = "" } = {}) {
+  return {
+    first() { return this; },
+    nth() { return this; },
+    async count() { return box ? 1 : 0; },
+    async all() { return box ? [this] : []; },
+    async boundingBox() { return box; },
+    async getAttribute(name) { return attrs[name] ?? ""; },
+    locator(selector) {
+      if (lists[selector]) return collection(lists[selector]);
+      return emptyCollection();
+    },
+    async screenshot(options) {
+      writeFileSync(options.path, screenshotBody || "visible-image");
+    },
+  };
+}
+
+const assetsPath = mkdtempSync(join(tmpdir(), "falcon-loaded-media-fallback-"));
+const image = makeLocator({
+  box: { x: 12, y: 20, width: 320, height: 240 },
+  attrs: { src: "https://sns-webpic-qc.xhscdn.com/notes_pre_post/not-loaded!nd_dft_wlteh_webp_3" },
+  screenshotBody: "fallback-png",
+});
+const root = makeLocator({
+  box: { x: 0, y: 0, width: 900, height: 700 },
+  lists: { "img": [image] },
+});
+const records = await captureVisibleMediaAssets({
+  page: {
+    locator(selector) {
+      return selector === "#noteContainer" ? collection([root]) : emptyCollection();
+    },
+  },
+  request: normalizeCollectorRequest({
+    run_id: "loaded-media-fallback-run",
+    platform: "xiaohongshu",
+    media_policy: "browser_loaded_image",
+  }),
+  assetsPath,
+  stem: "post-1",
+  postId: "xiaohongshu:post-1",
+  events: { write() {} },
+  loadedImages: createLoadedImageStore(),
+});
+
+console.log(JSON.stringify({ records }));
+rmSync(assetsPath, { recursive: true, force: true });
+"""
+        result = subprocess.run(
+            ["node", "--input-type=module", "-e", script],
+            cwd=ROOT,
+            text=True,
+            encoding="utf-8",
+            capture_output=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(len(payload["records"]), 1)
+        self.assertEqual(payload["records"][0]["source"], "visible_screenshot")
+        self.assertEqual(payload["records"][0]["url"], "")
+
     def test_xiaohongshu_media_url_dedupe_collapses_cdn_variants(self):
         script = r"""
 import { uniqueMediaUrls } from "./sidecar/collector/xiaohongshu.mjs";
@@ -1675,6 +2494,88 @@ console.log(JSON.stringify({ clicked, calls }));
         self.assertEqual(payload["clicked"], 1)
         self.assertIn("mouse-click", call_names)
         self.assertNotIn("locator-click", call_names)
+
+    def test_xiaohongshu_prepares_fifty_comments_without_fixed_scroll_or_reply_caps(self):
+        script = r"""
+import { normalizeCollectorRequest, prepareVisibleCommentsForExtraction } from "./sidecar/collector/xiaohongshu.mjs";
+
+let commentCount = 3;
+let replyClicks = 0;
+const calls = [];
+
+const empty = {
+  first() { return this; },
+  nth() { return this; },
+  async count() { return 0; },
+  async all() { return []; },
+  async boundingBox() { return null; },
+  async innerText() { return ""; },
+  async textContent() { return ""; },
+  async getAttribute() { return ""; },
+};
+const commentCollection = {
+  first() { return this; },
+  nth() { return this; },
+  async count() { calls.push(["comment-count", commentCount]); return commentCount; },
+  async all() { return []; },
+};
+const replyLocator = {
+  first() { return this; },
+  async count() { return replyClicks < 10 ? 1 : 0; },
+  async all() { return replyClicks < 10 ? [this] : []; },
+  async scrollIntoViewIfNeeded() { calls.push(["reply-scroll"]); },
+  async boundingBox() { return { x: 120, y: 220, width: 180, height: 32 }; },
+  async innerText() { return "expand replies"; },
+  async textContent() { return "expand replies"; },
+  async getAttribute() { return ""; },
+};
+const root = {
+  locator(selector) {
+    calls.push(["root-locator", selector]);
+    if (selector === ".comment-item, [class*='comment-item'], [class*='reply-item']") {
+      return commentCollection;
+    }
+    return empty;
+  },
+};
+const page = {
+  viewportSize() { return { width: 1366, height: 1000 }; },
+  getByText(pattern) { calls.push(["getByText", String(pattern)]); return replyLocator; },
+  mouse: {
+    async move(x, y, options) { calls.push(["move", Math.round(x), Math.round(y), options.steps]); },
+    async click(x, y, options) { replyClicks += 1; calls.push(["reply-click", Math.round(x), Math.round(y), options.delay]); },
+    async wheel(x, y) { commentCount += 6; calls.push(["wheel", x, y, commentCount]); },
+  },
+  async waitForTimeout(ms) { calls.push(["wait", ms]); },
+};
+const request = normalizeCollectorRequest({
+  run_id: "comment-pace-run",
+  platform: "xiaohongshu",
+  max_comments_per_post: 50,
+});
+const originalRandom = Math.random;
+Math.random = () => 0;
+const outcome = await prepareVisibleCommentsForExtraction(page, root, request, 50);
+Math.random = originalRandom;
+console.log(JSON.stringify({ outcome, calls, commentCount, replyClicks }));
+"""
+        result = subprocess.run(
+            ["node", "--input-type=module", "-e", script],
+            cwd=ROOT,
+            text=True,
+            encoding="utf-8",
+            capture_output=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        call_names = [call[0] for call in payload["calls"]]
+        self.assertGreaterEqual(payload["outcome"]["scrolls"], 7)
+        self.assertGreaterEqual(payload["replyClicks"], 7)
+        self.assertIn("wheel", call_names)
+        self.assertIn(["wait", 4000], payload["calls"])
+        self.assertIn(["wait", 5000], payload["calls"])
 
     def test_xiaohongshu_post_progress_payload_counts_current_post(self):
         script = r"""
@@ -1901,13 +2802,84 @@ console.log(JSON.stringify({ afterFirst, afterSecond, afterFlush }));
 
         self.assertEqual(result.returncode, 1)
         self.assertTrue(assets_dir.is_dir())
-        self.assertFalse(records_path.exists())
+        self.assertTrue(records_path.exists())
+        records = read_jsonl(records_path)
+        self.assertEqual(records[-1]["type"], "evidence")
+        self.assertEqual(records[-1]["scope"], "failure_snapshot")
+        self.assertTrue(Path(records[-1]["path"]).is_file())
+        self.assertEqual(records[-1]["payload"]["code"], "PLAYWRIGHT_MISSING")
 
         events = read_jsonl(events_path)
         self.assertEqual(events[-1]["event"], "run_failed")
         self.assertIn("Playwright is required", events[-1]["message"])
         self.assertIn("sidecar", events[-1]["message"])
         self.assertEqual(events[-1]["payload"]["code"], "PLAYWRIGHT_MISSING")
+        self.assertEqual(events[-1]["payload"]["failure_evidence"], records[-1]["path"])
+
+    def test_sidecar_run_failed_event_uses_existing_failure_snapshot_context(self):
+        script = r"""
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { writeFailureRecordsOnError } from "./sidecar/collector/index.mjs";
+
+const runtimePath = mkdtempSync(join(tmpdir(), "falcon-failure-records-"));
+const outputPath = join(runtimePath, "records.jsonl");
+const assetsPath = join(runtimePath, "assets");
+const error = new Error("已输入关键词，但页面没有进入搜索结果。");
+error.code = "SEARCH_NOT_CONFIRMED";
+error.failurePayload = {
+  reason: "search_not_confirmed",
+  url: "https://www.xiaohongshu.com/explore",
+  title: "小红书 首页",
+  matched_signals: [
+    { reason: "search_not_confirmed", signal: "expected_keyword_not_confirmed", source: "search_confirmation" },
+  ],
+};
+error.partialRecords = [
+  {
+    type: "evidence",
+    run_id: "search-confirmation-run",
+    platform: "xiaohongshu",
+    evidence_id: "search-confirmation-run-failure-snapshot",
+    scope: "failure_snapshot",
+    path: join(assetsPath, "failure-search_not_confirmed-snapshot.json"),
+    payload: error.failurePayload,
+  },
+  {
+    type: "evidence",
+    run_id: "search-confirmation-run",
+    platform: "xiaohongshu",
+    evidence_id: "search-confirmation-run-failure-screenshot",
+    scope: "failure_screenshot",
+    path: join(assetsPath, "failure-search_not_confirmed.png"),
+    payload: { reason: "search_not_confirmed" },
+  },
+];
+const result = await writeFailureRecordsOnError(outputPath, error, {
+  request: { run_id: "search-confirmation-run", platform: "xiaohongshu", profile: "default", keyword: "AI氛围感" },
+  assetsPath,
+});
+const records = readFileSync(outputPath, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+console.log(JSON.stringify({ result, records }));
+rmSync(runtimePath, { recursive: true, force: true });
+"""
+        result = subprocess.run(
+            ["node", "--input-type=module", "-e", script],
+            cwd=ROOT,
+            text=True,
+            encoding="utf-8",
+            capture_output=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["result"]["count"], 2)
+        self.assertTrue(payload["result"]["failureEvidence"].endswith("failure-search_not_confirmed-snapshot.json"))
+        self.assertEqual(payload["result"]["failurePayload"]["reason"], "search_not_confirmed")
+        self.assertEqual([record["scope"] for record in payload["records"]], ["failure_snapshot", "failure_screenshot"])
+        self.assertNotIn("run-failed-snapshot.json", payload["result"]["failureEvidence"])
 
 
 if __name__ == "__main__":

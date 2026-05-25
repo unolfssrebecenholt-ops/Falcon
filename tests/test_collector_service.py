@@ -173,11 +173,14 @@ class CollectorServiceTest(unittest.TestCase):
                 request_payload["access_policy"],
                 {"js_access": False, "direct_url_access": False, "network_api_access": False},
             )
-            self.assertEqual(request_payload["media_policy"], "visible_screenshot")
+            self.assertEqual(request_payload["media_policy"], "browser_loaded_image")
             self.assertTrue(request_payload["checkpoint_enabled"])
             self.assertEqual(request_payload["pace"]["detail_delay_range_seconds"], [8, 18])
             self.assertEqual(request_payload["pace"]["scroll_delay_range_seconds"], [5, 12])
             self.assertEqual(request_payload["pace"]["batch_rest_after_cards_range"], [5, 11])
+            self.assertEqual(request_payload["pace"]["batch_rest_seconds_range"], [6, 10])
+            self.assertEqual(request_payload["pace"]["comment_scroll_delay_range_seconds"], [4, 9])
+            self.assertEqual(request_payload["pace"]["reply_expand_delay_range_seconds"], [5, 8])
 
             events = repo.list_collection_events("xhs-dry-run")
             posts = repo.list_collected_posts("xhs-dry-run")
@@ -301,6 +304,201 @@ class CollectorServiceTest(unittest.TestCase):
             self.assertTrue(state["locked"])
             self.assertEqual(state["reason"], "account_risk_warning")
             self.assertEqual(state["run_id"], "risk-run")
+
+    def test_ingest_search_not_confirmed_failure_does_not_require_manual_action(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            repo = FalconRepository(tmp_path / "falcon.sqlite3")
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="search-failed-run",
+                    platform="xiaohongshu",
+                    keyword="AI氛围感",
+                    profile="default",
+                    status="running",
+                )
+            )
+            service = CollectorService(
+                repo,
+                runtime_root=tmp_path / "runtime" / "collector",
+                profile_root=tmp_path / "browser-profiles",
+            )
+            run_dir = tmp_path / "runtime" / "collector" / "search-failed-run"
+            run_dir.mkdir(parents=True)
+            events_path = run_dir / "events.jsonl"
+            records_path = run_dir / "records.jsonl"
+            events_path.write_text(
+                "\n".join(
+                    [
+                        json.dumps(
+                            {
+                                "sequence": 1,
+                                "time": "2026-05-25T00:00:00+00:00",
+                                "level": "info",
+                                "scope": "xiaohongshu",
+                                "event": "search_submitted",
+                                "message": "已通过页面搜索框提交关键词",
+                                "payload": {"keyword": "AI氛围感"},
+                            },
+                            ensure_ascii=False,
+                        ),
+                        json.dumps(
+                            {
+                                "sequence": 2,
+                                "time": "2026-05-25T00:00:01+00:00",
+                                "level": "error",
+                                "scope": "collector",
+                                "event": "run_failed",
+                                "message": "已输入关键词“AI氛围感”，但页面没有进入该关键词的搜索结果。",
+                                "payload": {"code": "SEARCH_NOT_CONFIRMED", "partial_records": 2},
+                            },
+                            ensure_ascii=False,
+                        ),
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            records = [
+                {
+                    "type": "evidence",
+                    "run_id": "search-failed-run",
+                    "platform": "xiaohongshu",
+                    "evidence_id": "search-failed-run-failure-search-not-confirmed-snapshot",
+                    "scope": "failure_snapshot",
+                    "path": "runtime/collector/search-failed-run/assets/failure-search_not_confirmed-snapshot.json",
+                    "payload": {
+                        "reason": "search_not_confirmed",
+                        "keyword": "AI氛围感",
+                        "url": "https://www.xiaohongshu.com/explore",
+                        "matched_signals": [
+                            {
+                                "reason": "search_not_confirmed",
+                                "signal": "expected_keyword_not_confirmed",
+                                "source": "search_confirmation",
+                            }
+                        ],
+                    },
+                },
+                {
+                    "type": "evidence",
+                    "run_id": "search-failed-run",
+                    "platform": "xiaohongshu",
+                    "evidence_id": "search-failed-run-failure-search-not-confirmed-screenshot",
+                    "scope": "failure_screenshot",
+                    "path": "runtime/collector/search-failed-run/assets/failure-search_not_confirmed.png",
+                    "payload": {"reason": "search_not_confirmed"},
+                },
+            ]
+            records_path.write_text(
+                "\n".join(json.dumps(record, ensure_ascii=False) for record in records) + "\n",
+                encoding="utf-8",
+            )
+
+            service.ingest_outputs("search-failed-run", events_path, records_path)
+
+            run = repo.get_collection_run("search-failed-run")
+            events = repo.list_collection_events("search-failed-run")
+            evidences = repo.list_evidences("search-failed-run")
+            self.assertEqual(run.status, "failed")
+            self.assertIn("没有进入该关键词的搜索结果", run.failed_reason)
+            self.assertEqual(events[-1].event, "run_failed")
+            self.assertEqual([evidence.scope for evidence in evidences], ["failure_snapshot", "failure_screenshot"])
+            self.assertFalse(service.is_profile_safety_locked("xiaohongshu", "default"))
+
+    def test_ingest_sidecar_evidence_snapshots_and_screenshots(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            db_path = tmp_path / "falcon.sqlite3"
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="evidence-run",
+                    platform="xiaohongshu",
+                    keyword="content ops",
+                    profile="default",
+                    status="running",
+                )
+            )
+            service = CollectorService(repo)
+            run_dir = tmp_path / "runtime" / "collector" / "evidence-run"
+            run_dir.mkdir(parents=True)
+            events_path = run_dir / "events.jsonl"
+            records_path = run_dir / "records.jsonl"
+            events_path.write_text("", encoding="utf-8")
+            records = [
+                {
+                    "type": "evidence",
+                    "run_id": "evidence-run",
+                    "platform": "xiaohongshu",
+                    "evidence_id": "evidence-run-manual-action-account-risk-snapshot",
+                    "scope": "manual_action_snapshot",
+                    "path": "runtime/collector/evidence-run/assets/manual-action.json",
+                    "payload": {
+                        "reason": "account_risk_warning",
+                        "url": "https://www.xiaohongshu.com/explore",
+                        "title": "Account risk warning",
+                        "matched_signals": ["risk control"],
+                    },
+                },
+                {
+                    "type": "evidence",
+                    "run_id": "evidence-run",
+                    "platform": "xiaohongshu",
+                    "evidence_id": "evidence-run-manual-action-screenshot",
+                    "scope": "manual_action_screenshot",
+                    "path": "runtime/collector/evidence-run/assets/manual-action.png",
+                    "payload": {"reason": "account_risk_warning"},
+                },
+                {
+                    "type": "evidence",
+                    "run_id": "evidence-run",
+                    "platform": "xiaohongshu",
+                    "evidence_id": "evidence-run-failure-snapshot",
+                    "scope": "failure_snapshot",
+                    "path": "runtime/collector/evidence-run/assets/failure.json",
+                    "payload": {"reason": "SEARCH_NOT_CONFIRMED", "title": "Search still on home page"},
+                },
+                {
+                    "type": "evidence",
+                    "run_id": "evidence-run",
+                    "platform": "xiaohongshu",
+                    "evidence_id": "evidence-run-failure-screenshot",
+                    "scope": "failure_screenshot",
+                    "path": "runtime/collector/evidence-run/assets/failure.png",
+                    "payload": {"reason": "SEARCH_NOT_CONFIRMED"},
+                },
+            ]
+            records_path.write_text(
+                "\n".join(json.dumps(record, ensure_ascii=False) for record in records) + "\n",
+                encoding="utf-8",
+            )
+
+            service.ingest_outputs("evidence-run", events_path, records_path)
+
+            evidences = repo.list_evidences("evidence-run")
+            self.assertEqual(
+                [evidence.scope for evidence in evidences],
+                [
+                    "manual_action_snapshot",
+                    "manual_action_screenshot",
+                    "failure_snapshot",
+                    "failure_screenshot",
+                ],
+            )
+            self.assertEqual(
+                [evidence.evidence_type for evidence in evidences],
+                [
+                    "manual_action_snapshot",
+                    "manual_action_screenshot",
+                    "failure_snapshot",
+                    "failure_screenshot",
+                ],
+            )
+            self.assertIn("account_risk_warning", evidences[0].payload_json)
+            self.assertIn("Search still on home page", evidences[2].payload_json)
 
     def test_safety_locked_profile_blocks_prepared_run_until_cleared(self):
         with tempfile.TemporaryDirectory() as tmp:
