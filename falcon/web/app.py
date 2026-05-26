@@ -4,7 +4,7 @@ import re
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 from typing import List, Optional
 from uuid import uuid4
 
@@ -111,6 +111,7 @@ EVIDENCE_SCOPE_LABELS = {
     "search_results_screenshot": "搜索页截图",
     "field_snapshot": "字段快照",
     "detail_screenshot": "详情页截图",
+    "detail_error_screenshot": "详情异常截图",
     "screenshot": "截图",
     "manual_action_required": "人工处理",
     "manual_action_snapshot": "人工处理快照",
@@ -282,15 +283,63 @@ def run_can_start(run: CollectionRun) -> bool:
 
 
 def latest_manual_action_reason(events: list[CollectionEvent]) -> str:
+    payload = latest_manual_action_payload(events)
+    return str(payload.get("reason") or "")
+
+
+def latest_manual_action_payload(events: list[CollectionEvent]) -> dict:
     for event in reversed(events):
         if event.event != "manual_action_required":
             continue
         try:
             payload = json.loads(event.payload_json or "{}")
         except json.JSONDecodeError:
+            return {}
+        return payload if isinstance(payload, dict) else {}
+    return {}
+
+
+def collector_search_context_url(run: CollectionRun) -> str:
+    if run.platform == "xiaohongshu" and run.keyword:
+        query = urlencode({"keyword": run.keyword, "source": "web_search_result_notes"})
+        return f"https://www.xiaohongshu.com/search_result?{query}"
+    return SUPPORTED_PROFILE_LOGIN_PLATFORMS.get(run.platform, "")
+
+
+def reopenable_manual_action_url(candidate: str, run: CollectionRun) -> str:
+    if not candidate:
+        return ""
+    try:
+        parsed = urlparse(candidate)
+    except ValueError:
+        return ""
+    if parsed.scheme not in {"http", "https"}:
+        return ""
+    if run.platform == "xiaohongshu":
+        host = parsed.netloc.lower()
+        if host not in {"xiaohongshu.com", "www.xiaohongshu.com"}:
             return ""
-        return str(payload.get("reason") or "")
-    return ""
+        path = parsed.path.rstrip("/")
+        if re.fullmatch(r"/(?:explore|search_result)/[A-Za-z0-9_-]{6,}", path or ""):
+            return ""
+        if run.keyword and path in {"", "/", "/explore"}:
+            return ""
+    return candidate
+
+
+def manual_action_payload_url_candidates(payload: dict) -> list[str]:
+    candidates = [
+        str(payload.get("manual_action_url") or ""),
+        str(payload.get("search_url") or ""),
+        str(payload.get("url") or ""),
+    ]
+    matched_signals = payload.get("matched_signals")
+    if isinstance(matched_signals, list):
+        for signal in matched_signals:
+            if not isinstance(signal, dict):
+                continue
+            candidates.extend([str(signal.get("search_url") or ""), str(signal.get("target_url") or "")])
+    return [candidate for candidate in candidates if candidate]
 
 
 def _parse_time(value: str) -> Optional[datetime]:
@@ -536,7 +585,12 @@ def create_app(
         return dispatched
 
     def manual_action_target_url(repository: FalconRepository, run: CollectionRun) -> str:
-        return SUPPORTED_PROFILE_LOGIN_PLATFORMS.get(run.platform, "")
+        payload = latest_manual_action_payload(repository.list_collection_events(run.run_id))
+        for candidate in manual_action_payload_url_candidates(payload):
+            target_url = reopenable_manual_action_url(candidate, run)
+            if target_url:
+                return target_url
+        return collector_search_context_url(run)
 
     def local_asset_path(stored_path: str) -> Optional[Path]:
         if not stored_path:
@@ -619,6 +673,35 @@ def create_app(
             "status": "详情页截图" if exists else "缺失/未下载",
             "src": f"/collector/runs/{evidence.run_id}/evidences/{evidence.evidence_id}" if exists else "",
             "is_evidence": True,
+        }
+
+    def run_evidence_previews(evidences):
+        preferred_scopes = {
+            "manual_action_screenshot",
+            "detail_error_screenshot",
+            "failure_screenshot",
+            "search_results_screenshot",
+        }
+        previews = []
+        for evidence in reversed(evidences):
+            if evidence.evidence_type not in preferred_scopes and evidence.scope not in preferred_scopes:
+                continue
+            item = media_item_from_evidence(evidence)
+            if not item["exists"] or not str(item["mime_type"]).startswith("image/"):
+                continue
+            previews.append(item)
+            if len(previews) >= 3:
+                break
+        return previews
+
+    def manual_action_context(repository: FalconRepository, run: CollectionRun, events, evidences):
+        if run.status != "manual_action_required":
+            return None
+        payload = latest_manual_action_payload(events)
+        return {
+            "reason": str(payload.get("reason") or latest_manual_action_reason(events) or "-"),
+            "target_url": manual_action_target_url(repository, run),
+            "previews": run_evidence_previews(evidences),
         }
 
     def detail_screenshot_fallback(evidences, post):
@@ -1209,6 +1292,8 @@ def create_app(
         run = refresh_running_run(repository, run)
         events = repository.list_collection_events(run_id)
         collected_posts = repository.list_collected_posts(run_id=run_id)
+        assets = repository.list_media_assets(run_id)
+        evidences = repository.list_evidences(run_id)
         return templates.TemplateResponse(
             request,
             "collector_run.html",
@@ -1224,8 +1309,9 @@ def create_app(
                 else "",
                 "posts": posts_with_relevance(collected_posts),
                 "relevance_summary": relevance_summary(collected_posts),
-                "assets": repository.list_media_assets(run_id),
-                "evidences": repository.list_evidences(run_id),
+                "manual_action_context": manual_action_context(repository, run, events, evidences),
+                "assets": assets,
+                "evidences": evidences,
             },
         )
 

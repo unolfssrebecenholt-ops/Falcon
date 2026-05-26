@@ -620,6 +620,67 @@ class CollectorServiceTest(unittest.TestCase):
             self.assertEqual(run.progress, 100)
             self.assertEqual(len(repo.list_collected_posts("ingest-run")), 1)
 
+    def test_collector_ingest_keeps_unicode_line_separators_inside_jsonl_records(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            db_path = tmp_path / "falcon.sqlite3"
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="unicode-line-run",
+                    platform="xiaohongshu",
+                    keyword="content ops",
+                    profile="default",
+                    status="running",
+                )
+            )
+            run_dir = tmp_path / "runtime" / "collector" / "unicode-line-run"
+            run_dir.mkdir(parents=True)
+            events_path = run_dir / "events.jsonl"
+            records_path = run_dir / "records.jsonl"
+            events_path.write_text(
+                json.dumps(
+                    {
+                        "sequence": 1,
+                        "time": "2026-05-23T00:01:00+00:00",
+                        "level": "info",
+                        "scope": "collector",
+                        "event": "run_completed",
+                        "message": "completed",
+                        "payload": {},
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            records_path.write_text(
+                json.dumps(
+                    {
+                        "type": "post",
+                        "run_id": "unicode-line-run",
+                        "platform": "xiaohongshu",
+                        "post_id": "post-1",
+                        "keyword": "content ops",
+                        "title": "Unicode line separator",
+                        "body": "Neatify 整整齐齐\u2028体验后回来",
+                        "url": "https://example.test/post/unicode-line",
+                    },
+                    ensure_ascii=False,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            service = CollectorService(repo, runtime_root=tmp_path / "runtime" / "collector")
+
+            service.ingest_outputs("unicode-line-run", events_path, records_path)
+
+            posts = repo.list_collected_posts("unicode-line-run")
+            run = repo.get_collection_run("unicode-line-run")
+            self.assertEqual(run.status, "completed")
+            self.assertEqual(len(posts), 1)
+            self.assertEqual(posts[0].content, "Neatify 整整齐齐\u2028体验后回来")
+
     def test_collector_resume_completion_overrides_previous_manual_action(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)

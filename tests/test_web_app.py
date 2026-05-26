@@ -1512,6 +1512,56 @@ class WebAppTest(unittest.TestCase):
             self.assertIn("risk control", response.text)
             self.assertNotIn('href="https://www.xiaohongshu.com/explore"', response.text)
 
+    def test_collector_run_detail_previews_manual_action_scene(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "falcon.sqlite3"
+            evidence_root = Path(tmp) / "runtime" / "collector" / "xhs-manual-preview" / "assets"
+            evidence_root.mkdir(parents=True)
+            (evidence_root / "target-missing.png").write_bytes(b"fake screenshot")
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="xhs-manual-preview",
+                    platform="xiaohongshu",
+                    keyword="内容表现",
+                    profile="default",
+                    status="manual_action_required",
+                    progress=50,
+                    current_step="瀑布流定位失败",
+                )
+            )
+            repo.append_collection_event(
+                CollectionEvent(
+                    run_id="xhs-manual-preview",
+                    sequence=1,
+                    scope="xiaohongshu",
+                    event="manual_action_required",
+                    message="target missing",
+                    payload_json='{"reason": "waterfall_target_missing", "url": "https://www.xiaohongshu.com/explore/65abc123"}',
+                )
+            )
+            evidence_id = repo.save_evidence(
+                Evidence(
+                    run_id="xhs-manual-preview",
+                    evidence_type="detail_error_screenshot",
+                    scope="detail_error_screenshot",
+                    path="runtime/collector/xhs-manual-preview/assets/target-missing.png",
+                )
+            )
+            client = TestClient(create_app(db_path))
+
+            response = client.get("/collector/runs/xhs-manual-preview")
+
+            self.assertEqual(response.status_code, 200)
+            self.assertIn('class="panel manual-action-context-panel"', response.text)
+            self.assertIn(f'src="/collector/runs/xhs-manual-preview/evidences/{evidence_id}"', response.text)
+            self.assertIn("waterfall_target_missing", response.text)
+            self.assertIn(
+                "https://www.xiaohongshu.com/search_result?keyword=%E5%86%85%E5%AE%B9%E8%A1%A8%E7%8E%B0&amp;source=web_search_result_notes",
+                response.text,
+            )
+
     def test_collector_run_detail_ledger_css_limits_panels_to_seven_scrollable_rows(self):
         css = (Path(__file__).resolve().parents[1] / "falcon" / "web" / "static" / "app.css").read_text(
             encoding="utf-8"
@@ -1923,7 +1973,10 @@ class WebAppTest(unittest.TestCase):
             self.assertEqual(launches[0]["platform"], "xiaohongshu")
             self.assertEqual(launches[0]["profile"], "creator")
             self.assertEqual(launches[0]["profile_path"], profile_root / "xiaohongshu" / "creator")
-            self.assertEqual(launches[0]["url"], "https://www.xiaohongshu.com/")
+            self.assertEqual(
+                launches[0]["url"],
+                "https://www.xiaohongshu.com/search_result?keyword=%E5%86%85%E5%AE%B9%E8%A1%A8%E7%8E%B0&source=web_search_result_notes",
+            )
             self.assertIn("manual_action_window_opened", {event.event for event in events})
 
     def test_collector_profile_busy_manual_action_does_not_open_another_window(self):
@@ -2008,7 +2061,10 @@ class WebAppTest(unittest.TestCase):
 
             self.assertEqual(response.status_code, 303)
             self.assertEqual(len(launches), 1)
-            self.assertEqual(launches[0]["url"], "https://www.xiaohongshu.com/")
+            self.assertEqual(
+                launches[0]["url"],
+                "https://www.xiaohongshu.com/search_result?keyword=%E5%86%85%E5%AE%B9%E8%A1%A8%E7%8E%B0&source=web_search_result_notes",
+            )
 
     def test_collector_manual_action_can_resume_same_run_after_user_finishes(self):
         with tempfile.TemporaryDirectory() as tmp:

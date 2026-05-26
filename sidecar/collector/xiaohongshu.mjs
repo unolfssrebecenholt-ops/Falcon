@@ -817,22 +817,32 @@ export async function collectDetailRecords({
       }
       if (isSearchCardNotFoundError(error)) {
         const collectedPosts = startIndex + records.filter((record) => record.type === "post").length;
-        events.write(
-          "warning",
-          "xiaohongshu",
-          "manual_action_required",
-          `瀑布流定位第 ${progressIndex + 1}/${postTotal} 条时未能找回目标卡片，已保留 ${collectedPosts} 条本轮已采笔记；请检查搜索页后继续或重跑。`,
-          {
-            run_id: request.run_id,
-            platform,
+        const detail = `瀑布流定位第 ${
+          progressIndex + 1
+        }/${postTotal} 条时未能找回目标卡片，已保留 ${collectedPosts} 条本轮已采笔记；请检查搜索页后继续或重跑。`;
+        records.push(
+          ...(await manualActionRecords({
+            page: searchPage,
+            request,
+            assetsPath,
+            events,
             reason: "waterfall_target_missing",
-            post_id: postId,
-            url: postUrl,
-            post_index: progressIndex + 1,
-            post_total: postTotal,
-            collected_posts: collectedPosts,
-            error: error.message,
-          },
+            detail,
+            matchedSignals: [
+              {
+                reason: "waterfall_target_missing",
+                signal: "target_card_not_found",
+                source: "waterfall_recovery",
+                post_id: postId,
+                target_url: postUrl,
+                search_url: safePageUrl(searchPage),
+                post_index: progressIndex + 1,
+                post_total: postTotal,
+                collected_posts: collectedPosts,
+                error: error.message,
+              },
+            ],
+          })),
         );
         return { records, stopped: true };
       }

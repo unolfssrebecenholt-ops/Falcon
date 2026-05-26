@@ -1713,6 +1713,106 @@ console.log(JSON.stringify({
         self.assertIn("closed123", payload["events"][-1]["payload"]["url"])
         self.assertIn(["detail-close"], payload["calls"])
 
+    def test_xiaohongshu_missing_waterfall_target_records_manual_scene(self):
+        script = r"""
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { collectDetailRecords } from "./sidecar/collector/xiaohongshu.mjs";
+
+const assetsPath = mkdtempSync(join(tmpdir(), "falcon-waterfall-target-"));
+const calls = [];
+const events = [];
+const empty = {
+  first() { return this; },
+  nth() { return this; },
+  locator() { return this; },
+  async count() { return 0; },
+  async all() { return []; },
+  async boundingBox() { return null; },
+  async innerText() { return ""; },
+  async textContent() { return ""; },
+};
+const searchPage = {
+  viewportSize() { return { width: 1366, height: 900 }; },
+  locator(selector) { calls.push(["locator", selector]); return empty; },
+  waitForEvent(event, options) { calls.push(["waitForEvent", event, options.timeout]); return Promise.resolve(null); },
+  mouse: {
+    async move() {},
+    async click() {},
+    async wheel(_x, y) { calls.push(["wheel", y]); },
+  },
+  keyboard: { async press(key) { calls.push(["press", key]); } },
+  async waitForLoadState() {},
+  async waitForTimeout() {},
+  async screenshot(options) { writeFileSync(options.path, "screenshot"); },
+  async title() { return "小红书搜索"; },
+  url() { return "https://www.xiaohongshu.com/search_result?keyword=avatar"; },
+};
+
+const outcome = await collectDetailRecords({
+  context: {},
+  searchPage,
+  request: {
+    run_id: "waterfall-target-run",
+    platform: "xiaohongshu",
+    profile: "default",
+    keyword: "avatar",
+    max_comments_per_post: 0,
+    pace: {
+      max_relocate_scrolls: 1,
+      scroll_delay_range_seconds: [0, 0],
+      click_delay_range_ms: [0, 0],
+    },
+  },
+  assetsPath,
+  events: {
+    write(level, scope, event, message, payload) {
+      events.push({ level, scope, event, message, payload });
+    },
+  },
+  posts: [
+    {
+      postId: "xiaohongshu:missing123",
+      url: "https://www.xiaohongshu.com/explore/missing123",
+      title: "missing",
+    },
+  ],
+});
+
+const snapshotPath = join(assetsPath, "manual-action-waterfall_target_missing-snapshot.json");
+const snapshot = JSON.parse(readFileSync(snapshotPath, "utf8"));
+console.log(JSON.stringify({
+  stopped: outcome.stopped,
+  scopes: outcome.records.map((record) => record.scope),
+  lastEvent: events.at(-1),
+  snapshotUrl: snapshot.url,
+  screenshotExists: existsSync(join(assetsPath, "manual-action-waterfall_target_missing.png")),
+  calls,
+}));
+rmSync(assetsPath, { recursive: true, force: true });
+"""
+        result = subprocess.run(
+            ["node", "--input-type=module", "-e", script],
+            cwd=ROOT,
+            text=True,
+            encoding="utf-8",
+            capture_output=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertTrue(payload["stopped"])
+        self.assertIn("detail_error_screenshot", payload["scopes"])
+        self.assertIn("manual_action_snapshot", payload["scopes"])
+        self.assertIn("manual_action_screenshot", payload["scopes"])
+        self.assertEqual(payload["lastEvent"]["event"], "manual_action_required")
+        self.assertEqual(payload["lastEvent"]["payload"]["reason"], "waterfall_target_missing")
+        self.assertEqual(payload["lastEvent"]["payload"]["url"], "https://www.xiaohongshu.com/search_result?keyword=avatar")
+        self.assertEqual(payload["snapshotUrl"], "https://www.xiaohongshu.com/search_result?keyword=avatar")
+        self.assertTrue(payload["screenshotExists"])
+
     def test_xiaohongshu_open_detail_page_does_not_trigger_login_false_positive(self):
         script = r"""
 import { detectManualAction } from "./sidecar/collector/xiaohongshu.mjs";

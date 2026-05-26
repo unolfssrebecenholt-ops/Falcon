@@ -1906,6 +1906,65 @@ td small {
   justify-content: flex-end;
 }
 
+.manual-action-context-panel {
+  margin-bottom: 18px;
+}
+
+.manual-action-context-grid {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.8fr) minmax(360px, 1.2fr);
+  gap: 16px;
+  align-items: stretch;
+}
+
+.manual-action-context-copy {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  min-width: 0;
+  border: 1px solid rgba(127, 185, 202, 0.22);
+  border-radius: 8px;
+  padding: 14px;
+  background: rgba(127, 185, 202, 0.06);
+}
+
+.manual-action-context-copy code {
+  display: block;
+  max-height: 120px;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.manual-action-preview-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.manual-action-preview-strip figure {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  min-width: 0;
+}
+
+.manual-action-preview-strip img {
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  object-fit: cover;
+  object-position: top center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(4, 8, 6, 0.5);
+}
+
+.manual-action-preview-strip figcaption {
+  color: var(--muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
 .inline-form,
 .row-form {
   display: flex;
@@ -4237,6 +4296,7 @@ textarea:focus {
   .flow-grid,
   .platform-grid,
   .overview-entry-grid,
+  .manual-action-context-grid,
   .status-strip {
     grid-template-columns: 1fr;
   }

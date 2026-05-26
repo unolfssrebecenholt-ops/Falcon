@@ -106,6 +106,36 @@
   </div>
 </section>
 
+{% if manual_action_context %}
+<section class="panel manual-action-context-panel">
+  <div class="section-head">
+    <div>
+      <h2>处理现场</h2>
+      <p class="muted">原浏览器进程暂停后会关闭；这里保留最近的现场截图，并把处理窗口带回关键词搜索页。</p>
+    </div>
+    <span class="pill">{{ manual_action_context.reason }}</span>
+  </div>
+  <div class="manual-action-context-grid">
+    <div class="manual-action-context-copy">
+      <span class="subtext">将打开</span>
+      <code>{{ manual_action_context.target_url or "-" }}</code>
+    </div>
+    {% if manual_action_context.previews %}
+    <div class="manual-action-preview-strip">
+      {% for preview in manual_action_context.previews %}
+      <figure>
+        <img src="{{ preview.src }}" alt="{{ preview.type_label }}">
+        <figcaption>{{ preview.type_label }} · {{ preview.size_label }}</figcaption>
+      </figure>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state compact"><strong>暂无现场截图</strong><span>下一次触发人工处理时会优先保存截图证据。</span></div>
+    {% endif %}
+  </div>
+</section>
+{% endif %}
+
 {% if run.status in ["queued", "running", "manual_action_required"] %}
 <div class="auto-refresh-note" data-auto-refresh="3000">
   自动刷新已开启，每 3 秒同步一次任务状态、进度和最新记录。

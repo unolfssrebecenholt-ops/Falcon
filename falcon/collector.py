@@ -567,11 +567,12 @@ class CollectorService:
     def _read_jsonl(self, path: Path) -> List[Dict[str, object]]:
         if not path.exists():
             return []
-        return [
-            json.loads(line)
-            for line in path.read_text(encoding="utf-8").splitlines()
-            if line.strip()
-        ]
+        lines = []
+        for raw_line in path.read_text(encoding="utf-8").split("\n"):
+            line = raw_line[:-1] if raw_line.endswith("\r") else raw_line
+            if line.strip():
+                lines.append(json.loads(line))
+        return lines
 
     def _sync_run_status_from_events(self, run_id: str) -> None:
         run = self.repo.get_collection_run(run_id)

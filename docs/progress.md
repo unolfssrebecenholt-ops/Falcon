@@ -2,6 +2,32 @@
 
 本文件是 Windows 和 M1 Mac 双机开发的接手入口。每次提交前必须更新。
 
+## 2026-05-26 Queue page recovery and manual scene preview
+
+- 本次围绕用户反馈“放任任务自己跑，现在网页看不到了”的 `/collector/runs?status=queued&created=1` 500 问题完成修复，并一起提交前序人工处理现场增强：
+  - 定位到队列页会刷新 `running` run 的 sidecar 输出；本地 run `xiaohongshu-20260526-082934-eba107` 已完成并生成 `records.jsonl`，但评论正文里包含 Unicode line separator，Python `splitlines()` 把单条 JSONL 记录误拆成两行，导致 `json.loads` 抛 `JSONDecodeError`，页面返回 500。
+  - `CollectorService._read_jsonl()` 改为只按真实 `\n` 分隔 JSONL，并兼容 Windows `\r\n`，保留正文里的 Unicode 行分隔符，避免合法评论文本打断入库。
+  - 新增回归测试，覆盖包含 `\u2028` 的采集正文可正常 ingest、run 状态可同步为 completed、正文内容不丢失。
+  - 当前 8765 Web 服务已重启并加载修复；`/collector/runs?status=queued&created=1` 已恢复 200，内置浏览器确认标题为“任务队列 - Falcon”，不再显示 Internal Server Error。
+- 人工处理现场增强同步入库：
+  - 小红书瀑布流定位目标卡片失败时，不再只写 `manual_action_required` 事件，而是调用统一 manual action evidence 记录，写入 `detail_error_screenshot`、`manual_action_snapshot` 和 `manual_action_screenshot`。
+  - 任务详情页新增“处理现场”面板，展示最近人工处理截图、reason，并把人工处理窗口回退到关键词搜索上下文，避免原详情页关闭后只能打开无效临时链接。
+  - Web 对人工处理 URL 做平台白名单和可重开性判断；对小红书无效详情 URL、空首页/探索页会回退到搜索页上下文。
+- 验证结果：
+  - `python -m unittest tests.test_collector_service.CollectorServiceTest.test_collector_ingest_keeps_unicode_line_separators_inside_jsonl_records -v` passed。
+  - `python -m unittest tests.test_web_app.WebAppTest.test_collector_queued_run_has_obvious_waiting_state_and_start_action -v` passed。
+  - `python -m unittest discover -s tests`：208 tests passed。
+  - `python -m compileall falcon` passed。
+  - `git diff --check` 无空白错误；Windows 仅提示 LF 后续会转换为 CRLF。
+  - `Invoke-WebRequest http://127.0.0.1:8765/collector/runs?status=queued&created=1` 返回 200；Codex in-app browser smoke 确认队列页可见。
+- 已知限制：
+  - 本次未新增 schema 或第三方依赖。
+  - 历史已写坏或半写入的 runtime 文件不会进入 Git；本次问题中的 JSONL 实际是合法 JSONL，只是读取方式误拆。
+  - 如果另一台机器已有旧 Web 进程在跑，拉取后需要重启 Web 服务才能加载 `_read_jsonl()` 修复。
+- Windows/Mac 接手说明：
+  - Windows 本机仍使用 Codex bundled Python：`C:\Users\zhanglongsheng\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe`。
+  - 运行产物仍在 ignored 的 `data/`、`runtime/collector/`、`browser-profiles/` 下，不进入 Git。
+
 ## 2026-05-26 Collector evidence-chain logging
 
 - 本次围绕用户反馈的 `xiaohongshu-20260525-152703-0952d0` 人工处理状态补强采集证据链：
