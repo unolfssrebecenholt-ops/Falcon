@@ -3,98 +3,105 @@
 {% block content %}
 <header class="page-header">
   <div>
-    <div class="eyebrow">Falcon 控制台</div>
-    <h1>工作台入口</h1>
-    <p>把采集、分析、复核和执行拆成清晰入口，首页只保留今天最需要处理的状态。</p>
+    <div class="eyebrow">workspace entry</div>
+    <h1>仪表盘</h1>
+    <p>只作为工作台入口和关键待办，不再铺满一屏空面板。常用动作向采集、分析、执行三条链路分流。</p>
   </div>
-  <div class="action-row">
+  <div class="header-matrix" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
+  <div class="actions">
     <form method="post" action="/init-db">
       <button class="button" type="submit">初始化数据库</button>
     </form>
-    <a class="button primary" href="/collector/create">创建采集任务</a>
+    <a class="button primary" href="/collector/create">整理采集计划</a>
   </div>
 </header>
 
-<section class="metrics">
-  <div class="metric"><span>样本总数</span><strong>{{ stats.raw_count }}</strong></div>
-  <div class="metric"><span>已分析</span><strong>{{ stats.analyzed_count }}</strong></div>
-  <div class="metric"><span>高意图</span><strong>{{ stats.high_intent_count }}</strong></div>
-  <div class="metric"><span>待处理任务</span><strong>{{ stats.pending_task_count }}</strong></div>
+<section class="metric-row">
+  <div class="metric"><span>样本总数</span><strong>{{ stats.raw_count }}</strong><small>本机 SQLite</small></div>
+  <div class="metric"><span>待人工</span><strong>{{ stats.pending_task_count }}</strong><small>登录 / 风控</small></div>
+  <div class="metric"><span>高意图</span><strong>{{ stats.high_intent_count }}</strong><small>分析后样本</small></div>
+  <div class="metric"><span>待确认</span><strong>{{ stats.pending_task_count }}</strong><small>草稿执行队列</small></div>
 </section>
 
-<section class="workbench-grid">
+<section class="layout-grid">
   <section class="panel">
     <div class="section-head">
       <div>
         <h2>今日待办</h2>
-        <p class="muted">只放需要马上判断或进入下一步的事项。</p>
+        <p class="muted">只保留可行动项，入口不展示完整长表。</p>
       </div>
-      <span class="pill">{{ stats.pending_task_count }} 项待处理</span>
     </div>
-    <div class="todo-list">
-      <a class="todo-item" href="/collector/runs">
-        <span>采集队列</span>
-        <strong>查看运行、暂停和待启动任务</strong>
-      </a>
-      <a class="todo-item" href="/analysis/samples">
-        <span>分析样本</span>
-        <strong>{{ stats.high_intent_count }} 条高意图样本可继续筛选</strong>
-      </a>
-      <a class="todo-item" href="/tasks">
-        <span>触达任务</span>
-        <strong>{{ stats.pending_task_count }} 条草稿等待人工确认</strong>
-      </a>
+    <div class="stack">
+      <div class="thin-card">
+        <h3>采集队列需要检查</h3>
+        <p>查看运行、暂停和待启动任务，必要时从账号管理处理登录态。</p>
+        <div class="inline-actions"><a class="button primary" href="/collector/runs">进入任务队列</a><a class="button" href="/collector/accounts">账号管理</a></div>
+      </div>
+      <div class="thin-card">
+        <h3>{{ stats.high_intent_count }} 条高意图样本待筛选</h3>
+        <p>从分析结果进入样本列表，再送到复核工作台逐条确认价值。</p>
+        <div class="inline-actions"><a class="button primary" href="/analysis/samples">打开分析样本</a><a class="button" href="/review">开始复核</a></div>
+      </div>
+      <div class="thin-card">
+        <h3>{{ stats.pending_task_count }} 条触达草稿待确认</h3>
+        <p>进入执行链路检查草稿、风险和人工确认状态。</p>
+        <div class="inline-actions"><a class="button" href="/tasks">查看触达任务</a></div>
+      </div>
     </div>
   </section>
 
-  <section class="panel">
-    <div class="section-head">
-      <div>
-        <h2>链路入口</h2>
-        <p class="muted">按工作流进入，不在首页堆满所有组件。</p>
-      </div>
-    </div>
-    <div class="entry-list">
-      <a class="entry-link primary" href="/collector/create"><strong>任务创建</strong><span>平台、账号、关键词、采样范围</span></a>
-      <a class="entry-link" href="/collector"><strong>采集首页</strong><span>本机状态、今日概况、最近任务</span></a>
-      <a class="entry-link" href="/analysis"><strong>分析首页</strong><span>趋势概况和高价值入口</span></a>
-      <a class="entry-link" href="/execution"><strong>执行首页</strong><span>待确认草稿和优先级概览</span></a>
-      <a class="entry-link" href="/keywords"><strong>关键词配置</strong><span>Falcon Agent 采集计划</span></a>
-      <a class="entry-link" href="/report"><strong>日报阅读</strong><span>窄正文宽度，适合复盘</span></a>
-    </div>
-  </section>
-
-  <section class="panel workbench-wide">
-    <div class="section-head">
-      <div>
-        <h2>最近一次运行</h2>
-        <p class="muted">保留上次命令或页面动作的结果，方便双机交接。</p>
-      </div>
-    </div>
-    {% if last_run %}
-      {% if last_run.error %}
-        <p class="alert">运行失败：{{ last_run.error }}</p>
-      {% elif last_run.message %}
-        <p class="notice">{{ last_run.message }}</p>
-      {% endif %}
-      <dl class="summary-list">
-        <div><dt>导入</dt><dd>{{ last_run.imported_count or 0 }} 条</dd></div>
-        <div><dt>分析</dt><dd>{{ last_run.analyzed_count or 0 }} 条</dd></div>
-        <div><dt>触达任务</dt><dd>{{ last_run.task_count or 0 }} 条</dd></div>
+  <div class="stack">
+    <section class="panel">
+      <div class="section-head">
         <div>
-          <dt>日报</dt>
-          <dd>
-            {% if last_run.report_path %}
-              <a href="/report?path={{ last_run.report_path }}">{{ last_run.report_path }}</a>
-            {% else %}
-              -
-            {% endif %}
-          </dd>
+          <h2>链路入口</h2>
+          <p class="muted">按职责归类，不在首页重复展示表格。</p>
         </div>
-      </dl>
-    {% else %}
-      <p class="muted">暂无最近运行记录。可以先创建采集任务，或从关键词池生成 Falcon Agent 采集计划。</p>
-    {% endif %}
-  </section>
+      </div>
+      <div class="facts columns-2">
+        <div class="fact"><span>采集</span><strong>首页 / 队列 / 创建 / 账号 / 自检</strong></div>
+        <div class="fact"><span>分析</span><strong>趋势 / 样本 / 复核</strong></div>
+        <div class="fact"><span>执行</span><strong>草稿入口 / 触达任务</strong></div>
+        <div class="fact"><span>基础</span><strong>关键词池 / 日报</strong></div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="section-head">
+        <div>
+          <h2>最近一次运行</h2>
+          <p class="muted">文档入口只展示摘要和打开动作。</p>
+        </div>
+      </div>
+      {% if last_run %}
+        {% if last_run.error %}
+          <p class="alert">运行失败：{{ last_run.error }}</p>
+        {% elif last_run.message %}
+          <p class="notice">{{ last_run.message }}</p>
+        {% endif %}
+        <dl class="summary-list">
+          <div><dt>导入</dt><dd>{{ last_run.imported_count or 0 }} 条</dd></div>
+          <div><dt>分析</dt><dd>{{ last_run.analyzed_count or 0 }} 条</dd></div>
+          <div><dt>触达任务</dt><dd>{{ last_run.task_count or 0 }} 条</dd></div>
+          <div>
+            <dt>日报</dt>
+            <dd>
+              {% if last_run.report_path %}
+                <a href="/report?path={{ last_run.report_path }}">{{ last_run.report_path }}</a>
+              {% else %}
+                -
+              {% endif %}
+            </dd>
+          </div>
+        </dl>
+      {% else %}
+        <div class="callout">暂无最近运行记录。可以先创建采集任务，或从关键词池生成 Falcon Agent 采集计划。</div>
+      {% endif %}
+      <div class="inline-actions dashboard-report-actions">
+        <a class="button primary" href="/report">阅读日报</a>
+        <a class="button" href="/keywords">关键词池</a>
+      </div>
+    </section>
+  </div>
 </section>
 {% endblock %}

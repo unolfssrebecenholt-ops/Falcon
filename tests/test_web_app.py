@@ -269,7 +269,7 @@ class WebAppTest(unittest.TestCase):
             self.assertIn(".queue-wrap td:nth-child(9) {\n  overflow: visible;", css)
             self.assertNotIn("min-width: 1240px", css)
 
-    def test_web_theme_uses_slate_command_stone_moss_palette_without_neon_grid(self):
+    def test_web_theme_uses_teal_amber_glass_palette_without_purple(self):
         css = (Path(__file__).resolve().parents[1] / "falcon" / "web" / "static" / "app.css").read_text(
             encoding="utf-8"
         )
@@ -280,26 +280,83 @@ class WebAppTest(unittest.TestCase):
         body_rule = css[css.index("body {") : css.index(".inline-link {")]
         sidebar_rule = css[css.index(".sidebar {") : css.index(".brand {")]
 
-        self.assertIn("--bg: #1a252c;", css)
-        self.assertIn("--panel: #24333c;", css)
-        self.assertIn("--accent: #748876;", css)
-        self.assertIn("--accent-dark: #5f7162;", css)
-        self.assertIn("--blue: #76a5c5;", css)
+        self.assertIn("--bg: #e8f1f2;", css)
+        self.assertIn("--panel: rgba(241, 248, 247, 0.64);", css)
+        self.assertIn("--ink-strong: #10272c;", css)
+        self.assertIn("--accent: #0aa6c2;", css)
+        self.assertIn("--accent-dark: #087d7a;", css)
+        self.assertIn("--blue: #0aa6c2;", css)
         self.assertIn("--amber: #d1a24d;", css)
-        self.assertIn("--danger: #df6767;", css)
-        self.assertIn("--ok: #85957f;", css)
+        self.assertIn("--danger: #c85b4a;", css)
+        self.assertIn("--ok: #138d68;", css)
+        self.assertIn('font-size: 17px;', css[css.index("h1 {") : css.index("h2 {")])
+        self.assertIn("position: sticky;", css[css.index(".topbar {") : css.index(".brand {")])
+        self.assertIn(".nav-group.current", css)
         self.assertNotIn("radial-gradient(circle at 1px 1px", body_rule)
         self.assertNotIn("radial-gradient(circle at 1px 1px", sidebar_rule)
-        self.assertNotIn("#060807", css)
-        self.assertNotIn("#a6ff63", css)
-        self.assertNotIn("#6fc17b", css)
-        self.assertNotIn("#87d994", css)
-        self.assertNotIn("#8fb68f", css)
-        self.assertNotIn("#9fbd8f", css)
+        for forbidden in ("#7467e8", "#df5aa8", "#7c5cff", "#ff4fb8", "#ece8f6"):
+            self.assertNotIn(forbidden, css.lower())
         self.assertNotIn("graphite-sage-all-pages-20260524", base_template)
         self.assertNotIn("slate-command-reference-pages-20260524", base_template)
         self.assertNotIn("slate-command-soft-sage-pages-20260524", base_template)
-        self.assertIn("slate-command-stone-moss-pages-", base_template)
+        self.assertNotIn("slate-command-stone-moss-pages-", base_template)
+        self.assertIn("teal-amber-glass-v3", base_template)
+
+    def test_collector_overview_cards_use_v3_light_glass_overrides(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "falcon.sqlite3"
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="xhs-v3-card-focus",
+                    platform="xiaohongshu",
+                    keyword="人工处理",
+                    profile="default",
+                    status="manual_action_required",
+                )
+            )
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="xhs-v3-card-color",
+                    platform="xiaohongshu",
+                    keyword="内容表现",
+                    profile="default",
+                    status="completed",
+                )
+            )
+            client = TestClient(create_app(db_path))
+
+            response = client.get("/collector")
+            css = (Path(__file__).resolve().parents[1] / "falcon" / "web" / "static" / "app.css").read_text(
+                encoding="utf-8"
+            )
+            marker = "/* v3 collector card light overrides keep overview cards off the old slate palette. */"
+
+            self.assertEqual(response.status_code, 200)
+            for html_class in ("status-cell", "focus-item", "recent-run-item", "platform-card", "health-metrics"):
+                self.assertIn(html_class, response.text)
+            self.assertIn(marker, css)
+            override = css[css.index(marker) :]
+            self.assertGreater(css.index(marker), css.index(".recent-run-item {"))
+            for selector in (
+                ".status-cell",
+                ".focus-item",
+                ".recent-run-item",
+                ".platform-card",
+                ".health-metrics div",
+                ".health-action",
+            ):
+                self.assertIn(selector, override)
+            self.assertIn("rgba(239, 247, 246", override)
+            self.assertIn("rgba(10, 166, 194", override)
+            for legacy_slate in (
+                "rgba(35, 50, 59",
+                "rgba(28, 40, 48",
+                "rgba(29, 43, 51",
+                "rgba(26, 39, 46",
+            ):
+                self.assertNotIn(legacy_slate, override)
 
     def test_collector_overview_links_to_environment_page_without_inline_doctor(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -496,6 +553,26 @@ class WebAppTest(unittest.TestCase):
             self.assertIn('href="/analysis/samples"', response.text)
             self.assertIn('href="/tasks"', response.text)
 
+    def test_dashboard_uses_compact_v3_status_header_and_shell(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "falcon.sqlite3"
+            client = TestClient(create_app(db_path))
+
+            response = client.get("/")
+
+            self.assertEqual(response.status_code, 200)
+            self.assertIn('class="prototype-shell"', response.text)
+            self.assertIn('class="topbar"', response.text)
+            self.assertIn('class="rail-summary"', response.text)
+            self.assertIn('class="nav-section-wrap"', response.text)
+            self.assertIn('class="nav-group current"', response.text)
+            self.assertIn('<main class="main"><div class="page family-overview" data-view="dashboard">', response.text)
+            self.assertIn('<div class="eyebrow">workspace entry</div>', response.text)
+            self.assertIn("<h1>仪表盘</h1>", response.text)
+            self.assertIn("只作为工作台入口和关键待办，不再铺满一屏空面板。", response.text)
+            self.assertIn("初始化数据库", response.text)
+            self.assertIn("整理采集计划", response.text)
+
     def test_layout_redesign_applies_workbench_keywords_and_report_pages(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
@@ -515,7 +592,8 @@ class WebAppTest(unittest.TestCase):
             report = client.get("/report", params={"path": str(report_path)})
 
             self.assertEqual(dashboard.status_code, 200)
-            self.assertIn("工作台入口", dashboard.text)
+            self.assertIn("仪表盘", dashboard.text)
+            self.assertIn("只作为工作台入口和关键待办", dashboard.text)
             self.assertIn("今日待办", dashboard.text)
             self.assertIn("链路入口", dashboard.text)
             self.assertIn('href="/collector/create"', dashboard.text)
@@ -941,27 +1019,27 @@ class WebAppTest(unittest.TestCase):
             self.assertEqual(response.status_code, 400)
             self.assertTrue(profile_dir.exists())
 
-    def test_desktop_sidebar_is_fixed_while_content_scrolls(self):
+    def test_desktop_shell_uses_sticky_topbar_and_sidebar_with_scrollable_nav(self):
         css = (Path(__file__).resolve().parents[1] / "falcon" / "web" / "static" / "app.css").read_text(
             encoding="utf-8"
         )
 
-        sidebar_rule = css[css.index(".sidebar {") : css.index(".brand {")]
-        main_rule = css[css.index(".main {") : css.index(".page-header {")]
-        nav_rule = css[css.index(".nav-groups {") : css.index(".nav-group {")]
+        topbar_rule = css[css.index(".topbar {") : css.index(".brand {")]
+        workspace_rule = css[css.index(".workspace-frame {") : css.index(".sidebar {")]
+        sidebar_rule = css[css.index(".sidebar {") : css.index(".sidebar::-webkit-scrollbar")]
+        nav_rule = css[css.index(".nav-section-wrap {") : css.index(".nav-section {")]
+        main_rule = css[css.index(".main {") : css.index(".page {")]
 
-        self.assertIn("position: fixed", sidebar_rule)
-        self.assertIn("height: 100vh", sidebar_rule)
-        self.assertIn("overflow: hidden", sidebar_rule)
-        self.assertIn("flex: 1 1 auto", nav_rule)
-        self.assertIn("overflow-y: auto", nav_rule)
-        self.assertIn("overscroll-behavior: contain", nav_rule)
-        self.assertIn("scrollbar-gutter: stable", nav_rule)
-        self.assertIn("scrollbar-color: transparent transparent", nav_rule)
-        self.assertIn(".nav-groups:hover", css)
-        self.assertIn(".nav-groups::-webkit-scrollbar", css)
-        self.assertIn(".nav-groups::-webkit-scrollbar-thumb:hover", css)
-        self.assertIn("margin-left: 232px", main_rule)
+        self.assertIn("position: sticky", topbar_rule)
+        self.assertIn("top: 0", topbar_rule)
+        self.assertIn("grid-template-columns: 224px minmax(0, 1fr)", workspace_rule)
+        self.assertIn("position: sticky", sidebar_rule)
+        self.assertIn("top: 64px", sidebar_rule)
+        self.assertIn("height: calc(100vh - 64px)", sidebar_rule)
+        self.assertIn("overflow-y: auto", sidebar_rule)
+        self.assertIn("display: grid", nav_rule)
+        self.assertIn("min-width: 0", main_rule)
+        self.assertNotIn("margin-left: 232px", main_rule)
 
     def test_layout_redesign_shared_css_supports_base_page_splits(self):
         css = (Path(__file__).resolve().parents[1] / "falcon" / "web" / "static" / "app.css").read_text(

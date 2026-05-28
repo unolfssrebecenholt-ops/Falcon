@@ -236,13 +236,14 @@ http://127.0.0.1:8765
 
 ## 设计参考
 
-当前最新整站原型：
+当前工作台视觉已经应用到生产 Web 模板和样式中：
 
 ```text
-docs/design/falcon-layout-redesign-v2/
+falcon/web/templates/
+falcon/web/static/app.css
 ```
 
-`docs/design/falcon-layout-redesign-v1/` 暂时保留用于视觉对照。旧的一次性原型、截图批次和已执行计划不再保留在工作树中；需要追溯时使用 Git history。
+`docs/design/` 只保留清理说明。旧整站原型、一次性预览图和截图批次不再保留在工作树中；需要追溯时使用 Git history。
 
 ## GPT-5.5 中转站
 
