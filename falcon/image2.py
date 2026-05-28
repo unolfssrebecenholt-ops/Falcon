@@ -5,7 +5,7 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Iterable
+from typing import Callable, Iterable, Optional
 
 
 FALCON_AGENT_ARCHITECTURE_PROMPT = """生成一张清晰的产品架构图，主题为：
@@ -61,12 +61,12 @@ class Image2Client:
 
     def __init__(
         self,
-        providers: Iterable[Image2Provider] | None = None,
+        providers: Optional[Iterable[Image2Provider]] = None,
         endpoint: str = "",
         model: str = "",
         timeout: int = 90,
         size: str = "",
-        opener: Callable | None = None,
+        opener: Optional[Callable] = None,
     ):
         self.providers = list(providers) if providers is not None else self._providers_from_env()
         self.endpoint = endpoint or os.getenv("FALCON_IMAGE2_ENDPOINT", "/v1/images/generations")

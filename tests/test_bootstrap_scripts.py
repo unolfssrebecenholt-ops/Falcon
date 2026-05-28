@@ -54,6 +54,7 @@ class BootstrapScriptsTest(unittest.TestCase):
             self.assertEqual(
                 [step.label for step in steps],
                 [
+                    "Upgrade Python packaging tools",
                     "Install Python package",
                     "Install collector sidecar dependencies",
                     "Install Playwright Chromium",
@@ -62,9 +63,13 @@ class BootstrapScriptsTest(unittest.TestCase):
                     "Start Falcon web workbench",
                 ],
             )
-            self.assertEqual(steps[0].args, ["python-test", "-m", "pip", "install", "-e", "."])
-            self.assertEqual(steps[1].args, ["npm", "install"])
-            self.assertEqual(steps[2].args, ["npx", "playwright", "install", "chromium"])
+            self.assertEqual(
+                steps[0].args,
+                ["python-test", "-m", "pip", "install", "--upgrade", "pip", "setuptools", "wheel"],
+            )
+            self.assertEqual(steps[1].args, ["python-test", "-m", "pip", "install", "-e", "."])
+            self.assertEqual(steps[2].args, ["npm", "install"])
+            self.assertEqual(steps[3].args, ["npx", "playwright", "install", "chromium"])
             self.assertIn("web", steps[-1].args)
             self.assertTrue(steps[-1].blocking)
 

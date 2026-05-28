@@ -46,13 +46,14 @@ Windows PowerShell:
 
 The startup script runs these steps in order:
 
-1. `python -m pip install -e .`
-2. `npm install` in `sidecar/collector`
-3. `npx playwright install chromium` in `sidecar/collector`
-4. create local `data/`, `runtime/collector/`, and `browser-profiles/`
-5. initialize `data/falcon.sqlite3`
-6. run `falcon doctor`
-7. open and start the local Web workbench at `http://127.0.0.1:8765`
+1. `python -m pip install --upgrade pip setuptools wheel`
+2. `python -m pip install -e .`
+3. `npm install` in `sidecar/collector`
+4. `npx playwright install chromium` in `sidecar/collector`
+5. create local `data/`, `runtime/collector/`, and `browser-profiles/`
+6. initialize `data/falcon.sqlite3`
+7. run `falcon doctor`
+8. open and start the local Web workbench at `http://127.0.0.1:8765`
 
 If port `8765` is already in use, the script automatically tries the next available port and prints the final URL.
 
@@ -231,7 +232,17 @@ py -3 -m falcon web --host 127.0.0.1 --port 8765 --db data\falcon.sqlite3
 http://127.0.0.1:8765
 ```
 
-当前 Web 控制台保留为 Agent 工作台外壳。采集执行器将在后续重构中接入。
+当前 Web 工作台已经接入采集队列、账号 profile、任务详情、样本预览和分析入口。真实采集仍以本地人工可控为边界，运行数据只保存在 ignored 目录。
+
+## 设计参考
+
+当前只保留最新整站原型：
+
+```text
+docs/design/falcon-layout-redesign-v1/
+```
+
+旧的一次性原型、截图批次和已执行计划不再保留在工作树中；需要追溯时使用 Git history。
 
 ## GPT-5.5 中转站
 

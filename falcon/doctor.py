@@ -5,7 +5,7 @@ import sys
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Mapping, Sequence
+from typing import Callable, Mapping, Optional, Sequence
 
 
 PLAYWRIGHT_CHROMIUM_CHECK = (
@@ -47,10 +47,10 @@ class DoctorReport:
         return Counter(check.status for check in self.checks)
 
 
-CommandRunner = Callable[[Sequence[str], Path | None, int], CommandResult]
+CommandRunner = Callable[[Sequence[str], Optional[Path], int], CommandResult]
 
 
-def resolve_command_args(args: Sequence[str], which: Callable[[str], str | None] = shutil.which) -> list[str]:
+def resolve_command_args(args: Sequence[str], which: Callable[[str], Optional[str]] = shutil.which) -> list[str]:
     resolved = list(args)
     if not resolved:
         return resolved
@@ -60,7 +60,7 @@ def resolve_command_args(args: Sequence[str], which: Callable[[str], str | None]
     return resolved
 
 
-def default_command_runner(args: Sequence[str], cwd: Path | None = None, timeout: int = 10) -> CommandResult:
+def default_command_runner(args: Sequence[str], cwd: Optional[Path] = None, timeout: int = 10) -> CommandResult:
     try:
         resolved_args = resolve_command_args(args)
         completed = subprocess.run(
@@ -92,9 +92,9 @@ def ensure_project_directories(project_root: Path) -> list[Path]:
 
 
 def build_doctor_report(
-    project_root: Path | None = None,
+    project_root: Optional[Path] = None,
     runner: CommandRunner = default_command_runner,
-    env: Mapping[str, str] | None = None,
+    env: Optional[Mapping[str, str]] = None,
 ) -> DoctorReport:
     root = Path(project_root) if project_root is not None else project_root_from_package()
     environment = env if env is not None else os.environ
@@ -182,7 +182,7 @@ def _command_check(
     label: str,
     args: Sequence[str],
     runner: CommandRunner,
-    cwd: Path | None = None,
+    cwd: Optional[Path] = None,
     required: bool = True,
 ) -> DoctorCheck:
     result = runner(args, cwd, 10)

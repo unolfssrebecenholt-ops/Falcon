@@ -7,7 +7,7 @@ import sys
 import threading
 import webbrowser
 from pathlib import Path
-from typing import NamedTuple
+from typing import NamedTuple, Optional
 
 
 class BootstrapStep(NamedTuple):
@@ -60,6 +60,11 @@ def build_bootstrap_steps(
     if not skip_install:
         steps.extend(
             [
+                BootstrapStep(
+                    "Upgrade Python packaging tools",
+                    [python_executable, "-m", "pip", "install", "--upgrade", "pip", "setuptools", "wheel"],
+                    root,
+                ),
                 BootstrapStep("Install Python package", [python_executable, "-m", "pip", "install", "-e", "."], root),
                 BootstrapStep("Install collector sidecar dependencies", ["npm", "install"], sidecar_root),
                 BootstrapStep("Install Playwright Chromium", ["npx", "playwright", "install", "chromium"], sidecar_root),
@@ -95,7 +100,7 @@ def run_steps(steps: list[BootstrapStep], dry_run: bool = False) -> None:
         subprocess.run(resolve_step_args(step.args), cwd=str(step.cwd), check=True)
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: Optional[list[str]] = None) -> int:
     parser = argparse.ArgumentParser(description="Bootstrap and start the Falcon local workbench")
     parser.add_argument("--project-root", default=str(Path(__file__).resolve().parents[1]))
     parser.add_argument("--db", default="data/falcon.sqlite3")

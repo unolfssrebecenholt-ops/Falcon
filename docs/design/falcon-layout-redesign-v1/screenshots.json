@@ -1,8 +1,8 @@
 {
   "generatedAt": "2026-05-24T12:33:23.881Z",
-  "root": "F:\\projects\\Falcon\\docs\\design\\falcon-layout-redesign-v1",
-  "contactSheet": "F:\\projects\\Falcon\\docs\\design\\falcon-layout-redesign-v1\\contact-sheet.png",
-  "indexPreview": "F:\\projects\\Falcon\\docs\\design\\falcon-layout-redesign-v1\\index-preview.png",
+  "root": ".",
+  "contactSheet": "./contact-sheet.png",
+  "indexPreview": "./index-preview.png",
   "pageCount": 15,
   "pages": [
     {
@@ -17,7 +17,7 @@
         "panels": 3,
         "tables": 0,
         "ledgers": [],
-        "screenshot": "F:\\projects\\Falcon\\docs\\design\\falcon-layout-redesign-v1\\screenshots\\desktop-01-dashboard.png"
+        "screenshot": "screenshots/desktop-01-dashboard.png"
       },
       "mobile": {
         "title": "仪表盘 - Falcon 布局重设计",
@@ -28,7 +28,7 @@
         "panels": 3,
         "tables": 0,
         "ledgers": [],
-        "screenshot": "F:\\projects\\Falcon\\docs\\design\\falcon-layout-redesign-v1\\screenshots\\mobile-01-dashboard.png"
+        "screenshot": "screenshots/mobile-01-dashboard.png"
       }
     },
     {
@@ -43,7 +43,7 @@
         "panels": 3,
         "tables": 1,
         "ledgers": [],
-        "screenshot": "F:\\projects\\Falcon\\docs\\design\\falcon-layout-redesign-v1\\screenshots\\desktop-02-collector-home.png"
+        "screenshot": "screenshots/desktop-02-collector-home.png"
       },
       "mobile": {
         "title": "采集首页 - Falcon 布局重设计",
@@ -54,7 +54,7 @@
         "panels": 3,
         "tables": 1,
         "ledgers": [],
-        "screenshot": "F:\\projects\\Falcon\\docs\\design\\falcon-layout-redesign-v1\\screenshots\\mobile-02-collector-home.png"
+        "screenshot": "screenshots/mobile-02-collector-home.png"
       }
     },
     {
@@ -69,7 +69,7 @@
         "panels": 1,
         "tables": 1,
         "ledgers": [],
-        "screenshot": "F:\\projects\\Falcon\\docs\\design\\falcon-layout-redesign-v1\\screenshots\\desktop-03-collector-runs.png"
+        "screenshot": "screenshots/desktop-03-collector-runs.png"
       },
       "mobile": {
         "title": "任务队列 - Falcon 布局重设计",
@@ -80,7 +80,7 @@
         "panels": 1,
         "tables": 1,
         "ledgers": [],
-        "screenshot": "F:\\projects\\Falcon\\docs\\design\\falcon-layout-redesign-v1\\screenshots\\mobile-03-collector-runs.png"
+        "screenshot": "screenshots/mobile-03-collector-runs.png"
       }
     },
     {
@@ -95,7 +95,7 @@
         "panels": 3,
         "tables": 0,
         "ledgers": [],
-        "screenshot": "F:\\projects\\Falcon\\docs\\design\\falcon-layout-redesign-v1\\screenshots\\desktop-04-collector-create.png"
+        "screenshot": "screenshots/desktop-04-collector-create.png"
       },
       "mobile": {
         "title": "任务创建 - Falcon 布局重设计",
@@ -106,7 +106,7 @@
         "panels": 3,
         "tables": 0,
         "ledgers": [],
-        "screenshot": "F:\\projects\\Falcon\\docs\\design\\falcon-layout-redesign-v1\\screenshots\\mobile-04-collector-create.png"
+        "screenshot": "screenshots/mobile-04-collector-create.png"
       }
     },
     {
@@ -121,7 +121,7 @@
         "panels": 2,
         "tables": 1,
         "ledgers": [],
-        "screenshot": "F:\\projects\\Falcon\\docs\\design\\falcon-layout-redesign-v1\\screenshots\\desktop-05-collector-accounts.png"
+        "screenshot": "screenshots/desktop-05-collector-accounts.png"
       },
       "mobile": {
         "title": "账号管理 - Falcon 布局重设计",
@@ -132,7 +132,7 @@
         "panels": 2,
         "tables": 1,
         "ledgers": [],
-        "screenshot": "F:\\projects\\Falcon\\docs\\design\\falcon-layout-redesign-v1\\screenshots\\mobile-05-collector-accounts.png"
+        "screenshot": "screenshots/mobile-05-collector-accounts.png"
       }
     },
     {
@@ -147,7 +147,7 @@
         "panels": 1,
         "tables": 1,
         "ledgers": [],
-        "screenshot": "F:\\projects\\Falcon\\docs\\design\\falcon-layout-redesign-v1\\screenshots\\desktop-06-collector-environment.png"
+        "screenshot": "screenshots/desktop-06-collector-environment.png"
       },
       "mobile": {
         "title": "环境自检 - Falcon 布局重设计",
@@ -158,7 +158,7 @@
         "panels": 1,
         "tables": 1,
         "ledgers": [],
-        "screenshot": "F:\\projects\\Falcon\\docs\\design\\falcon-layout-redesign-v1\\screenshots\\mobile-06-collector-environment.png"
+        "screenshot": "screenshots/mobile-06-collector-environment.png"
       }
     },
     {
@@ -186,7 +186,7 @@
             "scrollHeight": 619
           }
         ],
-        "screenshot": "F:\\projects\\Falcon\\docs\\design\\falcon-layout-redesign-v1\\screenshots\\desktop-07-collector-run-detail.png"
+        "screenshot": "screenshots/desktop-07-collector-run-detail.png"
       },
       "mobile": {
         "title": "任务详情 - Falcon 布局重设计",
@@ -210,7 +210,7 @@
             "scrollHeight": 464
           }
         ],
-        "screenshot": "F:\\projects\\Falcon\\docs\\design\\falcon-layout-redesign-v1\\screenshots\\mobile-07-collector-run-detail.png"
+        "screenshot": "screenshots/mobile-07-collector-run-detail.png"
       }
     },
     {
@@ -225,7 +225,7 @@
         "panels": 5,
         "tables": 1,
         "ledgers": [],
-        "screenshot": "F:\\projects\\Falcon\\docs\\design\\falcon-layout-redesign-v1\\screenshots\\desktop-08-collector-sample-preview.png"
+        "screenshot": "screenshots/desktop-08-collector-sample-preview.png"
       },
       "mobile": {
         "title": "样本预览 - Falcon 布局重设计",
@@ -236,7 +236,7 @@
         "panels": 5,
         "tables": 1,
         "ledgers": [],
-        "screenshot": "F:\\projects\\Falcon\\docs\\design\\falcon-layout-redesign-v1\\screenshots\\mobile-08-collector-sample-preview.png"
+        "screenshot": "screenshots/mobile-08-collector-sample-preview.png"
       }
     },
     {
@@ -251,7 +251,7 @@
         "panels": 3,
         "tables": 1,
         "ledgers": [],
-        "screenshot": "F:\\projects\\Falcon\\docs\\design\\falcon-layout-redesign-v1\\screenshots\\desktop-09-keywords.png"
+        "screenshot": "screenshots/desktop-09-keywords.png"
       },
       "mobile": {
         "title": "关键词池 - Falcon 布局重设计",
@@ -262,7 +262,7 @@
         "panels": 3,
         "tables": 1,
         "ledgers": [],
-        "screenshot": "F:\\projects\\Falcon\\docs\\design\\falcon-layout-redesign-v1\\screenshots\\mobile-09-keywords.png"
+        "screenshot": "screenshots/mobile-09-keywords.png"
       }
     },
     {
@@ -277,7 +277,7 @@
         "panels": 2,
         "tables": 0,
         "ledgers": [],
-        "screenshot": "F:\\projects\\Falcon\\docs\\design\\falcon-layout-redesign-v1\\screenshots\\desktop-10-report.png"
+        "screenshot": "screenshots/desktop-10-report.png"
       },
       "mobile": {
         "title": "日报 - Falcon 布局重设计",
@@ -288,7 +288,7 @@
         "panels": 2,
         "tables": 0,
         "ledgers": [],
-        "screenshot": "F:\\projects\\Falcon\\docs\\design\\falcon-layout-redesign-v1\\screenshots\\mobile-10-report.png"
+        "screenshot": "screenshots/mobile-10-report.png"
       }
     },
     {
@@ -303,7 +303,7 @@
         "panels": 3,
         "tables": 0,
         "ledgers": [],
-        "screenshot": "F:\\projects\\Falcon\\docs\\design\\falcon-layout-redesign-v1\\screenshots\\desktop-11-analysis-home.png"
+        "screenshot": "screenshots/desktop-11-analysis-home.png"
       },
       "mobile": {
         "title": "分析首页 - Falcon 布局重设计",
@@ -314,7 +314,7 @@
         "panels": 3,
         "tables": 0,
         "ledgers": [],
-        "screenshot": "F:\\projects\\Falcon\\docs\\design\\falcon-layout-redesign-v1\\screenshots\\mobile-11-analysis-home.png"
+        "screenshot": "screenshots/mobile-11-analysis-home.png"
       }
     },
     {
@@ -329,7 +329,7 @@
         "panels": 1,
         "tables": 1,
         "ledgers": [],
-        "screenshot": "F:\\projects\\Falcon\\docs\\design\\falcon-layout-redesign-v1\\screenshots\\desktop-12-analysis-samples.png"
+        "screenshot": "screenshots/desktop-12-analysis-samples.png"
       },
       "mobile": {
         "title": "分析样本 - Falcon 布局重设计",
@@ -340,7 +340,7 @@
         "panels": 1,
         "tables": 1,
         "ledgers": [],
-        "screenshot": "F:\\projects\\Falcon\\docs\\design\\falcon-layout-redesign-v1\\screenshots\\mobile-12-analysis-samples.png"
+        "screenshot": "screenshots/mobile-12-analysis-samples.png"
       }
     },
     {
@@ -355,7 +355,7 @@
         "panels": 2,
         "tables": 1,
         "ledgers": [],
-        "screenshot": "F:\\projects\\Falcon\\docs\\design\\falcon-layout-redesign-v1\\screenshots\\desktop-13-review.png"
+        "screenshot": "screenshots/desktop-13-review.png"
       },
       "mobile": {
         "title": "人工复核 - Falcon 布局重设计",
@@ -366,7 +366,7 @@
         "panels": 2,
         "tables": 1,
         "ledgers": [],
-        "screenshot": "F:\\projects\\Falcon\\docs\\design\\falcon-layout-redesign-v1\\screenshots\\mobile-13-review.png"
+        "screenshot": "screenshots/mobile-13-review.png"
       }
     },
     {
@@ -381,7 +381,7 @@
         "panels": 3,
         "tables": 0,
         "ledgers": [],
-        "screenshot": "F:\\projects\\Falcon\\docs\\design\\falcon-layout-redesign-v1\\screenshots\\desktop-14-execution-home.png"
+        "screenshot": "screenshots/desktop-14-execution-home.png"
       },
       "mobile": {
         "title": "执行首页 - Falcon 布局重设计",
@@ -392,7 +392,7 @@
         "panels": 3,
         "tables": 0,
         "ledgers": [],
-        "screenshot": "F:\\projects\\Falcon\\docs\\design\\falcon-layout-redesign-v1\\screenshots\\mobile-14-execution-home.png"
+        "screenshot": "screenshots/mobile-14-execution-home.png"
       }
     },
     {
@@ -407,7 +407,7 @@
         "panels": 3,
         "tables": 1,
         "ledgers": [],
-        "screenshot": "F:\\projects\\Falcon\\docs\\design\\falcon-layout-redesign-v1\\screenshots\\desktop-15-tasks.png"
+        "screenshot": "screenshots/desktop-15-tasks.png"
       },
       "mobile": {
         "title": "触达任务 - Falcon 布局重设计",
@@ -418,7 +418,7 @@
         "panels": 3,
         "tables": 1,
         "ledgers": [],
-        "screenshot": "F:\\projects\\Falcon\\docs\\design\\falcon-layout-redesign-v1\\screenshots\\mobile-15-tasks.png"
+        "screenshot": "screenshots/mobile-15-tasks.png"
       }
     }
   ]
