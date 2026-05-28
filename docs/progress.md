@@ -14,6 +14,15 @@
   - `docs/development-guide.md` 已同步启动步骤。
   - `falcon/doctor.py` 和 `falcon/image2.py` 使用 `Optional[...]`，保持项目声明的 Python 3.9 兼容性。
 
+## 2026-05-28 macOS startup script smoke
+
+- 本次验证 `./scripts/start.sh --skip-install --no-open` 的真实启动路径：
+  - 首次运行发现 `scripts/start.sh` 缺少可执行位，按 README / development guide 中的 `./scripts/start.sh` 会 `permission denied`。
+  - 已修复 `scripts/start.sh` 文件模式，macOS 可直接执行。
+  - 启动脚本成功初始化 `data/falcon.sqlite3`，运行 `falcon doctor`，并自动避开忙碌的 `8765`，改用 `http://127.0.0.1:8766`。
+  - HTTP smoke 确认 `/`、`/collector`、`/analysis?platform=xiaohongshu`、`/collector/environment` 均返回 200。
+  - 临时 Uvicorn 进程已停止，没有留下占用 `8766` 的服务。
+
 ## 当前产品状态
 
 - Falcon 是本地优先的内容运营采集、分析和人工确认执行工作台。
@@ -53,6 +62,12 @@
   - `node --check sidecar/collector/xiaohongshu-normalize.mjs`：passed。
   - `node --check sidecar/collector/profile-login.mjs`：passed。
   - `git diff --check`：passed。
+- 2026-05-28 macOS startup smoke:
+  - `./scripts/start.sh --skip-install --no-open`：passed after executable-bit fix。
+  - `curl http://127.0.0.1:8766/`：200。
+  - `curl http://127.0.0.1:8766/collector`：200。
+  - `curl 'http://127.0.0.1:8766/analysis?platform=xiaohongshu'`：200。
+  - `curl http://127.0.0.1:8766/collector/environment`：200。
 
 ## Windows/Mac 接手说明
 
