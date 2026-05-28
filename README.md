@@ -205,7 +205,7 @@ FALCON_IMAGE2_SIZE=1536x1024
 - `tests/`：Python 单元测试和 Web/workflow/sidecar contract 测试。
 - `docs/progress.md`：每次提交前必须更新的双机交接进度。
 - `docs/development-guide.md`：开发、测试、采集和故障排查指南。
-- `docs/design/falcon-layout-redesign-v1/`：当前保留的最新整站设计参考；旧原型通过 Git history 追溯。
+- `docs/design/falcon-layout-redesign-v2/`：当前最新整站设计参考；`falcon-layout-redesign-v1/` 保留用于视觉对照。
 - `data/`、`runtime/collector/`、`browser-profiles/`：本地运行目录，默认不进入 Git。
 
 ## 开发交接

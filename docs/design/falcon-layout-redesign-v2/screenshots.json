@@ -1,0 +1,425 @@
+{
+  "generatedAt": "2026-05-28T11:14:02.823Z",
+  "root": "/Users/zhanglongsheng/Documents/Falcon/docs/design/falcon-layout-redesign-v2",
+  "contactSheet": "/Users/zhanglongsheng/Documents/Falcon/docs/design/falcon-layout-redesign-v2/contact-sheet.png",
+  "indexPreview": "/Users/zhanglongsheng/Documents/Falcon/docs/design/falcon-layout-redesign-v2/index-preview.png",
+  "pageCount": 15,
+  "pages": [
+    {
+      "label": "01 仪表盘",
+      "file": "01-dashboard.html",
+      "desktop": {
+        "title": "仪表盘 - Falcon 布局重设计",
+        "horizontalOverflow": false,
+        "documentWidth": 1440,
+        "viewportWidth": 1440,
+        "clippedButtons": [],
+        "panels": 3,
+        "tables": 0,
+        "ledgers": [],
+        "screenshot": "/Users/zhanglongsheng/Documents/Falcon/docs/design/falcon-layout-redesign-v2/screenshots/desktop-01-dashboard.png"
+      },
+      "mobile": {
+        "title": "仪表盘 - Falcon 布局重设计",
+        "horizontalOverflow": false,
+        "documentWidth": 390,
+        "viewportWidth": 390,
+        "clippedButtons": [],
+        "panels": 3,
+        "tables": 0,
+        "ledgers": [],
+        "screenshot": "/Users/zhanglongsheng/Documents/Falcon/docs/design/falcon-layout-redesign-v2/screenshots/mobile-01-dashboard.png"
+      }
+    },
+    {
+      "label": "02 采集首页",
+      "file": "02-collector-home.html",
+      "desktop": {
+        "title": "采集首页 - Falcon 布局重设计",
+        "horizontalOverflow": false,
+        "documentWidth": 1440,
+        "viewportWidth": 1440,
+        "clippedButtons": [],
+        "panels": 3,
+        "tables": 1,
+        "ledgers": [],
+        "screenshot": "/Users/zhanglongsheng/Documents/Falcon/docs/design/falcon-layout-redesign-v2/screenshots/desktop-02-collector-home.png"
+      },
+      "mobile": {
+        "title": "采集首页 - Falcon 布局重设计",
+        "horizontalOverflow": false,
+        "documentWidth": 390,
+        "viewportWidth": 390,
+        "clippedButtons": [],
+        "panels": 3,
+        "tables": 1,
+        "ledgers": [],
+        "screenshot": "/Users/zhanglongsheng/Documents/Falcon/docs/design/falcon-layout-redesign-v2/screenshots/mobile-02-collector-home.png"
+      }
+    },
+    {
+      "label": "03 任务队列",
+      "file": "03-collector-runs.html",
+      "desktop": {
+        "title": "任务队列 - Falcon 布局重设计",
+        "horizontalOverflow": false,
+        "documentWidth": 1440,
+        "viewportWidth": 1440,
+        "clippedButtons": [],
+        "panels": 1,
+        "tables": 1,
+        "ledgers": [],
+        "screenshot": "/Users/zhanglongsheng/Documents/Falcon/docs/design/falcon-layout-redesign-v2/screenshots/desktop-03-collector-runs.png"
+      },
+      "mobile": {
+        "title": "任务队列 - Falcon 布局重设计",
+        "horizontalOverflow": false,
+        "documentWidth": 390,
+        "viewportWidth": 390,
+        "clippedButtons": [],
+        "panels": 1,
+        "tables": 1,
+        "ledgers": [],
+        "screenshot": "/Users/zhanglongsheng/Documents/Falcon/docs/design/falcon-layout-redesign-v2/screenshots/mobile-03-collector-runs.png"
+      }
+    },
+    {
+      "label": "04 任务创建",
+      "file": "04-collector-create.html",
+      "desktop": {
+        "title": "任务创建 - Falcon 布局重设计",
+        "horizontalOverflow": false,
+        "documentWidth": 1440,
+        "viewportWidth": 1440,
+        "clippedButtons": [],
+        "panels": 3,
+        "tables": 0,
+        "ledgers": [],
+        "screenshot": "/Users/zhanglongsheng/Documents/Falcon/docs/design/falcon-layout-redesign-v2/screenshots/desktop-04-collector-create.png"
+      },
+      "mobile": {
+        "title": "任务创建 - Falcon 布局重设计",
+        "horizontalOverflow": false,
+        "documentWidth": 390,
+        "viewportWidth": 390,
+        "clippedButtons": [],
+        "panels": 3,
+        "tables": 0,
+        "ledgers": [],
+        "screenshot": "/Users/zhanglongsheng/Documents/Falcon/docs/design/falcon-layout-redesign-v2/screenshots/mobile-04-collector-create.png"
+      }
+    },
+    {
+      "label": "05 账号管理",
+      "file": "05-collector-accounts.html",
+      "desktop": {
+        "title": "账号管理 - Falcon 布局重设计",
+        "horizontalOverflow": false,
+        "documentWidth": 1440,
+        "viewportWidth": 1440,
+        "clippedButtons": [],
+        "panels": 2,
+        "tables": 1,
+        "ledgers": [],
+        "screenshot": "/Users/zhanglongsheng/Documents/Falcon/docs/design/falcon-layout-redesign-v2/screenshots/desktop-05-collector-accounts.png"
+      },
+      "mobile": {
+        "title": "账号管理 - Falcon 布局重设计",
+        "horizontalOverflow": false,
+        "documentWidth": 390,
+        "viewportWidth": 390,
+        "clippedButtons": [],
+        "panels": 2,
+        "tables": 1,
+        "ledgers": [],
+        "screenshot": "/Users/zhanglongsheng/Documents/Falcon/docs/design/falcon-layout-redesign-v2/screenshots/mobile-05-collector-accounts.png"
+      }
+    },
+    {
+      "label": "06 环境自检",
+      "file": "06-collector-environment.html",
+      "desktop": {
+        "title": "环境自检 - Falcon 布局重设计",
+        "horizontalOverflow": false,
+        "documentWidth": 1440,
+        "viewportWidth": 1440,
+        "clippedButtons": [],
+        "panels": 1,
+        "tables": 1,
+        "ledgers": [],
+        "screenshot": "/Users/zhanglongsheng/Documents/Falcon/docs/design/falcon-layout-redesign-v2/screenshots/desktop-06-collector-environment.png"
+      },
+      "mobile": {
+        "title": "环境自检 - Falcon 布局重设计",
+        "horizontalOverflow": false,
+        "documentWidth": 390,
+        "viewportWidth": 390,
+        "clippedButtons": [],
+        "panels": 1,
+        "tables": 1,
+        "ledgers": [],
+        "screenshot": "/Users/zhanglongsheng/Documents/Falcon/docs/design/falcon-layout-redesign-v2/screenshots/mobile-06-collector-environment.png"
+      }
+    },
+    {
+      "label": "07 任务详情",
+      "file": "07-collector-run-detail.html",
+      "desktop": {
+        "title": "任务详情 - Falcon 布局重设计",
+        "horizontalOverflow": false,
+        "documentWidth": 1440,
+        "viewportWidth": 1440,
+        "clippedButtons": [],
+        "panels": 4,
+        "tables": 1,
+        "ledgers": [
+          {
+            "rows": 9,
+            "scrollable": true,
+            "clientHeight": 427,
+            "scrollHeight": 567
+          },
+          {
+            "rows": 8,
+            "scrollable": true,
+            "clientHeight": 427,
+            "scrollHeight": 630
+          }
+        ],
+        "screenshot": "/Users/zhanglongsheng/Documents/Falcon/docs/design/falcon-layout-redesign-v2/screenshots/desktop-07-collector-run-detail.png"
+      },
+      "mobile": {
+        "title": "任务详情 - Falcon 布局重设计",
+        "horizontalOverflow": false,
+        "documentWidth": 390,
+        "viewportWidth": 390,
+        "clippedButtons": [],
+        "panels": 4,
+        "tables": 1,
+        "ledgers": [
+          {
+            "rows": 9,
+            "scrollable": true,
+            "clientHeight": 427,
+            "scrollHeight": 549
+          },
+          {
+            "rows": 8,
+            "scrollable": true,
+            "clientHeight": 427,
+            "scrollHeight": 488
+          }
+        ],
+        "screenshot": "/Users/zhanglongsheng/Documents/Falcon/docs/design/falcon-layout-redesign-v2/screenshots/mobile-07-collector-run-detail.png"
+      }
+    },
+    {
+      "label": "08 样本预览",
+      "file": "08-collector-sample-preview.html",
+      "desktop": {
+        "title": "样本预览 - Falcon 布局重设计",
+        "horizontalOverflow": false,
+        "documentWidth": 1440,
+        "viewportWidth": 1440,
+        "clippedButtons": [],
+        "panels": 5,
+        "tables": 1,
+        "ledgers": [],
+        "screenshot": "/Users/zhanglongsheng/Documents/Falcon/docs/design/falcon-layout-redesign-v2/screenshots/desktop-08-collector-sample-preview.png"
+      },
+      "mobile": {
+        "title": "样本预览 - Falcon 布局重设计",
+        "horizontalOverflow": false,
+        "documentWidth": 390,
+        "viewportWidth": 390,
+        "clippedButtons": [],
+        "panels": 5,
+        "tables": 1,
+        "ledgers": [],
+        "screenshot": "/Users/zhanglongsheng/Documents/Falcon/docs/design/falcon-layout-redesign-v2/screenshots/mobile-08-collector-sample-preview.png"
+      }
+    },
+    {
+      "label": "09 关键词池",
+      "file": "09-keywords.html",
+      "desktop": {
+        "title": "关键词池 - Falcon 布局重设计",
+        "horizontalOverflow": false,
+        "documentWidth": 1440,
+        "viewportWidth": 1440,
+        "clippedButtons": [],
+        "panels": 3,
+        "tables": 1,
+        "ledgers": [],
+        "screenshot": "/Users/zhanglongsheng/Documents/Falcon/docs/design/falcon-layout-redesign-v2/screenshots/desktop-09-keywords.png"
+      },
+      "mobile": {
+        "title": "关键词池 - Falcon 布局重设计",
+        "horizontalOverflow": false,
+        "documentWidth": 390,
+        "viewportWidth": 390,
+        "clippedButtons": [],
+        "panels": 3,
+        "tables": 1,
+        "ledgers": [],
+        "screenshot": "/Users/zhanglongsheng/Documents/Falcon/docs/design/falcon-layout-redesign-v2/screenshots/mobile-09-keywords.png"
+      }
+    },
+    {
+      "label": "10 日报",
+      "file": "10-report.html",
+      "desktop": {
+        "title": "日报 - Falcon 布局重设计",
+        "horizontalOverflow": false,
+        "documentWidth": 1440,
+        "viewportWidth": 1440,
+        "clippedButtons": [],
+        "panels": 2,
+        "tables": 0,
+        "ledgers": [],
+        "screenshot": "/Users/zhanglongsheng/Documents/Falcon/docs/design/falcon-layout-redesign-v2/screenshots/desktop-10-report.png"
+      },
+      "mobile": {
+        "title": "日报 - Falcon 布局重设计",
+        "horizontalOverflow": false,
+        "documentWidth": 390,
+        "viewportWidth": 390,
+        "clippedButtons": [],
+        "panels": 2,
+        "tables": 0,
+        "ledgers": [],
+        "screenshot": "/Users/zhanglongsheng/Documents/Falcon/docs/design/falcon-layout-redesign-v2/screenshots/mobile-10-report.png"
+      }
+    },
+    {
+      "label": "11 分析首页",
+      "file": "11-analysis-home.html",
+      "desktop": {
+        "title": "分析首页 - Falcon 布局重设计",
+        "horizontalOverflow": false,
+        "documentWidth": 1440,
+        "viewportWidth": 1440,
+        "clippedButtons": [],
+        "panels": 3,
+        "tables": 0,
+        "ledgers": [],
+        "screenshot": "/Users/zhanglongsheng/Documents/Falcon/docs/design/falcon-layout-redesign-v2/screenshots/desktop-11-analysis-home.png"
+      },
+      "mobile": {
+        "title": "分析首页 - Falcon 布局重设计",
+        "horizontalOverflow": false,
+        "documentWidth": 390,
+        "viewportWidth": 390,
+        "clippedButtons": [],
+        "panels": 3,
+        "tables": 0,
+        "ledgers": [],
+        "screenshot": "/Users/zhanglongsheng/Documents/Falcon/docs/design/falcon-layout-redesign-v2/screenshots/mobile-11-analysis-home.png"
+      }
+    },
+    {
+      "label": "12 分析样本",
+      "file": "12-analysis-samples.html",
+      "desktop": {
+        "title": "分析样本 - Falcon 布局重设计",
+        "horizontalOverflow": false,
+        "documentWidth": 1440,
+        "viewportWidth": 1440,
+        "clippedButtons": [],
+        "panels": 1,
+        "tables": 1,
+        "ledgers": [],
+        "screenshot": "/Users/zhanglongsheng/Documents/Falcon/docs/design/falcon-layout-redesign-v2/screenshots/desktop-12-analysis-samples.png"
+      },
+      "mobile": {
+        "title": "分析样本 - Falcon 布局重设计",
+        "horizontalOverflow": false,
+        "documentWidth": 390,
+        "viewportWidth": 390,
+        "clippedButtons": [],
+        "panels": 1,
+        "tables": 1,
+        "ledgers": [],
+        "screenshot": "/Users/zhanglongsheng/Documents/Falcon/docs/design/falcon-layout-redesign-v2/screenshots/mobile-12-analysis-samples.png"
+      }
+    },
+    {
+      "label": "13 人工复核",
+      "file": "13-review.html",
+      "desktop": {
+        "title": "人工复核 - Falcon 布局重设计",
+        "horizontalOverflow": false,
+        "documentWidth": 1440,
+        "viewportWidth": 1440,
+        "clippedButtons": [],
+        "panels": 2,
+        "tables": 1,
+        "ledgers": [],
+        "screenshot": "/Users/zhanglongsheng/Documents/Falcon/docs/design/falcon-layout-redesign-v2/screenshots/desktop-13-review.png"
+      },
+      "mobile": {
+        "title": "人工复核 - Falcon 布局重设计",
+        "horizontalOverflow": false,
+        "documentWidth": 390,
+        "viewportWidth": 390,
+        "clippedButtons": [],
+        "panels": 2,
+        "tables": 1,
+        "ledgers": [],
+        "screenshot": "/Users/zhanglongsheng/Documents/Falcon/docs/design/falcon-layout-redesign-v2/screenshots/mobile-13-review.png"
+      }
+    },
+    {
+      "label": "14 执行首页",
+      "file": "14-execution-home.html",
+      "desktop": {
+        "title": "执行首页 - Falcon 布局重设计",
+        "horizontalOverflow": false,
+        "documentWidth": 1440,
+        "viewportWidth": 1440,
+        "clippedButtons": [],
+        "panels": 3,
+        "tables": 0,
+        "ledgers": [],
+        "screenshot": "/Users/zhanglongsheng/Documents/Falcon/docs/design/falcon-layout-redesign-v2/screenshots/desktop-14-execution-home.png"
+      },
+      "mobile": {
+        "title": "执行首页 - Falcon 布局重设计",
+        "horizontalOverflow": false,
+        "documentWidth": 390,
+        "viewportWidth": 390,
+        "clippedButtons": [],
+        "panels": 3,
+        "tables": 0,
+        "ledgers": [],
+        "screenshot": "/Users/zhanglongsheng/Documents/Falcon/docs/design/falcon-layout-redesign-v2/screenshots/mobile-14-execution-home.png"
+      }
+    },
+    {
+      "label": "15 触达任务",
+      "file": "15-tasks.html",
+      "desktop": {
+        "title": "触达任务 - Falcon 布局重设计",
+        "horizontalOverflow": false,
+        "documentWidth": 1440,
+        "viewportWidth": 1440,
+        "clippedButtons": [],
+        "panels": 3,
+        "tables": 1,
+        "ledgers": [],
+        "screenshot": "/Users/zhanglongsheng/Documents/Falcon/docs/design/falcon-layout-redesign-v2/screenshots/desktop-15-tasks.png"
+      },
+      "mobile": {
+        "title": "触达任务 - Falcon 布局重设计",
+        "horizontalOverflow": false,
+        "documentWidth": 390,
+        "viewportWidth": 390,
+        "clippedButtons": [],
+        "panels": 3,
+        "tables": 1,
+        "ledgers": [],
+        "screenshot": "/Users/zhanglongsheng/Documents/Falcon/docs/design/falcon-layout-redesign-v2/screenshots/mobile-15-tasks.png"
+      }
+    }
+  ]
+}
