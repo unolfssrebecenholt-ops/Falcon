@@ -1,4 +1,5 @@
 import importlib.util
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -91,6 +92,35 @@ class BootstrapScriptsTest(unittest.TestCase):
                 [step.label for step in steps],
                 ["Initialize local database", "Run Falcon doctor", "Start Falcon web workbench"],
             )
+
+    def test_pid_file_path_lives_under_runtime(self):
+        bootstrap = load_bootstrap_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+
+            self.assertEqual(bootstrap.pid_file_path(root), root / "runtime" / "falcon-web.pid")
+
+    def test_run_step_writes_and_removes_pid_file_for_blocking_process(self):
+        bootstrap = load_bootstrap_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            pid_file = root / "runtime" / "falcon-web.pid"
+            step = bootstrap.BootstrapStep(
+                "Short blocking process",
+                ["python3", "-c", "import time; time.sleep(0.1)"],
+                root,
+                True,
+            )
+
+            bootstrap._run_step(step, pid_file=pid_file)
+
+            self.assertFalse(pid_file.exists())
+
+    def test_stop_and_restart_shell_scripts_have_valid_syntax(self):
+        root = Path(__file__).resolve().parents[1]
+
+        subprocess.run(["bash", "-n", str(root / "scripts" / "stop.sh")], check=True)
+        subprocess.run(["bash", "-n", str(root / "scripts" / "restart.sh")], check=True)
 
 
 if __name__ == "__main__":

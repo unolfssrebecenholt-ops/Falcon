@@ -16,7 +16,7 @@
 <section class="panel">
   <div class="queue-filters" aria-label="分析样本筛选">
     <div class="filter-group">
-      <span class="filter-label">关键词</span>
+      <span class="filter-label">关键词 <button class="help-dot" type="button" data-tip="按采集关键词缩小样本范围，便于查看某一批主题素材的分析结果。">?</button></span>
       <select>
         <option>全部关键词</option>
         {% for item in keyword_stats %}
@@ -25,7 +25,7 @@
       </select>
     </div>
     <div class="filter-group">
-      <span class="filter-label">意图分</span>
+      <span class="filter-label">意图分 <button class="help-dot" type="button" data-tip="按样本的意图强度筛选。分数越高，越可能包含明确需求、痛点或可转化线索。">?</button></span>
       <select><option>全部</option><option>80 以上</option><option>60-79</option></select>
     </div>
     <a class="button small" href="/analysis/samples">筛选</a>
@@ -34,7 +34,7 @@
   <div class="table-wrap analysis-sample-table">
     <table>
       <thead>
-        <tr><th>标题</th><th>关键词</th><th>意图</th><th>价值</th><th>建议选题</th><th>痛点</th><th>操作</th></tr>
+        <tr><th>标题</th><th>关键词</th><th>意图 <button class="help-dot" type="button" data-tip="衡量这条样本是否表达了明确需求、购买/求助/避雷等意向。">?</button></th><th>价值 <button class="help-dot" type="button" data-tip="衡量样本对内容选题、洞察提炼和后续运营动作的参考价值。">?</button></th><th>建议选题</th><th>痛点</th><th>操作</th></tr>
       </thead>
       <tbody>
         {% for item in items %}

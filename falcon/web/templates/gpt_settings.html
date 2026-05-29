@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}模型配置 - Falcon{% endblock %}
+{% block content %}
+<header class="page-header">
+  <div>
+    <div class="eyebrow">local model relay</div>
+    <h1>模型配置</h1>
+    <p>配置 GPT-5.5 中转站。这里只写本机 .env，不会提交密钥。</p>
+  </div>
+  <div class="action-row">
+    <a class="button" href="/collector/environment">环境自检</a>
+    <button class="button primary" type="submit" form="gpt-settings-form">保存配置</button>
+  </div>
+</header>
+
+{% if settings_notice %}
+<p class="{{ settings_notice.kind }}">{{ settings_notice.message }}</p>
+{% endif %}
+
+<section class="metrics">
+  <div class="metric"><span>配置状态</span><strong class="fit-text">{{ '已配置' if gpt_config.configured else '未配置' }}</strong></div>
+  <div class="metric"><span>接口</span><strong class="fit-text">{{ gpt_config.endpoint }}</strong></div>
+  <div class="metric"><span>模型</span><strong class="fit-text">{{ gpt_config.model }}</strong></div>
+  <div class="metric"><span>超时</span><strong>{{ gpt_config.timeout }}s</strong></div>
+</section>
+
+<section class="layout-grid settings-grid">
+  <section class="panel settings-form-panel">
+    <div class="section-head">
+      <div>
+        <h2>一键配置</h2>
+        <p class="muted">只需要填写中转站 URL 和 API key；其余参数保存为 Falcon 默认值。</p>
+      </div>
+      <span class="pill">{{ '.env 已存在' if gpt_config.env_exists else '将创建 .env' }}</span>
+    </div>
+
+    <form id="gpt-settings-form" method="post" action="/settings/gpt" class="form-layout gpt-settings-form">
+      <label>
+        <span>中转站 URL</span>
+        <input name="base_url" type="url" value="{{ gpt_config.base_url }}" placeholder="https://your-gpt55-relay.example.com" required>
+      </label>
+      <label>
+        <span>API key</span>
+        <span class="secret-input-wrap">
+          <input id="gpt-api-key" name="api_key" type="password" value="{{ gpt_config.api_key }}" autocomplete="off" required>
+          <button class="icon-button secret-toggle" type="button" id="gpt-api-key-toggle" aria-label="显示 API key" aria-pressed="false" title="显示 API key">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6z"></path>
+              <circle cx="12" cy="12" r="3"></circle>
+            </svg>
+          </button>
+        </span>
+      </label>
+      <div class="settings-defaults">
+        <div><span>Endpoint</span><strong>{{ gpt_config.endpoint }}</strong></div>
+        <div><span>Model</span><strong>{{ gpt_config.model }}</strong></div>
+        <div><span>Timeout</span><strong>{{ gpt_config.timeout }} 秒</strong></div>
+      </div>
+    </form>
+  </section>
+
+  <aside class="panel settings-summary-panel">
+    <div class="section-head">
+      <div>
+        <h2>当前读取值</h2>
+        <p class="muted">运行时优先读取环境变量，其次读取本机 .env。</p>
+      </div>
+    </div>
+    <dl class="compact-list priority-list">
+      <div><dt>URL</dt><dd>{{ gpt_config.base_url or '未配置' }}</dd></div>
+      <div><dt>Key</dt><dd>{{ gpt_config.masked_api_key }}</dd></div>
+      <div><dt>本机文件</dt><dd>{{ gpt_config.env_path }}</dd></div>
+      <div><dt>安全边界</dt><dd>密钥只保存在本机 ignored 文件</dd></div>
+    </dl>
+  </aside>
+</section>
+
+<script>
+  const keyInput = document.getElementById("gpt-api-key");
+  const keyToggle = document.getElementById("gpt-api-key-toggle");
+
+  keyToggle?.addEventListener("click", () => {
+    const shouldShow = keyInput.type === "password";
+    keyInput.type = shouldShow ? "text" : "password";
+    keyToggle.setAttribute("aria-pressed", shouldShow ? "true" : "false");
+    keyToggle.setAttribute("aria-label", shouldShow ? "隐藏 API key" : "显示 API key");
+    keyToggle.setAttribute("title", shouldShow ? "隐藏 API key" : "显示 API key");
+  });
+</script>
+{% endblock %}

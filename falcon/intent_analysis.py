@@ -1,5 +1,5 @@
 import json
-from typing import Dict, Iterable, List, Optional
+from typing import Dict, Iterable, Iterator, List, Optional
 
 from .db import FalconRepository
 from .llm import GPT55Client
@@ -20,58 +20,101 @@ class IntentAnalysisService:
             self.client.model = "gpt-5.5"
 
     def generate_probes(self, task_id: int) -> List[IntentAnalysisProbe]:
+        probes: List[IntentAnalysisProbe] = []
+        for event in self.generate_probes_stream(task_id):
+            if event.get("type") == "done":
+                event_probes = event.get("probes")
+                if isinstance(event_probes, list):
+                    probes = event_probes
+        return probes
+
+    def generate_probes_stream(self, task_id: int) -> Iterator[Dict[str, object]]:
         task = self.repo.get_intent_analysis_task(task_id)
         if task is None:
             raise ValueError("Intent analysis task not found")
         try:
             self._require_configured()
-            payload = self.client.complete_json(
-                system_prompt=(
-                    "你是 Falcon 的意向探针规划器。只返回 JSON。"
-                    "根据用户输入生成 5 个语义探针，用于判断采集帖子和评论是否符合分析意图。"
-                    "必须生成 5 个探针，不要 markdown。"
-                ),
-                user_prompt=json.dumps(
-                    {
-                        "platform": task.platform,
-                        "user_intent": task.user_intent,
-                        "required_schema": {
-                            "probes": [
-                                {
-                                    "title": "string",
-                                    "description": "string",
-                                    "positive_signals": ["string"],
-                                    "negative_signals": ["string"],
-                                }
-                            ]
-                        },
-                    },
-                    ensure_ascii=False,
-                ),
-            )
-            specs = self._validate_probe_payload(payload)
-            probes: List[IntentAnalysisProbe] = []
-            for index, spec in enumerate(specs, start=1):
-                probe = IntentAnalysisProbe(
-                    task_id=task_id,
-                    probe_key=f"probe-{index}",
-                    title=spec["title"],
-                    description=spec["description"],
-                    positive_signals="\n".join(spec["positive_signals"]),
-                    negative_signals="\n".join(spec["negative_signals"]),
-                    sort_order=index,
-                    enabled=True,
-                    model_name="gpt-5.5",
-                )
-                probe_id = self.repo.save_intent_analysis_probe(probe)
-                saved = self.repo.get_intent_analysis_probe(probe_id)
-                if saved is not None:
-                    probes.append(saved)
+            self.repo.update_intent_analysis_task(task_id, status="generating_probes", failed_reason="")
+            system_prompt, user_prompt = self._probe_generation_prompts(task)
+            yield {
+                "type": "status",
+                "message": "已连接 GPT-5.5，正在生成语义探针。",
+                "status": "generating_probes",
+            }
+            payload: Optional[Dict[str, object]] = None
+            if hasattr(self.client, "stream_json"):
+                for event in self.client.stream_json(system_prompt, user_prompt):
+                    if event.get("type") == "delta":
+                        yield {"type": "delta", "text": str(event.get("text") or "")}
+                    elif event.get("type") == "done":
+                        event_payload = event.get("payload")
+                        if not isinstance(event_payload, dict):
+                            raise ValueError("GPT probe generation did not return a JSON object")
+                        payload = event_payload
+            else:
+                payload = self.client.complete_json(system_prompt, user_prompt)
+
+            if payload is None:
+                raise ValueError("GPT probe generation did not return a JSON object")
+            yield {"type": "status", "message": "正在校验 5 个探针并写入本地数据库。"}
+            probes = self._save_probe_payload(task_id, payload)
             self.repo.update_intent_analysis_task(task_id, status="probes_ready", failed_reason="")
-            return probes
+            yield {
+                "type": "done",
+                "message": "5 个探针已生成，可以继续编辑或执行分析。",
+                "probes": probes,
+                "count": len(probes),
+            }
         except Exception as exc:
             self.repo.update_intent_analysis_task(task_id, status="failed", failed_reason=str(exc))
             raise
+
+    def _probe_generation_prompts(self, task: object) -> tuple[str, str]:
+        return (
+            (
+                "你是 Falcon 的意向探针规划器。只返回 JSON。"
+                "根据用户输入生成 5 个语义探针，用于判断采集帖子和评论是否符合分析意图。"
+                "必须生成 5 个探针，不要 markdown。"
+            ),
+            json.dumps(
+                {
+                    "platform": task.platform,
+                    "user_intent": task.user_intent,
+                    "required_schema": {
+                        "probes": [
+                            {
+                                "title": "string",
+                                "description": "string",
+                                "positive_signals": ["string"],
+                                "negative_signals": ["string"],
+                            }
+                        ]
+                    },
+                },
+                ensure_ascii=False,
+            ),
+        )
+
+    def _save_probe_payload(self, task_id: int, payload: Dict[str, object]) -> List[IntentAnalysisProbe]:
+        specs = self._validate_probe_payload(payload)
+        probes: List[IntentAnalysisProbe] = []
+        for index, spec in enumerate(specs, start=1):
+            probe = IntentAnalysisProbe(
+                task_id=task_id,
+                probe_key=f"probe-{index}",
+                title=spec["title"],
+                description=spec["description"],
+                positive_signals="\n".join(spec["positive_signals"]),
+                negative_signals="\n".join(spec["negative_signals"]),
+                sort_order=index,
+                enabled=True,
+                model_name="gpt-5.5",
+            )
+            probe_id = self.repo.save_intent_analysis_probe(probe)
+            saved = self.repo.get_intent_analysis_probe(probe_id)
+            if saved is not None:
+                probes.append(saved)
+        return probes
 
     def execute_task(self, task_id: int) -> List[IntentAnalysisMatch]:
         task = self.repo.get_intent_analysis_task(task_id)

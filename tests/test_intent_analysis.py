@@ -59,6 +59,26 @@ class FakeIntentClient:
         return True
 
 
+class StreamingIntentClient(FakeIntentClient):
+    def stream_json(self, system_prompt, user_prompt):
+        self.calls.append((system_prompt, user_prompt))
+        yield {"type": "delta", "text": '{"probes":'}
+        yield {
+            "type": "done",
+            "payload": {
+                "probes": [
+                    {
+                        "title": f"流式探针 {index}",
+                        "description": f"识别第 {index} 类流式需求",
+                        "positive_signals": [f"流式正向 {index}"],
+                        "negative_signals": [f"流式排除 {index}"],
+                    }
+                    for index in range(1, 6)
+                ]
+            },
+        }
+
+
 class UnconfiguredIntentClient:
     def is_configured(self):
         return False
@@ -229,6 +249,25 @@ class IntentAnalysisServiceTest(unittest.TestCase):
             self.assertEqual([probe.sort_order for probe in probes], [1, 2, 3, 4, 5])
             self.assertEqual(repo.get_intent_analysis_task(task_id).status, "probes_ready")
             self.assertIn("哪些人需要生图软件", fake_client.calls[0][1])
+
+    def test_streams_probe_generation_events_and_saves_results(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = FalconRepository(Path(tmp) / "falcon.sqlite3")
+            repo.init_schema()
+            task_id = repo.create_intent_analysis_task(
+                IntentAnalysisTask(platform="xiaohongshu", user_intent="我想知道谁需要封面设计")
+            )
+
+            fake_client = StreamingIntentClient()
+            events = list(IntentAnalysisService(repo, client=fake_client).generate_probes_stream(task_id))
+
+            self.assertEqual(events[0]["type"], "status")
+            self.assertEqual(events[1], {"type": "delta", "text": '{"probes":'})
+            self.assertEqual(events[-1]["type"], "done")
+            self.assertEqual(events[-1]["count"], 5)
+            self.assertEqual(len(repo.list_intent_analysis_probes(task_id)), 5)
+            self.assertEqual(repo.list_intent_analysis_probes(task_id)[0].title, "流式探针 1")
+            self.assertEqual(repo.get_intent_analysis_task(task_id).status, "probes_ready")
 
     def test_unconfigured_gpt_marks_task_failed_without_fallback(self):
         with tempfile.TemporaryDirectory() as tmp:

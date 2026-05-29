@@ -1,4 +1,5 @@
 import json
+import os
 import sqlite3
 import tempfile
 import unittest
@@ -300,7 +301,22 @@ class WebAppTest(unittest.TestCase):
         self.assertNotIn("slate-command-reference-pages-20260524", base_template)
         self.assertNotIn("slate-command-soft-sage-pages-20260524", base_template)
         self.assertNotIn("slate-command-stone-moss-pages-", base_template)
-        self.assertIn("teal-amber-glass-v3", base_template)
+        self.assertIn("teal-amber-glass-v3-light", base_template)
+
+    def test_help_tooltips_are_not_clipped_by_panels(self):
+        css = (Path(__file__).resolve().parents[1] / "falcon" / "web" / "static" / "app.css").read_text(
+            encoding="utf-8"
+        )
+        panel_rule = css[css.index(".panel {") : css.index(".panel::before {")]
+        hover_rule = css[css.index(".panel:has(.help-dot:hover)") : css.index(".panel.tight {")]
+        dot_rule = css[css.index(".help-dot {") : css.index(".help-dot::after {")]
+        tooltip_rule = css[css.index(".help-dot::after {") : css.index(".help-dot:hover::after")]
+
+        self.assertIn("overflow: visible;", panel_rule)
+        self.assertIn("z-index: 2147483000;", hover_rule)
+        self.assertIn("overflow: visible;", hover_rule)
+        self.assertIn("z-index: 2147483000;", dot_rule)
+        self.assertIn("z-index: 2147483647;", tooltip_rule)
 
     def test_collector_overview_cards_use_v3_light_glass_overrides(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -357,6 +373,65 @@ class WebAppTest(unittest.TestCase):
                 "rgba(26, 39, 46",
             ):
                 self.assertNotIn(legacy_slate, override)
+
+    def test_v3_light_overrides_cover_split_workbench_pages(self):
+        css = (Path(__file__).resolve().parents[1] / "falcon" / "web" / "static" / "app.css").read_text(
+            encoding="utf-8"
+        )
+        marker = "/* v3 workbench light overrides neutralize legacy slate page components. */"
+
+        self.assertIn(marker, css)
+        override = css[css.index(marker) :]
+        self.assertGreater(css.index(marker), css.index(".intent-run-picker {"))
+        for selector in (
+            ".page .queue-filters",
+            ".page .queue-wrap",
+            ".page .status-strip",
+            ".page .account-summary-strip",
+            ".page .account-platform-section",
+            ".page .account-create-toolbar",
+            ".page .environment-head",
+            ".page .environment-row.header",
+            ".page .intent-run-picker",
+            ".page .intent-run-option",
+            ".page input:not([type=\"checkbox\"]):not([type=\"radio\"])",
+            ".page .queue-wrap thead th",
+        ):
+            self.assertIn(selector, override)
+        self.assertIn("--v3-workbench-surface", override)
+        self.assertIn("rgba(239, 247, 246", override)
+        self.assertIn("rgba(247, 252, 253", override)
+        self.assertIn("rgba(221, 237, 236", override)
+        for legacy_slate in (
+            "rgba(35, 50, 59",
+            "rgba(28, 40, 48",
+            "rgba(29, 43, 51",
+            "rgba(26, 39, 46",
+            "#2d404a",
+            "#20303a",
+            "#22323b",
+        ):
+            self.assertNotIn(legacy_slate, override)
+
+    def test_v3_workspace_balance_uses_wide_operational_layouts(self):
+        css = (Path(__file__).resolve().parents[1] / "falcon" / "web" / "static" / "app.css").read_text(
+            encoding="utf-8"
+        )
+        marker = "/* v3 workspace balance keeps operational pages from hugging the left on wide displays. */"
+
+        self.assertIn(marker, css)
+        override = css[css.index(marker) :]
+        self.assertIn("width: min(1560px, 100%);", override)
+        self.assertIn(".page[data-view=\"collector\"] .overview-grid", override)
+        self.assertIn("grid-template-columns: minmax(0, 1.06fr) minmax(520px, 0.94fr);", override)
+        self.assertIn(".page[data-view=\"collector\"] .health-metrics", override)
+        self.assertIn("grid-template-columns: repeat(4, minmax(0, 1fr));", override)
+        self.assertIn(".page[data-view=\"collector\"] .health-actions", override)
+        self.assertIn("grid-template-columns: repeat(3, minmax(0, 1fr));", override)
+        self.assertIn(".collector-create-layout", override)
+        self.assertIn("max-width: none;", override)
+        self.assertIn(".page[data-view=\"report\"]", override)
+        self.assertIn("margin-inline: auto;", override)
 
     def test_collector_overview_links_to_environment_page_without_inline_doctor(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -552,6 +627,91 @@ class WebAppTest(unittest.TestCase):
             self.assertIn('href="/collector/create"', response.text)
             self.assertIn('href="/analysis/samples"', response.text)
             self.assertIn('href="/tasks"', response.text)
+            self.assertIn('href="/settings/gpt"', response.text)
+
+    def test_gpt_settings_page_reads_and_saves_local_env(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env_keys = [
+                "FALCON_GPT_BASE_URL",
+                "FALCON_GPT_ENDPOINT",
+                "FALCON_GPT_API_KEY",
+                "FALCON_GPT_MODEL",
+                "FALCON_GPT_TIMEOUT",
+            ]
+            previous_env = {key: os.environ.get(key) for key in env_keys}
+            project_root = Path(tmp)
+            db_path = project_root / "data" / "falcon.sqlite3"
+            db_path.parent.mkdir()
+            env_path = project_root / ".env"
+            env_path.write_text(
+                "FALCON_IMAGE2_MODEL=gpt-image-2\n"
+                "FALCON_GPT_BASE_URL=https://old.example.com\n"
+                "FALCON_GPT_API_KEY=old-secret-key\n",
+                encoding="utf-8",
+            )
+            app = create_app(db_path)
+            app.state.env_path = env_path
+            client = TestClient(app)
+
+            try:
+                for key in env_keys:
+                    os.environ.pop(key, None)
+                page = client.get("/settings/gpt")
+                saved = client.post(
+                    "/settings/gpt",
+                    data={
+                        "base_url": "https://relay.example.com/",
+                        "api_key": "sk-live-secret",
+                    },
+                    follow_redirects=False,
+                )
+                saved_page = client.get(saved.headers["location"])
+
+                self.assertEqual(page.status_code, 200)
+                self.assertIn("模型配置", page.text)
+                self.assertIn('href="/settings/gpt"', page.text)
+                self.assertIn('id="gpt-api-key-toggle"', page.text)
+                self.assertIn("old-...-key", page.text)
+                self.assertNotIn(">old-secret-key<", page.text)
+                self.assertEqual(saved.status_code, 303)
+                self.assertIn("GPT-5.5 配置已保存", saved_page.text)
+                content = env_path.read_text(encoding="utf-8")
+                self.assertIn("FALCON_IMAGE2_MODEL=gpt-image-2", content)
+                self.assertIn("FALCON_GPT_BASE_URL=https://relay.example.com", content)
+                self.assertIn("FALCON_GPT_ENDPOINT=/v1/responses", content)
+                self.assertIn("FALCON_GPT_API_KEY=sk-live-secret", content)
+                self.assertIn("FALCON_GPT_MODEL=gpt-5.5", content)
+                self.assertIn("FALCON_GPT_TIMEOUT=60", content)
+            finally:
+                for key, value in previous_env.items():
+                    if value is None:
+                        os.environ.pop(key, None)
+                    else:
+                        os.environ[key] = value
+
+    def test_gpt_settings_page_reports_invalid_url_without_writing_env(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project_root = Path(tmp)
+            db_path = project_root / "data" / "falcon.sqlite3"
+            db_path.parent.mkdir()
+            env_path = project_root / ".env"
+            env_path.write_text("FALCON_IMAGE2_MODEL=gpt-image-2\n", encoding="utf-8")
+            app = create_app(db_path)
+            app.state.env_path = env_path
+            client = TestClient(app)
+
+            response = client.post(
+                "/settings/gpt",
+                data={"base_url": "relay.example.com", "api_key": "secret"},
+                follow_redirects=False,
+            )
+            page = client.get(response.headers["location"])
+
+            self.assertEqual(response.status_code, 303)
+            self.assertIn("GPT base URL must start with http", page.text)
+            content = env_path.read_text(encoding="utf-8")
+            self.assertIn("FALCON_IMAGE2_MODEL=gpt-image-2", content)
+            self.assertNotIn("FALCON_GPT_API_KEY", content)
 
     def test_dashboard_uses_compact_v3_status_header_and_shell(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -3108,6 +3268,25 @@ class WebAppTest(unittest.TestCase):
                         created_at=f"2026-05-25T0{index}:00:00+00:00",
                     )
                 )
+                post_id = repo.save_collected_post(
+                    CollectedPost(
+                        run_id=run_id,
+                        platform="xiaohongshu",
+                        keyword=keyword,
+                        title=f"{keyword}帖子",
+                        content=f"{keyword}正文",
+                        url=f"local://{run_id}/post",
+                        detail_fingerprint=f"{run_id}-post",
+                    )
+                )
+                repo.save_collected_comment(
+                    CollectedComment(
+                        post_id=post_id,
+                        run_id=run_id,
+                        commenter="reader",
+                        content=f"{keyword}评论",
+                    )
+                )
             repo.create_collection_run(
                 CollectionRun(
                     run_id="douyin-market-1",
@@ -3146,12 +3325,52 @@ class WebAppTest(unittest.TestCase):
             self.assertEqual(task.platform, "xiaohongshu")
             self.assertEqual(task.user_intent, "我想分析生图软件的市场")
             self.assertEqual([source.run_id for source in repo.list_intent_analysis_sources(task_id)], ["xhs-market-1", "xhs-market-2"])
+            repo.save_intent_analysis_probe(
+                IntentAnalysisProbe(
+                    task_id=task_id,
+                    probe_key="probe-1",
+                    title="求推荐",
+                    description="识别求推荐需求",
+                    positive_signals="推荐",
+                    negative_signals="无",
+                    sort_order=1,
+                )
+            )
+            repo.save_intent_analysis_probe(
+                IntentAnalysisProbe(
+                    task_id=task_id,
+                    probe_key="probe-2",
+                    title="纯展示",
+                    description="识别纯展示",
+                    positive_signals="展示",
+                    negative_signals="需求",
+                    sort_order=2,
+                    enabled=False,
+                )
+            )
 
             history = client.get(f"/analysis?platform=xiaohongshu&reuse_task_id={task_id}")
             self.assertEqual(history.status_code, 200)
             self.assertIn('value="xhs-market-1" checked', history.text)
             self.assertIn('value="xhs-market-2" checked', history.text)
             self.assertIn("我想分析生图软件的市场", history.text)
+            self.assertIn("2 个任务 · 2 篇帖子 · 2 条评论 · 1/2 个探针", history.text)
+            self.assertIn(f'href="/analysis/tasks/{task_id}"', history.text)
+            self.assertIn("继续编辑", history.text)
+            self.assertIn("复用组合", history.text)
+            self.assertIn(f'action="/analysis/tasks/{task_id}/delete"', history.text)
+            self.assertIn("已采集的数据不会删除", history.text)
+            self.assertIn("删除", history.text)
+            self.assertIn("data-tip=", history.text)
+            self.assertNotIn("复选", history.text)
+
+            deleted = client.post(f"/analysis/tasks/{task_id}/delete", follow_redirects=False)
+            self.assertEqual(deleted.status_code, 303)
+            self.assertEqual(deleted.headers["location"], "/analysis?platform=xiaohongshu")
+            self.assertIsNone(repo.get_intent_analysis_task(task_id))
+            self.assertEqual(repo.list_intent_analysis_sources(task_id), [])
+            self.assertEqual(repo.list_intent_analysis_probes(task_id), [])
+            self.assertEqual(repo.get_collection_run("xhs-market-1").status, "completed")
 
     def test_analysis_task_detail_generates_edits_and_executes_probes(self):
         class FakeIntentService:
@@ -3171,6 +3390,12 @@ class WebAppTest(unittest.TestCase):
                     )
                 )
                 return [self.repository.get_intent_analysis_probe(probe_id)]
+
+            def generate_probes_stream(self, task_id):
+                yield {"type": "status", "message": "正在生成", "status": "generating_probes"}
+                yield {"type": "delta", "text": '{"probes":'}
+                probes = self.generate_probes(task_id)
+                yield {"type": "done", "message": "探针已生成", "count": len(probes), "probes": probes}
 
             def execute_task(self, task_id):
                 package = self.repository.build_intent_analysis_package(task_id)
@@ -3231,6 +3456,7 @@ class WebAppTest(unittest.TestCase):
             client = TestClient(create_app(db_path, intent_analysis_service_factory=FakeIntentService))
 
             detail = client.get(f"/analysis/tasks/{task_id}")
+            streamed = client.post(f"/analysis/tasks/{task_id}/probes/generate/stream")
             generated = client.post(f"/analysis/tasks/{task_id}/probes/generate", follow_redirects=False)
             edited = client.post(
                 f"/analysis/tasks/{task_id}/probes",
@@ -3253,7 +3479,16 @@ class WebAppTest(unittest.TestCase):
             self.assertIn("我想知道哪些人需要生图软件", detail.text)
             self.assertIn("xhs-intent-detail", detail.text)
             self.assertIn('action="/analysis/tasks/%d/probes/generate"' % task_id, detail.text)
+            self.assertIn('data-stream-url="/analysis/tasks/%d/probes/generate/stream"' % task_id, detail.text)
+            self.assertIn('id="probe-stream-panel"', detail.text)
+            self.assertIn('class="probe-card-top"', detail.text)
+            self.assertIn('class="probe-signal positive"', detail.text)
             self.assertIn('form="probe-editor-form"', detail.text)
+            self.assertEqual(streamed.status_code, 200)
+            self.assertIn("text/event-stream", streamed.headers["content-type"])
+            self.assertIn("event: delta", streamed.text)
+            self.assertIn("event: done", streamed.text)
+            self.assertIn("redirect_url", streamed.text)
             self.assertEqual(generated.status_code, 303)
             self.assertEqual(edited.status_code, 303)
             self.assertEqual(repo.list_intent_analysis_probes(task_id)[0].title, "避雷生图工具")

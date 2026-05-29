@@ -9,11 +9,12 @@ from typing import List, Optional
 from uuid import uuid4
 
 from fastapi import BackgroundTasks, FastAPI, Form, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from ..collector import CollectorService, safe_collector_identifier
+from ..config import load_gpt_config_view, save_gpt_config
 from ..db import FalconRepository
 from ..doctor import build_doctor_report, checks_for_web
 from ..intent_analysis import IntentAnalysisService
@@ -398,6 +399,7 @@ def create_app(
     app.state.runtime_root = Path(db_path).parent / "runtime" / "collector"
     app.state.profile_root = Path(profile_root) if profile_root is not None else Path("browser-profiles")
     app.state.project_root = Path(__file__).resolve().parents[2]
+    app.state.env_path = app.state.project_root / ".env"
     app.state.doctor_report_builder = doctor_report_builder or build_doctor_report
     app.state.profile_login_launcher = profile_login_launcher or launch_profile_login
     app.state.intent_analysis_service_factory = intent_analysis_service_factory
@@ -859,8 +861,20 @@ def create_app(
         tasks = repository.list_intent_analysis_tasks(platform=selected, limit=8)
         histories = []
         for task in tasks:
-            sources = repository.list_intent_analysis_sources(task.task_id or 0)
-            histories.append({"task": task, "sources": sources})
+            history_task_id = task.task_id or 0
+            sources = repository.list_intent_analysis_sources(history_task_id)
+            probes = repository.list_intent_analysis_probes(history_task_id)
+            package = repository.build_intent_analysis_package(history_task_id)
+            histories.append(
+                {
+                    "task": task,
+                    "sources": sources,
+                    "probes": probes,
+                    "enabled_probe_count": sum(1 for probe in probes if probe.enabled),
+                    "post_count": len(package),
+                    "comment_count": sum(len(item.get("comments", [])) for item in package),
+                }
+            )
         prefill_run_ids: list[str] = []
         prefill_user_intent = ""
         if reuse_task_id is not None:
@@ -962,6 +976,9 @@ def create_app(
             )
         repository.update_intent_analysis_task(task_id, status="probes_ready", failed_reason="")
 
+    def sse_payload(event: str, data: dict) -> str:
+        return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
     @app.get("/")
     def dashboard(request: Request):
         repository = repo()
@@ -1018,6 +1035,32 @@ def create_app(
     def write_keywords(path: str = Form("data/collection_keywords.csv"), theme: str = Form("内容运营")):
         write_default_keyword_pool(Path(path), theme=theme)
         return RedirectResponse(f"/keywords?path={path}", status_code=303)
+
+    @app.get("/settings/gpt")
+    def gpt_settings_page(request: Request, status: str = ""):
+        return templates.TemplateResponse(
+            request,
+            "gpt_settings.html",
+            {
+                "active": "settings_gpt",
+                "gpt_config": load_gpt_config_view(app.state.env_path),
+                "settings_notice": _settings_notice(status),
+            },
+        )
+
+    @app.post("/settings/gpt")
+    def save_gpt_settings(
+        base_url: str = Form(""),
+        api_key: str = Form(""),
+    ):
+        try:
+            save_gpt_config(app.state.env_path, base_url=base_url, api_key=api_key)
+        except ValueError as exc:
+            return RedirectResponse(
+                "/settings/gpt?" + urlencode({"status": f"error:{exc}"}),
+                status_code=303,
+            )
+        return RedirectResponse("/settings/gpt?status=saved", status_code=303)
 
     @app.get("/collector")
     def collector_page(request: Request):
@@ -1652,6 +1695,15 @@ def create_app(
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return RedirectResponse(f"/analysis/tasks/{task_id}", status_code=303)
 
+    @app.post("/analysis/tasks/{task_id}/delete")
+    def delete_intent_analysis_task(task_id: int):
+        repository = repo()
+        task = repository.get_intent_analysis_task(task_id)
+        if task is None:
+            raise HTTPException(status_code=404, detail="Intent analysis task not found")
+        repository.delete_intent_analysis_task(task_id)
+        return RedirectResponse(f"/analysis?platform={task.platform}", status_code=303)
+
     @app.get("/analysis/tasks/{task_id}")
     def intent_analysis_task_page(request: Request, task_id: int):
         repository = repo()
@@ -1672,6 +1724,57 @@ def create_app(
         except Exception as exc:
             repository.update_intent_analysis_task(task_id, status="failed", failed_reason=str(exc))
         return RedirectResponse(f"/analysis/tasks/{task_id}", status_code=303)
+
+    @app.post("/analysis/tasks/{task_id}/probes/generate/stream")
+    def stream_intent_analysis_probes(task_id: int):
+        def events():
+            repository = repo()
+            try:
+                task = repository.get_intent_analysis_task(task_id)
+                if task is None:
+                    yield sse_payload("error", {"message": "Intent analysis task not found"})
+                    return
+                service = intent_analysis_service(repository)
+                yield sse_payload(
+                    "status",
+                    {
+                        "message": "正在准备意向、平台和数据包上下文。",
+                        "status": "preparing",
+                    },
+                )
+                for item in service.generate_probes_stream(task_id):
+                    event_type = str(item.get("type") or "status")
+                    if event_type == "delta":
+                        yield sse_payload("delta", {"text": str(item.get("text") or "")})
+                    elif event_type == "done":
+                        yield sse_payload(
+                            "done",
+                            {
+                                "message": str(item.get("message") or "探针已生成。"),
+                                "count": int(item.get("count") or 0),
+                                "redirect_url": f"/analysis/tasks/{task_id}",
+                            },
+                        )
+                    else:
+                        yield sse_payload(
+                            "status",
+                            {
+                                "message": str(item.get("message") or "正在处理。"),
+                                "status": str(item.get("status") or ""),
+                            },
+                        )
+            except Exception as exc:
+                repository.update_intent_analysis_task(task_id, status="failed", failed_reason=str(exc))
+                yield sse_payload("error", {"message": str(exc)})
+
+        return StreamingResponse(
+            events(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+            },
+        )
 
     @app.post("/analysis/tasks/{task_id}/probes")
     async def save_intent_analysis_probes(request: Request, task_id: int):
@@ -1972,3 +2075,13 @@ def _profile_notice(action: str, platform: str, profile: str) -> str:
             "请先确认账号页面没有验证码、登录异常或平台风险提示；确认正常后再点“解除熔断”。"
         )
     return ""
+
+
+def _settings_notice(status: str) -> dict:
+    if not status:
+        return {}
+    if status == "saved":
+        return {"kind": "notice", "message": "GPT-5.5 配置已保存到本地 .env。"}
+    if status.startswith("error:"):
+        return {"kind": "alert", "message": status.split(":", 1)[1] or "配置保存失败。"}
+    return {}

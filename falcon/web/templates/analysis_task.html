@@ -29,7 +29,7 @@
 <section class="panel">
   <div class="section-head">
     <div>
-      <h2>数据包</h2>
+      <h2>数据包 <button class="help-dot" type="button" data-tip="本任务选中的采集任务集合。探针执行时会读取这些任务里的帖子正文和评论，不会修改原始采集数据。">?</button></h2>
       <p class="muted">数据包包含所选采集任务内的标题、正文和评论。</p>
     </div>
   </div>
@@ -42,15 +42,32 @@
   </div>
 </section>
 
-<section class="panel">
-  <div class="section-head">
+<section class="panel intent-probe-workbench">
+  <div class="section-head intent-probe-head">
     <div>
-      <h2>意向探针</h2>
+      <h2>意向探针 <button class="help-dot" type="button" data-tip="探针是一组可编辑的语义判断规则。GPT-5.5 会按启用探针去匹配帖子和评论，找出符合分析意图的证据。">?</button></h2>
       <p class="muted">GPT-5.5 默认生成 5 个探针；执行前可增、删、改，启用数量需为 1-12 个。</p>
     </div>
-    <form method="post" action="/analysis/tasks/{{ task.task_id }}/probes/generate">
-      <button class="button" type="submit">生成 5 个探针</button>
+    <form id="probe-generate-form" method="post" action="/analysis/tasks/{{ task.task_id }}/probes/generate" data-stream-url="/analysis/tasks/{{ task.task_id }}/probes/generate/stream">
+      <button id="probe-generate-button" class="button" type="submit">生成 5 个探针</button>
     </form>
+  </div>
+
+  <div id="probe-stream-panel" class="probe-stream-panel" hidden>
+    <div class="probe-stream-top">
+      <div>
+        <span>GPT-5.5 stream</span>
+        <strong id="probe-stream-title">准备生成</strong>
+      </div>
+      <em id="probe-stream-state">standby</em>
+    </div>
+    <div class="probe-stream-steps" aria-label="Probe generation progress">
+      <span data-step="preparing" class="is-active">接入上下文</span>
+      <span data-step="generating">模型输出</span>
+      <span data-step="saving">校验落库</span>
+    </div>
+    <pre id="probe-stream-output" class="probe-stream-output"></pre>
+    <p id="probe-stream-error" class="probe-stream-error" hidden></p>
   </div>
 
   <form id="probe-editor-form" method="post" action="/analysis/tasks/{{ task.task_id }}/probes" class="probe-editor">
@@ -58,29 +75,37 @@
     <article class="probe-card">
       <input type="hidden" name="probe_ids" value="{{ probe.probe_id }}">
       <input type="hidden" name="probe_key_{{ probe.probe_id }}" value="{{ probe.probe_key }}">
-      <div class="field-grid">
-        <label><span>标题</span><input name="title_{{ probe.probe_id }}" value="{{ probe.title }}"></label>
-        <label><span>排序</span><input name="sort_order_{{ probe.probe_id }}" value="{{ probe.sort_order }}"></label>
+      <div class="probe-card-top">
+        <div class="probe-index">#{{ loop.index }}</div>
+        <label class="probe-title-field"><span>探针标题</span><input name="title_{{ probe.probe_id }}" value="{{ probe.title }}"></label>
+        <label class="probe-switch"><input type="checkbox" name="enabled_{{ probe.probe_id }}" {% if probe.enabled %}checked{% endif %}><span>启用</span></label>
       </div>
-      <label><span>描述</span><textarea name="description_{{ probe.probe_id }}" rows="2">{{ probe.description }}</textarea></label>
-      <div class="field-grid">
-        <label><span>正向信号</span><textarea name="positive_signals_{{ probe.probe_id }}" rows="3">{{ probe.positive_signals }}</textarea></label>
-        <label><span>排除信号</span><textarea name="negative_signals_{{ probe.probe_id }}" rows="3">{{ probe.negative_signals }}</textarea></label>
+      <label class="probe-description-field"><span>判断逻辑</span><textarea name="description_{{ probe.probe_id }}" rows="3">{{ probe.description }}</textarea></label>
+      <div class="probe-signal-grid">
+        <label class="probe-signal positive"><span>正向信号</span><textarea name="positive_signals_{{ probe.probe_id }}" rows="4">{{ probe.positive_signals }}</textarea></label>
+        <label class="probe-signal negative"><span>排除信号</span><textarea name="negative_signals_{{ probe.probe_id }}" rows="4">{{ probe.negative_signals }}</textarea></label>
       </div>
-      <label class="inline-check"><input type="checkbox" name="enabled_{{ probe.probe_id }}" {% if probe.enabled %}checked{% endif %}> 启用</label>
-      <label class="inline-check"><input type="checkbox" name="delete_probe_ids" value="{{ probe.probe_id }}"> 删除这个探针</label>
+      <div class="probe-card-foot">
+        <label class="probe-sort"><span>排序</span><input name="sort_order_{{ probe.probe_id }}" value="{{ probe.sort_order }}" inputmode="numeric"></label>
+        <label class="probe-delete-check"><input type="checkbox" name="delete_probe_ids" value="{{ probe.probe_id }}"><span>删除</span></label>
+      </div>
     </article>
     {% else %}
-    <p class="muted">还没有探针。先点击“生成 5 个探针”，或手动新增一个探针。</p>
+    <div class="probe-empty-state">
+      <strong>暂无探针</strong>
+      <span>可以生成一组 GPT-5.5 探针，也可以在下方手动新增。</span>
+    </div>
     {% endfor %}
 
-    <article class="probe-card">
-      <h3>新增探针</h3>
-      <label><span>标题</span><input name="new_title"></label>
-      <label><span>描述</span><textarea name="new_description" rows="2"></textarea></label>
-      <div class="field-grid">
-        <label><span>正向信号</span><textarea name="new_positive_signals" rows="3"></textarea></label>
-        <label><span>排除信号</span><textarea name="new_negative_signals" rows="3"></textarea></label>
+    <article class="probe-card probe-new-card">
+      <div class="probe-card-top">
+        <div class="probe-index">+</div>
+        <label class="probe-title-field"><span>新增探针标题</span><input name="new_title"></label>
+      </div>
+      <label class="probe-description-field"><span>判断逻辑</span><textarea name="new_description" rows="3"></textarea></label>
+      <div class="probe-signal-grid">
+        <label class="probe-signal positive"><span>正向信号</span><textarea name="new_positive_signals" rows="4"></textarea></label>
+        <label class="probe-signal negative"><span>排除信号</span><textarea name="new_negative_signals" rows="4"></textarea></label>
       </div>
     </article>
     <div class="action-row left-actions">
@@ -93,7 +118,7 @@
 <section class="panel">
   <div class="section-head">
     <div>
-      <h2>双层证据</h2>
+      <h2>双层证据 <button class="help-dot" type="button" data-tip="展示探针执行后的命中结果。帖子级证据说明整篇内容为何相关，评论级证据捕捉用户需求、追问和痛点。">?</button></h2>
       <p class="muted">先看帖子级聚合，再展开评论级命中证据。</p>
     </div>
   </div>
@@ -121,4 +146,130 @@
   <p class="muted">暂无命中结果。保存探针后点击“执行分析”。</p>
   {% endfor %}
 </section>
+<script>
+(() => {
+  const form = document.getElementById("probe-generate-form");
+  if (!form || !window.fetch || !window.ReadableStream) {
+    return;
+  }
+  const button = document.getElementById("probe-generate-button");
+  const panel = document.getElementById("probe-stream-panel");
+  const title = document.getElementById("probe-stream-title");
+  const state = document.getElementById("probe-stream-state");
+  const output = document.getElementById("probe-stream-output");
+  const error = document.getElementById("probe-stream-error");
+  const steps = Array.from(document.querySelectorAll(".probe-stream-steps [data-step]"));
+
+  const activateStep = (name) => {
+    const order = ["preparing", "generating", "saving"];
+    const index = order.indexOf(name);
+    steps.forEach((step) => {
+      const stepIndex = order.indexOf(step.dataset.step);
+      step.classList.toggle("is-active", step.dataset.step === name);
+      step.classList.toggle("is-complete", index > stepIndex);
+    });
+  };
+
+  const setStatus = (message, status) => {
+    title.textContent = message || "正在生成";
+    state.textContent = status || "streaming";
+    if (status === "generating_probes") {
+      activateStep("generating");
+    } else if (message && message.includes("校验")) {
+      activateStep("saving");
+    } else {
+      activateStep("preparing");
+    }
+  };
+
+  const handleBlock = (block) => {
+    let eventName = "message";
+    const dataLines = [];
+    block.split(/\r?\n/).forEach((line) => {
+      if (line.startsWith("event:")) {
+        eventName = line.slice(6).trim();
+      } else if (line.startsWith("data:")) {
+        dataLines.push(line.slice(5).trim());
+      }
+    });
+    if (!dataLines.length) {
+      return;
+    }
+    const payload = JSON.parse(dataLines.join("\n"));
+    if (eventName === "status") {
+      setStatus(payload.message, payload.status);
+    } else if (eventName === "delta") {
+      activateStep("generating");
+      output.textContent += payload.text || "";
+      output.scrollTop = output.scrollHeight;
+    } else if (eventName === "done") {
+      activateStep("saving");
+      setStatus(payload.message || "探针已生成", "done");
+      setTimeout(() => {
+        window.location.href = payload.redirect_url || window.location.href;
+      }, 650);
+    } else if (eventName === "error") {
+      error.hidden = false;
+      error.textContent = payload.message || "生成失败";
+      setStatus("生成失败", "error");
+      if (button) {
+        button.disabled = false;
+        button.textContent = "重新生成 5 个探针";
+      }
+    }
+  };
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    panel.hidden = false;
+    error.hidden = true;
+    output.textContent = "";
+    activateStep("preparing");
+    setStatus("正在准备意向、平台和数据包上下文。", "preparing");
+    if (button) {
+      button.disabled = true;
+      button.textContent = "生成中";
+    }
+
+    try {
+      const response = await fetch(form.dataset.streamUrl, {
+        method: "POST",
+        headers: { Accept: "text/event-stream" },
+      });
+      if (!response.ok || !response.body) {
+        form.submit();
+        return;
+      }
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      while (true) {
+        const result = await reader.read();
+        if (result.done) {
+          break;
+        }
+        buffer += decoder.decode(result.value, { stream: true });
+        const blocks = buffer.split("\n\n");
+        buffer = blocks.pop() || "";
+        blocks.forEach((block) => {
+          if (block.trim()) {
+            handleBlock(block);
+          }
+        });
+      }
+      if (buffer.trim()) {
+        handleBlock(buffer);
+      }
+    } catch (streamError) {
+      error.hidden = false;
+      error.textContent = streamError.message || "生成失败";
+      setStatus("生成失败", "error");
+      if (button) {
+        button.disabled = false;
+        button.textContent = "重新生成 5 个探针";
+      }
+    }
+  });
+})();
+</script>
 {% endblock %}

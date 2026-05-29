@@ -733,6 +733,13 @@ class FalconRepository:
                 params,
             )
 
+    def delete_intent_analysis_task(self, task_id: int) -> None:
+        with self._connect() as conn:
+            conn.execute("DELETE FROM intent_analysis_matches WHERE task_id = ?", (task_id,))
+            conn.execute("DELETE FROM intent_analysis_probes WHERE task_id = ?", (task_id,))
+            conn.execute("DELETE FROM intent_analysis_sources WHERE task_id = ?", (task_id,))
+            conn.execute("DELETE FROM intent_analysis_tasks WHERE id = ?", (task_id,))
+
     def add_intent_analysis_sources(self, task_id: int, run_ids: List[str]) -> List[int]:
         task = self.get_intent_analysis_task(task_id)
         if task is None:

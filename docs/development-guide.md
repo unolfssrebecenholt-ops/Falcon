@@ -71,6 +71,36 @@ Windows PowerShell:
 .\scripts\start.ps1 --skip-install
 ```
 
+Stop the local Web workbench:
+
+macOS:
+
+```bash
+./scripts/stop.sh
+```
+
+Windows PowerShell:
+
+```powershell
+.\scripts\stop.ps1
+```
+
+Restart the local Web workbench without reinstalling dependencies:
+
+macOS:
+
+```bash
+./scripts/restart.sh
+```
+
+Windows PowerShell:
+
+```powershell
+.\scripts\restart.ps1
+```
+
+`start` writes the Web process id to `runtime/falcon-web.pid`. `stop` uses that file first, then falls back to the configured port.
+
 Doctor-only checks:
 
 macOS:
@@ -246,6 +276,10 @@ falcon/web/static/app.css
 `docs/design/` 只保留清理说明。旧整站原型、一次性预览图和截图批次不再保留在工作树中；需要追溯时使用 Git history。
 
 ## GPT-5.5 中转站
+
+Falcon 后端默认调用 OpenAI-compatible `/v1/responses`，使用 streaming 接收完整 JSON；意向探针生成页会通过 SSE 流式展示模型输出、校验和落库状态。
+
+推荐从 Web 工作台 `基础 / 模型配置` 一键写入本机 `.env`：只需要填写中转站 URL 和 API key，其余参数使用默认值。
 
 环境变量名：
 

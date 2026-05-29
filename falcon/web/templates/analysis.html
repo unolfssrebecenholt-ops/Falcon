@@ -23,7 +23,7 @@
 <section class="panel">
   <div class="section-head">
     <div>
-      <h2>平台数据包</h2>
+      <h2>平台数据包 <button class="help-dot" type="button" data-tip="选择同一平台下已完成的采集任务，组成这次意向分析的数据包。Falcon 会读取帖子正文和评论作为 GPT-5.5 探针判断的上下文。">?</button></h2>
       <p class="muted">v1 只分析同一平台下的一个或多个采集任务；历史组合可一键复用。</p>
     </div>
     <div class="action-row">
@@ -70,7 +70,7 @@
   <section class="panel">
     <div class="section-head">
       <div>
-        <h2>历史组合</h2>
+        <h2>历史组合 <button class="help-dot" type="button" data-tip="这里保存过往意向分析任务。继续编辑会回到原任务和已保存探针；复用组合会只带回分析意图和采集任务，创建一个新任务。">?</button></h2>
         <p class="muted">点击复用会创建一个新的分析任务，原历史记录不被修改。</p>
       </div>
     </div>
@@ -78,8 +78,14 @@
       {% for history in intent_histories %}
       <div class="trend-row intent-history-row">
         <span>{{ history.task.user_intent }}</span>
-        <strong>{{ history.sources|length }} 个任务</strong>
-        <a class="button small" href="/analysis?platform={{ history.task.platform }}&reuse_task_id={{ history.task.task_id }}">复选</a>
+        <strong>{{ history.sources|length }} 个任务 · {{ history.post_count|default(0) }} 篇帖子 · {{ history.comment_count|default(0) }} 条评论 · {{ history.enabled_probe_count|default(0) }}/{{ history.probes|length }} 个探针</strong>
+        <div class="action-row">
+          <a class="button small primary" href="/analysis/tasks/{{ history.task.task_id }}">继续编辑</a>
+          <a class="button small blue" href="/analysis?platform={{ history.task.platform }}&reuse_task_id={{ history.task.task_id }}">复用组合</a>
+          <form class="inline-form" method="post" action="/analysis/tasks/{{ history.task.task_id }}/delete" onsubmit="return confirm('删除这个分析任务？已采集的数据不会删除。');">
+            <button class="button small danger" type="submit">删除</button>
+          </form>
+        </div>
       </div>
       {% else %}
       <p class="muted">暂无意向分析历史。</p>
@@ -91,7 +97,7 @@
     <section class="panel analysis-quality-panel">
       <div class="section-head">
         <div>
-          <h2>采集质量入口</h2>
+          <h2>采集质量入口 <button class="help-dot" type="button" data-tip="这是旧分析链路的质量闸门，按人工或规则评分把采集样本分为主分析、参考和跳过，不影响上方意向探针任务。">?</button></h2>
           <p class="muted">旧分析链路仍保留：优质进入主分析，中等进入参考，劣质跳过。</p>
         </div>
         <span class="pill">可推进 {{ quality_pool.promotable }} 条</span>
@@ -108,7 +114,7 @@
     </section>
 
     <section class="panel">
-      <h2>选题洞察</h2>
+      <h2>选题洞察 <button class="help-dot" type="button" data-tip="展示旧分析链路已经沉淀出的可写选题和痛点，适合快速挑选后续要生成草稿或复核的方向。">?</button></h2>
       {% for item in items[:3] %}
       <article class="compact-insight">
         <strong>{{ item.suggested_topic or item.title }}</strong>

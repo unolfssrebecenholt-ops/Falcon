@@ -81,6 +81,26 @@ chmod +x scripts/start.sh
 ./scripts/start.sh --skip-install
 ```
 
+停止 Web 工作台：
+
+```powershell
+.\scripts\stop.ps1
+```
+
+```bash
+./scripts/stop.sh
+```
+
+重启 Web 工作台：
+
+```powershell
+.\scripts\restart.ps1
+```
+
+```bash
+./scripts/restart.sh
+```
+
 默认访问地址：
 
 ```text
@@ -169,17 +189,21 @@ node --check sidecar/collector/profile-login.mjs
 
 ## 配置
 
-复制 `.env.example` 为本地 `.env`，填写自己的中转服务和 API key。`.env` 已被 Git 忽略。
+推荐在 Web 工作台打开 `基础 / 模型配置`，只填写 GPT-5.5 中转站 URL 和 API key；Falcon 会把默认 endpoint、模型和超时写入本地 `.env`。`.env` 已被 Git 忽略。
+
+也可以复制 `.env.example` 为本地 `.env` 后手动填写。
 
 GPT-5.5：
 
 ```text
 FALCON_GPT_BASE_URL=
-FALCON_GPT_ENDPOINT=/v1/chat/completions
+FALCON_GPT_ENDPOINT=/v1/responses
 FALCON_GPT_API_KEY=
 FALCON_GPT_MODEL=gpt-5.5
 FALCON_GPT_TIMEOUT=60
 ```
+
+Falcon 后端通过 OpenAI-compatible Responses streaming 接收 GPT-5.5 输出；意向探针生成页会流式展示模型输出、校验和落库状态。
 
 Image2：
 

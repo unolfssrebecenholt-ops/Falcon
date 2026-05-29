@@ -1,11 +1,13 @@
 import json
 import os
+from typing import BinaryIO, Callable, Dict, Iterator, Optional
 import urllib.request
-from typing import Dict
+
+from .config import DEFAULT_GPT_ENDPOINT, DEFAULT_GPT_MODEL
 
 
 class GPT55Client:
-    """OpenAI-compatible chat client for the user's GPT-5.5 relay."""
+    """OpenAI-compatible client for the user's GPT-5.5 relay."""
 
     def __init__(
         self,
@@ -14,12 +16,14 @@ class GPT55Client:
         api_key: str = "",
         model: str = "",
         timeout: int = 60,
+        opener: Optional[Callable[..., BinaryIO]] = None,
     ):
         self.base_url = (base_url or os.getenv("FALCON_GPT_BASE_URL", "")).rstrip("/")
-        self.endpoint = endpoint or os.getenv("FALCON_GPT_ENDPOINT", "/v1/chat/completions")
+        self.endpoint = endpoint or os.getenv("FALCON_GPT_ENDPOINT", DEFAULT_GPT_ENDPOINT)
         self.api_key = api_key or os.getenv("FALCON_GPT_API_KEY", "")
-        self.model = model or os.getenv("FALCON_GPT_MODEL", "gpt-5.5")
+        self.model = model or os.getenv("FALCON_GPT_MODEL", DEFAULT_GPT_MODEL)
         self.timeout = int(os.getenv("FALCON_GPT_TIMEOUT", str(timeout)))
+        self.opener = opener or urllib.request.urlopen
 
     @classmethod
     def from_env(cls) -> "GPT55Client":
@@ -32,6 +36,47 @@ class GPT55Client:
         if not self.is_configured():
             raise RuntimeError("FALCON_GPT_BASE_URL, FALCON_GPT_ENDPOINT, and FALCON_GPT_API_KEY are required")
 
+        if self.endpoint.rstrip("/").endswith("/chat/completions"):
+            return self._complete_json_chat_completions(system_prompt, user_prompt)
+        payload = None
+        for event in self.stream_json(system_prompt, user_prompt):
+            if event.get("type") == "done":
+                payload = event.get("payload")
+        if not isinstance(payload, dict):
+            raise ValueError("GPT responses stream did not return a JSON object")
+        return payload
+
+    def stream_json(self, system_prompt: str, user_prompt: str) -> Iterator[Dict[str, object]]:
+        if not self.is_configured():
+            raise RuntimeError("FALCON_GPT_BASE_URL, FALCON_GPT_ENDPOINT, and FALCON_GPT_API_KEY are required")
+
+        if self.endpoint.rstrip("/").endswith("/chat/completions"):
+            yield {"type": "done", "payload": self._complete_json_chat_completions(system_prompt, user_prompt)}
+            return
+
+        body = {
+            "model": self.model,
+            "instructions": system_prompt,
+            "input": user_prompt,
+            "stream": True,
+        }
+        request = self._request(body)
+        chunks = []
+        done_text = ""
+        with self.opener(request, timeout=self.timeout) as response:
+            for text_event in self._iter_responses_text(response):
+                if text_event["type"] == "delta":
+                    text = str(text_event.get("text") or "")
+                    chunks.append(text)
+                    yield {"type": "delta", "text": text}
+                elif text_event["type"] == "done_text":
+                    done_text = str(text_event.get("text") or "")
+        content = done_text or "".join(chunks)
+        if not content:
+            raise ValueError("GPT responses stream did not contain output text")
+        yield {"type": "done", "payload": self._parse_json_object(content)}
+
+    def _complete_json_chat_completions(self, system_prompt: str, user_prompt: str) -> Dict[str, object]:
         body = {
             "model": self.model,
             "messages": [
@@ -40,20 +85,61 @@ class GPT55Client:
             ],
             "response_format": {"type": "json_object"},
         }
-        request = urllib.request.Request(
+        request = self._request(body)
+        with self.opener(request, timeout=self.timeout) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+
+        content = payload["choices"][0]["message"]["content"]
+        return self._parse_json_object(content)
+
+    def _request(self, body: Dict[str, object]) -> urllib.request.Request:
+        return urllib.request.Request(
             self.base_url + self.endpoint,
             data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
             headers={
                 "Authorization": f"Bearer {self.api_key}",
                 "Content-Type": "application/json",
+                "Accept": "text/event-stream" if not self.endpoint.rstrip("/").endswith("/chat/completions") else "application/json",
+                "User-Agent": "Falcon/0.1 OpenAI-Compatible-Client",
             },
             method="POST",
         )
-        with urllib.request.urlopen(request, timeout=self.timeout) as response:
-            payload = json.loads(response.read().decode("utf-8"))
 
-        content = payload["choices"][0]["message"]["content"]
-        return self._parse_json_object(content)
+    def _read_responses_stream(self, response: BinaryIO) -> str:
+        chunks = []
+        done_text = ""
+        for text_event in self._iter_responses_text(response):
+            if text_event["type"] == "delta":
+                chunks.append(str(text_event.get("text") or ""))
+            elif text_event["type"] == "done_text":
+                done_text = str(text_event.get("text") or "")
+        content = done_text or "".join(chunks)
+        if not content:
+            raise ValueError("GPT responses stream did not contain output text")
+        return content
+
+    def _iter_responses_text(self, response: BinaryIO) -> Iterator[Dict[str, str]]:
+        for raw_line in response:
+            line = raw_line.decode("utf-8").strip()
+            if not line or line.startswith(":"):
+                continue
+            if not line.startswith("data:"):
+                continue
+            data = line[5:].strip()
+            if data == "[DONE]":
+                break
+            event = json.loads(data)
+            event_type = str(event.get("type") or "")
+            if event_type == "response.output_text.delta":
+                yield {"type": "delta", "text": str(event.get("delta") or "")}
+            elif event_type == "response.output_text.done":
+                text = str(event.get("text") or "")
+                if text:
+                    yield {"type": "done_text", "text": text}
+            elif event_type == "error":
+                error = event.get("error") if isinstance(event.get("error"), dict) else {}
+                message = error.get("message") if isinstance(error, dict) else ""
+                raise RuntimeError(str(message or "GPT responses stream failed"))
 
     def _parse_json_object(self, content: str) -> Dict[str, object]:
         content = content.strip()

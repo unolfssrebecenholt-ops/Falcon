@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import os
 import shutil
 import socket
 import subprocess
@@ -89,15 +90,57 @@ def build_bootstrap_steps(
     return steps
 
 
+def pid_file_path(project_root: Path) -> Path:
+    return Path(project_root) / "runtime" / "falcon-web.pid"
+
+
+def _remove_pid_file(path: Path) -> None:
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        pass
+
+
+def _run_step(step: BootstrapStep, pid_file: Optional[Path] = None) -> None:
+    command = " ".join(step.args)
+    print(f"\n==> {step.label}")
+    print(f"cwd: {step.cwd}")
+    print(command)
+    resolved_args = resolve_step_args(step.args)
+    if step.blocking and pid_file is not None:
+        pid_file.parent.mkdir(parents=True, exist_ok=True)
+        process = subprocess.Popen(resolved_args, cwd=str(step.cwd))
+        pid_file.write_text(str(process.pid), encoding="utf-8")
+        try:
+            process.wait()
+        except KeyboardInterrupt:
+            if process.poll() is None:
+                process.terminate()
+                try:
+                    process.wait(timeout=6)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+            raise SystemExit(130)
+        finally:
+            _remove_pid_file(pid_file)
+        if process.returncode in {-15, 143}:
+            return
+        if process.returncode:
+            raise subprocess.CalledProcessError(process.returncode, resolved_args)
+        return
+    subprocess.run(resolved_args, cwd=str(step.cwd), check=True)
+
+
 def run_steps(steps: list[BootstrapStep], dry_run: bool = False) -> None:
+    pid_file = Path(os.environ["FALCON_WEB_PID_FILE"]) if os.environ.get("FALCON_WEB_PID_FILE") else None
     for step in steps:
-        command = " ".join(step.args)
-        print(f"\n==> {step.label}")
-        print(f"cwd: {step.cwd}")
-        print(command)
         if dry_run:
+            command = " ".join(step.args)
+            print(f"\n==> {step.label}")
+            print(f"cwd: {step.cwd}")
+            print(command)
             continue
-        subprocess.run(resolve_step_args(step.args), cwd=str(step.cwd), check=True)
+        _run_step(step, pid_file=pid_file)
 
 
 def main(argv: Optional[list[str]] = None) -> int:
@@ -118,6 +161,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         db_path = project_root / db_path
     for path in [project_root / "data", project_root / "runtime" / "collector", project_root / "browser-profiles"]:
         path.mkdir(parents=True, exist_ok=True)
+    os.environ["FALCON_WEB_PID_FILE"] = str(pid_file_path(project_root))
 
     selected_port = args.port if args.doctor_only else choose_available_port(args.host, args.port)
     if selected_port != args.port:
