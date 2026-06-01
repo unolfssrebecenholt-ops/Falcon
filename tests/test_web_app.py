@@ -1725,10 +1725,74 @@ class WebAppTest(unittest.TestCase):
             self.assertIn('class="table-wrap sample-table-wrap"', response.text)
             self.assertIn('class="run-ledger timeline-ledger"', response.text)
             self.assertIn('class="run-ledger asset-evidence-ledger"', response.text)
-            self.assertIn('data-visible-rows="7"', response.text)
-            self.assertIn("显示 7 条", response.text)
+            self.assertIn('data-visible-rows="4"', response.text)
+            self.assertIn("显示 4 条", response.text)
             self.assertLess(response.text.index("采集样本"), response.text.index("事件链"))
             assert_no_legacy_collection_markers(self, response.text)
+
+    def test_collector_run_detail_uses_compact_premium_information_architecture(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "falcon.sqlite3"
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="xhs-compact-detail",
+                    platform="xiaohongshu",
+                    keyword="内容表现",
+                    profile="default",
+                    status="completed",
+                    progress=100,
+                    current_step="采集完成",
+                )
+            )
+            post_id = repo.save_collected_post(
+                CollectedPost(
+                    run_id="xhs-compact-detail",
+                    platform="xiaohongshu",
+                    keyword="内容表现",
+                    title="高级感任务详情样本",
+                    content="Useful notes",
+                    url="https://example.test/post/compact",
+                    author="creator",
+                    detail_fingerprint="fp-compact",
+                )
+            )
+            repo.append_collection_event(
+                CollectionEvent(
+                    run_id="xhs-compact-detail",
+                    sequence=1,
+                    scope="search",
+                    event="open_search",
+                    message="Opened keyword search",
+                )
+            )
+            repo.save_media_asset(
+                MediaAsset(
+                    run_id="xhs-compact-detail",
+                    post_id=post_id,
+                    path="runtime/collector/xhs-compact-detail/assets/cover.jpg",
+                    asset_type="image",
+                    sha256="abc123",
+                )
+            )
+            client = TestClient(create_app(db_path))
+
+            response = client.get("/collector/runs/xhs-compact-detail")
+
+            self.assertEqual(response.status_code, 200)
+            self.assertIn('class="panel run-overview-card status-completed"', response.text)
+            self.assertIn("任务运行概览", response.text)
+            self.assertIn('class="run-overview-metrics"', response.text)
+            self.assertIn('class="sample-title-link"', response.text)
+            self.assertIn(f'href="/collector/runs/xhs-compact-detail/posts/{post_id}"', response.text)
+            self.assertNotIn("<th>操作</th>", response.text)
+            self.assertNotIn(">查看</a>", response.text)
+            self.assertIn('class="panel evidence-switch-panel"', response.text)
+            self.assertIn('class="evidence-tab-input"', response.text)
+            self.assertIn('id="detail-tab-events"', response.text)
+            self.assertIn('id="detail-tab-assets"', response.text)
+            self.assertLess(response.text.index("事件链"), response.text.index("资产 / 证据摘要"))
 
     def test_collector_run_detail_shows_evidence_payload_summary_without_platform_links(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1980,24 +2044,24 @@ class WebAppTest(unittest.TestCase):
             self.assertIn("<strong>5</strong>", response.text)
             self.assertIn("<strong>1 / 5</strong>", response.text)
 
-    def test_collector_run_detail_ledger_css_limits_panels_to_seven_scrollable_rows(self):
+    def test_collector_run_detail_ledger_css_limits_panels_to_four_scrollable_rows(self):
         css = (Path(__file__).resolve().parents[1] / "falcon" / "web" / "static" / "app.css").read_text(
             encoding="utf-8"
         )
 
         ledger_body_rule = css[css.index(".run-ledger-body {") : css.index(".run-ledger-body::-webkit-scrollbar {")]
 
-        self.assertIn("max-height: calc(7 * 64px)", ledger_body_rule)
+        self.assertIn("max-height: calc(4 * 64px)", ledger_body_rule)
         self.assertIn("overflow-y: auto", ledger_body_rule)
 
-    def test_collector_run_detail_sample_table_limits_to_seven_scrollable_rows(self):
+    def test_collector_run_detail_sample_table_limits_to_four_scrollable_rows(self):
         css = (Path(__file__).resolve().parents[1] / "falcon" / "web" / "static" / "app.css").read_text(
             encoding="utf-8"
         )
 
         sample_table_rule = css[css.index(".sample-table-wrap {") : css.index(".sample-table-wrap thead th {")]
 
-        self.assertIn("max-height: calc(43px + (7 * 56px))", sample_table_rule)
+        self.assertIn("max-height: calc(43px + (4 * 56px))", sample_table_rule)
         self.assertIn("overflow-y: auto", sample_table_rule)
         self.assertIn("scrollbar-width: thin", sample_table_rule)
 
@@ -2113,7 +2177,8 @@ class WebAppTest(unittest.TestCase):
             self.assertIn('data-status-filter="queued" aria-pressed="true"', filtered.text)
             self.assertIn("刚加入 1 个任务", filtered.text)
             self.assertEqual(detail.status_code, 200)
-            self.assertIn('class="run-state-banner status-queued"', detail.text)
+            self.assertIn('class="panel run-overview-card status-queued"', detail.text)
+            self.assertIn("任务运行概览", detail.text)
             self.assertIn('action="/collector/runs/xhs-queued/start"', detail.text)
 
     def test_collector_failed_status_filter_is_defaulted_from_query(self):

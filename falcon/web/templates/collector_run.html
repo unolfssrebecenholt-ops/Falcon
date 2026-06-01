@@ -29,46 +29,48 @@
 </div>
 {% endif %}
 
-<section class="run-hero status-{{ run.status }}">
-  <div class="run-hero-main">
-    <span class="status-dot"></span>
-    <div>
-      <span class="subtext">生命周期状态</span>
-      <strong>{{ run|run_state_title }}</strong>
-      {% if manual_action_reason == "profile_window_busy" %}
-      <p>关闭已打开的 {{ run.platform }}/{{ run.profile }} 浏览器窗口后，再点击“继续采集”。</p>
-      {% else %}
-      <p>{{ run|run_state_detail }}</p>
-      {% endif %}
+<section class="panel run-overview-card status-{{ run.status }}">
+  <div class="run-overview-main">
+    <div class="run-overview-title">
+      <span class="status-dot"></span>
+      <div>
+        <span class="subtext">任务运行概览</span>
+        <h2>{{ run|run_state_title }}</h2>
+        {% if manual_action_reason == "profile_window_busy" %}
+        <p>关闭已打开的 {{ run.platform }}/{{ run.profile }} 浏览器窗口后，再点击“继续采集”。</p>
+        {% else %}
+        <p>{{ run|run_state_detail }}</p>
+        {% endif %}
+      </div>
     </div>
-  </div>
-  <div class="run-hero-meta">
-    <span class="status-badge status-{{ run.status }}"><i></i>{{ run.status|collector_status }}</span>
-    <span>{{ run|run_progress_stage }}</span>
-  </div>
-</section>
-
-<section class="metrics run-metrics">
-  <div class="metric"><span>开启时间</span><strong class="fit-text">{{ run.created_at|readable_time }}</strong></div>
-  <div class="metric"><span>运行时长</span><strong>{{ run|run_duration }}</strong></div>
-  <div class="metric"><span>资源占用</span><strong class="fit-text">{{ run|run_resource }}</strong></div>
-  <div class="metric"><span>采样范围</span><strong>{{ run.max_posts }} / {{ run.max_comments_per_post }}</strong></div>
-  <div class="metric"><span>跳过卡片数</span><strong>{{ waterfall_report.skipped_cards }}</strong></div>
-  <div class="metric"><span>触发阈值数</span><strong>{{ waterfall_report.threshold_triggers }} / {{ waterfall_report.recovery_threshold }}</strong></div>
-</section>
-
-<section class="run-state-banner status-{{ run.status }}">
-  <div class="run-state-main">
-    <span class="status-dot"></span>
-    <div>
-      <strong>当前阻塞点</strong>
-      <p>{{ run.current_step|collector_step }}</p>
+    <div class="run-overview-context">
+      <div>
+        <span>当前阻塞点</span>
+        <strong>{{ run.current_step|collector_step }}</strong>
+      </div>
+      <div>
+        <span>任务来源</span>
+        <strong>{{ run.platform|platform_label }} / {{ run.keyword }}</strong>
+      </div>
       {% if run.failed_reason %}
       <p class="alert">{{ run.failed_reason }}</p>
       {% endif %}
     </div>
   </div>
-  <div class="run-actions">
+  <div class="run-overview-side">
+    <div class="run-overview-state">
+      <span class="status-badge status-{{ run.status }}"><i></i>{{ run.status|collector_status }}</span>
+      <strong>{{ run|run_progress_stage }}</strong>
+    </div>
+    <div class="run-overview-metrics">
+      <div><span>开启时间</span><strong class="fit-text">{{ run.created_at|readable_time }}</strong></div>
+      <div><span>运行时长</span><strong>{{ run|run_duration }}</strong></div>
+      <div><span>资源占用</span><strong class="fit-text">{{ run|run_resource }}</strong></div>
+      <div><span>采样范围</span><strong>{{ run.max_posts }} / {{ run.max_comments_per_post }}</strong></div>
+      <div><span>跳过卡片数</span><strong>{{ waterfall_report.skipped_cards }}</strong></div>
+      <div><span>触发阈值数</span><strong>{{ waterfall_report.threshold_triggers }} / {{ waterfall_report.recovery_threshold }}</strong></div>
+    </div>
+    <div class="run-actions">
     {% if run|run_can_start %}
     <form class="inline-form" action="/collector/runs/{{ run.run_id }}/start" method="post">
       <button class="button primary" type="submit">启动采集</button>
@@ -104,6 +106,7 @@
       <button class="button" type="submit">归档</button>
     </form>
     {% endif %}
+    </div>
   </div>
 </section>
 
@@ -190,7 +193,7 @@
       <p class="muted">样本标题跳转到 Falcon 本地预览，不打开平台原始链接。</p>
     </div>
     <div class="sample-section-tools">
-      <span class="pill">{{ posts|length }} 条，显示 7 条</span>
+      <span class="pill">{{ posts|length }} 条，显示 4 条</span>
       <div class="sample-filter-toolbar" aria-label="相关性筛选">
         <button class="button small" type="button" data-relevance-filter="all">全部</button>
         <button class="button small" type="button" data-relevance-filter="excellent">优质</button>
@@ -200,10 +203,10 @@
       </div>
     </div>
   </div>
-  <div class="table-wrap sample-table-wrap" data-visible-rows="7">
+  <div class="table-wrap sample-table-wrap" data-visible-rows="4">
     <table>
       <thead>
-        <tr><th>等级</th><th>标题</th><th>作者</th><th>互动</th><th>相关性依据</th><th>数据完整度</th><th>下游处理</th><th>操作</th></tr>
+        <tr><th>等级</th><th>标题</th><th>作者</th><th>互动</th><th>相关性依据</th><th>完整度</th><th>下游</th></tr>
       </thead>
       <tbody>
         {% for item in posts %}
@@ -211,32 +214,42 @@
         {% set relevance = item.relevance %}
         <tr data-relevance-level="{{ relevance.effective_level }}">
           <td><span class="relevance-badge relevance-{{ relevance.effective_level }}">{{ relevance.effective_label }} {% if relevance.score >= 0 %}{{ relevance.score }}{% endif %}</span></td>
-          <td><a class="run-id" href="/collector/runs/{{ run.run_id }}/posts/{{ post.post_id }}">{{ post.title }}</a></td>
+          <td><a class="sample-title-link" href="/collector/runs/{{ run.run_id }}/posts/{{ post.post_id }}">{{ post.title }}</a></td>
           <td>{{ post.author or "-" }}</td>
           <td><span class="subtext">赞 {{ post.like_count or "0" }} · 藏 {{ post.collect_count or "0" }} · 评 {{ post.comment_count or "0" }}</span></td>
           <td>{{ relevance.reason }}</td>
           <td><span class="subtext">{{ "完整" if post.title and post.content and post.author else "待补全" }}</span></td>
           <td><span class="relevance-role role-{{ relevance.role }}">{{ relevance.role_label }}</span></td>
-          <td><a class="button small" href="/collector/runs/{{ run.run_id }}/posts/{{ post.post_id }}">查看</a></td>
         </tr>
         {% else %}
-        <tr><td colspan="8" class="muted">暂无样本。</td></tr>
+        <tr><td colspan="7" class="muted">暂无样本。</td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
 </section>
 
-<section class="detail-grid">
-  <section class="panel">
-    <div class="section-head">
-      <div>
-        <h2>事件链</h2>
-        <p class="muted">保留原始执行顺序，按采集总览任务列表的密度展示；超过 7 条在面板内滚动。</p>
-      </div>
-      <span class="pill">{{ events|length }} 条，显示 7 条</span>
+<section class="panel evidence-switch-panel">
+  <div class="section-head">
+    <div>
+      <h2>事件链 / 资产证据</h2>
+      <p class="muted">执行顺序和本地证据合并查看，保持一页内快速复核。</p>
     </div>
-    <div class="run-ledger timeline-ledger" data-visible-rows="7">
+    <div class="evidence-switch-counts">
+      <span class="pill">{{ events|length }} 条事件</span>
+      <span class="pill">{{ assets|length + evidences|length }} 项证据</span>
+    </div>
+  </div>
+
+  <input class="evidence-tab-input" id="detail-tab-events" type="radio" name="detail-ledger-tab" checked>
+  <input class="evidence-tab-input" id="detail-tab-assets" type="radio" name="detail-ledger-tab">
+  <div class="evidence-tab-bar" role="tablist" aria-label="事件链与资产证据切换">
+    <label class="evidence-tab-label events-tab" for="detail-tab-events" role="tab">事件链</label>
+    <label class="evidence-tab-label assets-tab" for="detail-tab-assets" role="tab">资产 / 证据摘要</label>
+  </div>
+
+  <div class="evidence-tab-panel events-panel">
+    <div class="run-ledger timeline-ledger" data-visible-rows="4" aria-label="事件链，{{ events|length }} 条，显示 4 条">
       <div class="run-ledger-head">
         <span>#</span>
         <span>事件</span>
@@ -259,17 +272,10 @@
         {% endfor %}
       </div>
     </div>
-  </section>
+  </div>
 
-  <section class="panel">
-    <div class="section-head">
-      <div>
-        <h2>资产 / 证据摘要</h2>
-        <p class="muted">媒体文件和截图证据合并成可滚动摘要，便于判断这次采集是否可追溯。</p>
-      </div>
-      <span class="pill">{{ assets|length + evidences|length }} 项，显示 7 条</span>
-    </div>
-    <div class="run-ledger asset-evidence-ledger" data-visible-rows="7">
+  <div class="evidence-tab-panel assets-panel">
+    <div class="run-ledger asset-evidence-ledger" data-visible-rows="4" aria-label="资产 / 证据摘要，{{ assets|length + evidences|length }} 项，显示 4 条">
       <div class="run-ledger-head">
         <span>类型</span>
         <span>路径</span>
@@ -307,7 +313,7 @@
         {% endif %}
       </div>
     </div>
-  </section>
+  </div>
 </section>
 
 {% if run.status in ["queued", "running", "manual_action_required"] %}
