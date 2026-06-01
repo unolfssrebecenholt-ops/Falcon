@@ -300,6 +300,51 @@ def latest_manual_action_payload(events: list[CollectionEvent]) -> dict:
     return {}
 
 
+def _event_payload(event: CollectionEvent) -> dict:
+    try:
+        payload = json.loads(event.payload_json or "{}")
+    except json.JSONDecodeError:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _payload_int(payload: dict, key: str) -> Optional[int]:
+    try:
+        value = int(payload.get(key))
+    except (TypeError, ValueError):
+        return None
+    return value if value >= 0 else None
+
+
+def waterfall_recovery_report(events: list[CollectionEvent]) -> dict:
+    skipped_cards = 0
+    threshold_triggers = 0
+    recovery_threshold = 5
+    skipped_events = 0
+    threshold_events = 0
+    for event in events:
+        payload = _event_payload(event)
+        threshold_value = _payload_int(payload, "recovery_threshold")
+        if threshold_value:
+            recovery_threshold = threshold_value
+        if event.event == "waterfall_target_skipped":
+            skipped_events += 1
+            skipped_cards = max(skipped_cards, skipped_events, _payload_int(payload, "skipped_cards") or 0)
+        if event.event == "waterfall_missing_threshold_recovery":
+            threshold_events += 1
+            threshold_triggers = max(
+                threshold_triggers,
+                threshold_events,
+                _payload_int(payload, "threshold_triggers") or 0,
+            )
+            skipped_cards = max(skipped_cards, _payload_int(payload, "skipped_cards") or 0)
+    return {
+        "skipped_cards": skipped_cards,
+        "threshold_triggers": threshold_triggers,
+        "recovery_threshold": recovery_threshold,
+    }
+
+
 def collector_search_context_url(run: CollectionRun) -> str:
     if run.platform == "xiaohongshu" and run.keyword:
         query = urlencode({"keyword": run.keyword, "source": "web_search_result_notes"})
@@ -329,17 +374,19 @@ def reopenable_manual_action_url(candidate: str, run: CollectionRun) -> str:
 
 
 def manual_action_payload_url_candidates(payload: dict) -> list[str]:
-    candidates = [
-        str(payload.get("manual_action_url") or ""),
-        str(payload.get("search_url") or ""),
-        str(payload.get("url") or ""),
-    ]
+    candidates = [str(payload.get("manual_action_url") or "")]
     matched_signals = payload.get("matched_signals")
+    target_signal_candidates = []
+    search_signal_candidates = []
     if isinstance(matched_signals, list):
         for signal in matched_signals:
             if not isinstance(signal, dict):
                 continue
-            candidates.extend([str(signal.get("search_url") or ""), str(signal.get("target_url") or "")])
+            target_signal_candidates.append(str(signal.get("target_url") or ""))
+            search_signal_candidates.append(str(signal.get("search_url") or ""))
+    candidates.extend([str(payload.get("search_url") or ""), str(payload.get("url") or "")])
+    candidates.extend(search_signal_candidates)
+    candidates.extend(target_signal_candidates)
     return [candidate for candidate in candidates if candidate]
 
 
@@ -536,11 +583,23 @@ def create_app(
     def safety_lock_run_url(run: CollectionRun) -> str:
         return f"/collector/runs/{run.run_id}?run_notice=safety_locked"
 
+    def run_notice_title(action: str) -> str:
+        if action == "safety_locked":
+            return "采集启动已被账号保护拦截"
+        if action == "start_stale_failed":
+            return "采集任务已经失败"
+        return ""
+
     def run_notice_message(action: str, run: CollectionRun) -> str:
         if action == "safety_locked":
             return (
                 f"账号风控熔断锁正在保护 {run.platform}/{run.profile}，Falcon 已停止启动采集。"
                 "请先在账号管理确认账号状态，必要时打开登录窗口处理平台提示，再手动解除熔断。"
+            )
+        if action == "start_stale_failed":
+            return (
+                "这个任务在页面提交启动前已经由队列 worker 启动过，并且采集器已返回失败。"
+                "请查看下方失败原因；需要继续采集时，请使用“重新运行”创建新的任务。"
             )
         return ""
 
@@ -1082,7 +1141,6 @@ def create_app(
                 "runs": runs,
                 "queued_runs": queued_runs,
                 "queue_health": _queue_health(dashboard, queued_runs),
-                "focus_items": _collector_focus_items(runs),
                 "calendar_state": calendar_state,
                 "environment_ready": doctor_report.required_ok,
                 **collector_create_context(repository),
@@ -1368,12 +1426,14 @@ def create_app(
                 "run": run,
                 "events": events,
                 "manual_action_reason": latest_manual_action_reason(events),
+                "run_notice_title": run_notice_title(run_notice),
                 "run_notice": run_notice_message(run_notice, run),
                 "run_notice_action_url": safety_lock_accounts_url(run.platform, run.profile)
                 if run_notice == "safety_locked"
                 else "",
                 "posts": posts_with_relevance(collected_posts),
                 "relevance_summary": relevance_summary(collected_posts),
+                "waterfall_report": waterfall_recovery_report(events),
                 "manual_action_context": manual_action_context(repository, run, events, evidences),
                 "assets": assets,
                 "evidences": evidences,
@@ -1398,6 +1458,8 @@ def create_app(
         if run.status == "running":
             return RedirectResponse(f"/collector/runs/{run_id}", status_code=303)
         if not run_can_start(run):
+            if run.status == "failed":
+                return RedirectResponse(f"/collector/runs/{run_id}?run_notice=start_stale_failed", status_code=303)
             raise HTTPException(status_code=400, detail=f"Collection run cannot start from status: {run.status}")
         if profile_is_busy(repository, run):
             raise HTTPException(status_code=400, detail="Collector profile is already busy")
@@ -1965,42 +2027,6 @@ def _queue_health(stats, queued_runs):
         "failed_label": f"{failed_count} 个失败 run 可复跑" if failed_count else "无失败 run",
         "queued_label": f"{queued_count} 个等待启动" if queued_count else "队列空闲",
     }
-
-
-def _collector_focus_items(runs):
-    focus_specs = [
-        {
-            "status": "manual_action_required",
-            "kind": "manual",
-            "label": "等待人工",
-            "action": "open-manual-action",
-            "action_label": "打开处理窗口",
-            "detail": "登录、扫码或验证会阻塞采集，优先处理后再复跑。",
-        },
-        {
-            "status": "failed",
-            "kind": "failed",
-            "label": "失败可复跑",
-            "action": "rerun",
-            "action_label": "重新运行",
-            "detail": "复跑会生成新的 run 和证据链，原失败记录保留。",
-        },
-        {
-            "status": "queued",
-            "kind": "queued",
-            "label": "待启动",
-            "action": "start",
-            "action_label": "启动采集",
-            "detail": "任务已准备请求，启动后会占用对应平台账号 profile。",
-        },
-    ]
-    items = []
-    for spec in focus_specs:
-        run = next((item for item in runs if item.status == spec["status"]), None)
-        if run is None:
-            continue
-        items.append({**spec, "run": run})
-    return items
 
 
 def _collector_calendar_state(runs):

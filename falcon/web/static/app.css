@@ -1498,7 +1498,7 @@ code {
 
 .status-strip {
   display: grid;
-  grid-template-columns: minmax(220px, 1.3fr) repeat(4, minmax(120px, 0.7fr));
+  grid-template-columns: minmax(220px, 1.3fr) repeat(5, minmax(112px, 0.7fr));
   gap: 1px;
   overflow: hidden;
   border: 1px solid var(--line);
@@ -1511,6 +1511,17 @@ code {
   min-height: 88px;
   padding: 14px 16px;
   background: rgba(35, 50, 59, 0.94);
+}
+
+.status-cell-link {
+  display: block;
+  color: inherit;
+  text-decoration: none;
+  transition: background 160ms ease, color 160ms ease, box-shadow 160ms ease;
+}
+
+.status-cell-link:hover {
+  background: rgba(209, 162, 77, 0.08);
 }
 
 .status-cell span,
@@ -1529,6 +1540,10 @@ code {
 
 .status-cell.lead strong {
   color: var(--accent);
+}
+
+.status-cell-failed strong {
+  color: var(--danger);
 }
 
 .status-cell.lead p {
@@ -6271,7 +6286,7 @@ textarea:focus {
 .metric-row,
 .metrics {
   display: grid;
-  grid-template-columns: repeat(4, minmax(140px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   gap: 12px;
   margin-bottom: 16px;
 }
@@ -6537,6 +6552,13 @@ textarea:focus {
   color: var(--muted);
 }
 
+.page[data-view="collector"] .status-cell-link:hover {
+  background:
+    linear-gradient(135deg, rgba(200, 91, 74, 0.09), rgba(239, 247, 246, 0.48)),
+    rgba(247, 251, 250, 0.72);
+  box-shadow: inset 0 -3px 0 rgba(200, 91, 74, 0.38), inset 0 1px 0 rgba(255, 255, 255, 0.64);
+}
+
 .page[data-view="collector"] .status-cell strong {
   color: var(--ink-strong);
 }
@@ -6545,11 +6567,16 @@ textarea:focus {
   color: var(--accent-dark);
 }
 
+.page[data-view="collector"] .status-cell-failed strong {
+  color: var(--danger);
+}
+
 .page[data-view="collector"] .platform-card,
 .page[data-view="collector"] .focus-item,
 .page[data-view="collector"] .focus-empty,
 .page[data-view="collector"] .overview-entry-card,
 .page[data-view="collector"] .recent-run-item,
+.page[data-view="collector"] .running-attention-list a,
 .page[data-view="collector"] .health-item,
 .page[data-view="collector"] .health-metrics div,
 .page[data-view="collector"] .health-action {
@@ -6576,6 +6603,14 @@ textarea:focus {
   box-shadow: 0 14px 30px rgba(164, 122, 47, 0.13), inset 0 1px 0 rgba(255, 255, 255, 0.58);
 }
 
+.page[data-view="collector"] .running-attention-list a {
+  border-color: rgba(209, 162, 77, 0.34);
+  background:
+    linear-gradient(135deg, rgba(209, 162, 77, 0.16), rgba(10, 166, 194, 0.055)),
+    rgba(247, 251, 250, 0.68);
+  box-shadow: inset 4px 0 0 rgba(209, 162, 77, 0.62), inset 0 1px 0 rgba(255, 255, 255, 0.64);
+}
+
 .page[data-view="collector"] .platform-card.has-running h3 .pill {
   border-color: rgba(209, 162, 77, 0.46);
   background: rgba(255, 249, 235, 0.64);
@@ -6589,12 +6624,22 @@ textarea:focus {
 
 .page[data-view="collector"] .focus-item:hover,
 .page[data-view="collector"] .recent-run-item:hover,
+.page[data-view="collector"] .running-attention-list a:hover,
 .page[data-view="collector"] .overview-entry-card:hover,
 .page[data-view="collector"] .health-action:hover {
   border-color: rgba(10, 166, 194, 0.34);
   background:
     linear-gradient(135deg, rgba(10, 166, 194, 0.12), rgba(32, 185, 137, 0.066)),
     rgba(239, 247, 246, 0.54);
+}
+
+.page[data-view="collector"] .running-attention-list span,
+.page[data-view="collector"] .running-attention-list em {
+  color: #5f7481;
+}
+
+.page[data-view="collector"] .running-attention-list strong {
+  color: var(--ink-strong);
 }
 
 .page[data-view="collector"] .focus-item-manual,
@@ -8276,6 +8321,7 @@ textarea:focus {
 
   .page[data-view="collector"] .status-cell,
   .page[data-view="collector"] .status-cell.lead,
+  .page[data-view="collector"] .status-cell-link,
   .page[data-view="collector"] .health-metrics div,
   .page[data-view="collector"] .platform-card,
   .page[data-view="collector"] .platform-card.active,
@@ -8318,6 +8364,10 @@ textarea:focus {
 
   .page[data-view="collector"] .status-cell.lead strong {
     color: var(--accent-dark);
+  }
+
+  .page[data-view="collector"] .status-cell-failed strong {
+    color: #b84e43;
   }
 }
 

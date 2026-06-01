@@ -1494,6 +1494,38 @@ console.log(JSON.stringify({
         self.assertIn("Profile", events[-1]["message"])
         self.assertNotIn("launchPersistentContext", events[-1]["message"])
 
+    def test_xiaohongshu_early_browser_close_keeps_run_manual_action(self):
+        env = {
+            **dict(os.environ),
+            "FALCON_COLLECTOR_FORCE_EARLY_BROWSER_CLOSE": "1",
+        }
+        result, events_path, records_path, assets_dir = self.run_sidecar(
+            {
+                "schema_version": 1,
+                "run_id": "run-early-browser-close",
+                "platform": "xiaohongshu",
+                "profile": "default",
+                "keyword": "账号增长",
+                "max_posts": 1,
+                "max_comments_per_post": 0,
+                "headed": True,
+                "dry_run": False,
+            },
+            env=env,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(assets_dir.is_dir())
+        self.assertTrue(records_path.exists())
+
+        events = read_jsonl(events_path)
+        records = read_jsonl(records_path)
+        self.assertEqual(events[-1]["event"], "manual_action_required")
+        self.assertEqual(events[-1]["payload"]["reason"], "browser_closed_early")
+        self.assertIn("窗口状态", events[-1]["message"])
+        self.assertIn("manual_action_snapshot", {record.get("scope") for record in records})
+        self.assertNotIn("run_failed", {event["event"] for event in events})
+
     def test_xiaohongshu_selects_existing_platform_page_over_blank_tab(self):
         script = r"""
 import { selectUsableBrowserPage } from "./sidecar/collector/xiaohongshu.mjs";
@@ -1713,9 +1745,9 @@ console.log(JSON.stringify({
         self.assertIn("closed123", payload["events"][-1]["payload"]["url"])
         self.assertIn(["detail-close"], payload["calls"])
 
-    def test_xiaohongshu_missing_waterfall_target_records_manual_scene(self):
+    def test_xiaohongshu_missing_waterfall_target_returns_skip_without_manual_scene(self):
         script = r"""
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { collectDetailRecords } from "./sidecar/collector/xiaohongshu.mjs";
@@ -1780,14 +1812,14 @@ const outcome = await collectDetailRecords({
   ],
 });
 
-const snapshotPath = join(assetsPath, "manual-action-waterfall_target_missing-snapshot.json");
-const snapshot = JSON.parse(readFileSync(snapshotPath, "utf8"));
 console.log(JSON.stringify({
   stopped: outcome.stopped,
+  skipped: outcome.skipped,
+  missingTarget: outcome.missingTarget,
   scopes: outcome.records.map((record) => record.scope),
-  lastEvent: events.at(-1),
-  snapshotUrl: snapshot.url,
-  screenshotExists: existsSync(join(assetsPath, "manual-action-waterfall_target_missing.png")),
+  eventNames: events.map((event) => event.event),
+  manualSnapshotExists: existsSync(join(assetsPath, "manual-action-waterfall_target_missing-snapshot.json")),
+  manualScreenshotExists: existsSync(join(assetsPath, "manual-action-waterfall_target_missing.png")),
   calls,
 }));
 rmSync(assetsPath, { recursive: true, force: true });
@@ -1803,15 +1835,120 @@ rmSync(assetsPath, { recursive: true, force: true });
 
         self.assertEqual(result.returncode, 0, result.stderr)
         payload = json.loads(result.stdout)
-        self.assertTrue(payload["stopped"])
+        self.assertFalse(payload["stopped"])
+        self.assertTrue(payload["skipped"])
+        self.assertTrue(payload["missingTarget"])
         self.assertIn("detail_error_screenshot", payload["scopes"])
-        self.assertIn("manual_action_snapshot", payload["scopes"])
-        self.assertIn("manual_action_screenshot", payload["scopes"])
-        self.assertEqual(payload["lastEvent"]["event"], "manual_action_required")
-        self.assertEqual(payload["lastEvent"]["payload"]["reason"], "waterfall_target_missing")
-        self.assertEqual(payload["lastEvent"]["payload"]["url"], "https://www.xiaohongshu.com/search_result?keyword=avatar")
-        self.assertEqual(payload["snapshotUrl"], "https://www.xiaohongshu.com/search_result?keyword=avatar")
-        self.assertTrue(payload["screenshotExists"])
+        self.assertNotIn("manual_action_snapshot", payload["scopes"])
+        self.assertNotIn("manual_action_screenshot", payload["scopes"])
+        self.assertNotIn("manual_action_required", payload["eventNames"])
+        self.assertFalse(payload["manualSnapshotExists"])
+        self.assertFalse(payload["manualScreenshotExists"])
+
+    def test_xiaohongshu_missing_waterfall_targets_skip_and_recover_after_threshold(self):
+        script = r"""
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { collectWaterfallRecords, normalizeCollectorRequest } from "./sidecar/collector/xiaohongshu.mjs";
+
+const runRoot = mkdtempSync(join(tmpdir(), "falcon-waterfall-skip-"));
+const assetsPath = join(runRoot, "assets");
+mkdirSync(assetsPath, { recursive: true });
+const calls = [];
+const events = [];
+const empty = {
+  first() { return this; },
+  nth() { return this; },
+  locator() { return this; },
+  async count() { return 0; },
+  async all() { return []; },
+  async boundingBox() { return null; },
+  async innerText() { return ""; },
+  async textContent() { return ""; },
+  async getAttribute() { return ""; },
+};
+const searchPage = {
+  viewportSize() { return { width: 1366, height: 1000 }; },
+  locator(selector) { calls.push(["locator", selector]); return empty; },
+  waitForEvent(event, options) { calls.push(["waitForEvent", event, options.timeout]); return Promise.resolve(null); },
+  mouse: {
+    async move() {},
+    async click() {},
+    async wheel(_x, y) { calls.push(["wheel", y]); },
+  },
+  keyboard: { async press(key) { calls.push(["press", key]); } },
+  async waitForLoadState() {},
+  async waitForTimeout() {},
+  async screenshot(options) { writeFileSync(options.path, "screenshot"); },
+  async title() { return "search"; },
+  url() { return "https://www.xiaohongshu.com/search_result?keyword=avatar"; },
+};
+const request = normalizeCollectorRequest({
+  run_id: "waterfall-skip-run",
+  platform: "xiaohongshu",
+  profile: "default",
+  keyword: "avatar",
+  max_posts: 6,
+  max_comments_per_post: 0,
+  checkpoint_enabled: true,
+  pace: {
+    max_relocate_scrolls: 1,
+    waterfall_missing_recovery_threshold: 5,
+    scroll_delay_range_seconds: [0, 0],
+    scroll_distance_viewport_range: [0.5, 0.5],
+    click_delay_range_ms: [0, 0],
+    batch_rest_after_cards_range: [99, 99],
+    batch_rest_seconds_range: [0, 0],
+  },
+});
+
+const missingPosts = Array.from({ length: 5 }, (_, index) => ({
+  postId: `xiaohongshu:missing12${index}`,
+  url: `https://www.xiaohongshu.com/explore/missing12${index}`,
+  title: "missing",
+}));
+const outcome = await collectWaterfallRecords({
+  context: {},
+  searchPage,
+  request,
+  assetsPath,
+  events: {
+    write(level, scope, event, message, payload) {
+      events.push({ level, scope, event, message, payload });
+    },
+  },
+  initialPosts: missingPosts,
+});
+
+const checkpoint = JSON.parse(readFileSync(join(runRoot, "checkpoint.json"), "utf8"));
+console.log(JSON.stringify({ outcome, events, calls, checkpoint }));
+rmSync(runRoot, { recursive: true, force: true });
+"""
+        result = subprocess.run(
+            ["node", "--input-type=module", "-e", script],
+            cwd=ROOT,
+            text=True,
+            encoding="utf-8",
+            capture_output=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        event_names = [event["event"] for event in payload["events"]]
+        self.assertFalse(payload["outcome"]["stopped"])
+        self.assertNotIn("manual_action_required", event_names)
+        self.assertEqual(event_names.count("waterfall_target_skipped"), 5)
+        skipped_events = [event for event in payload["events"] if event["event"] == "waterfall_target_skipped"]
+        self.assertTrue(skipped_events)
+        self.assertNotIn("target_url", skipped_events[0]["payload"])
+        self.assertIn("waterfall_missing_threshold_recovery", event_names)
+        self.assertEqual(payload["checkpoint"]["waterfall_missing_skipped"], 5)
+        self.assertEqual(payload["checkpoint"]["waterfall_missing_threshold_triggers"], 1)
+        self.assertEqual(payload["outcome"]["waterfall_missing_skipped"], 5)
+        self.assertEqual(payload["outcome"]["waterfall_missing_threshold_triggers"], 1)
+        self.assertIn(["wheel", 500], payload["calls"])
 
     def test_xiaohongshu_open_detail_page_does_not_trigger_login_false_positive(self):
         script = r"""

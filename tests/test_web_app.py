@@ -195,6 +195,15 @@ class WebAppTest(unittest.TestCase):
                     status="completed",
                 )
             )
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="xhs-latest-failed",
+                    platform="xiaohongshu",
+                    keyword="失败复查",
+                    profile="default",
+                    status="failed",
+                )
+            )
             client = TestClient(create_app(db_path))
 
             response = client.get("/collector")
@@ -205,7 +214,11 @@ class WebAppTest(unittest.TestCase):
             self.assertIn('class="running-attention-banner"', response.text)
             self.assertIn('class="platform-card active has-running"', response.text)
             self.assertIn("xhs-running", response.text)
+            self.assertIn("失败任务", response.text)
+            self.assertIn('href="/collector/runs?status=failed"', response.text)
             self.assertIn('class="panel recent-runs-panel"', response.text)
+            self.assertNotIn('class="panel focus-panel"', response.text)
+            self.assertNotIn("待处理焦点", response.text)
             self.assertLess(
                 response.text.index('class="panel recent-runs-panel"'),
                 response.text.index('class="overview-column overview-column-right"'),
@@ -341,6 +354,15 @@ class WebAppTest(unittest.TestCase):
                     status="completed",
                 )
             )
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="xhs-v3-running-chip",
+                    platform="xiaohongshu",
+                    keyword="ai氛围感女",
+                    profile="default",
+                    status="running",
+                )
+            )
             client = TestClient(create_app(db_path))
 
             response = client.get("/collector")
@@ -350,8 +372,15 @@ class WebAppTest(unittest.TestCase):
             marker = "/* v3 collector card light overrides keep overview cards off the old slate palette. */"
 
             self.assertEqual(response.status_code, 200)
-            for html_class in ("status-cell", "focus-item", "recent-run-item", "platform-card", "health-metrics"):
+            for html_class in (
+                "status-cell",
+                "recent-run-item",
+                "platform-card",
+                "health-metrics",
+                "running-attention-list",
+            ):
                 self.assertIn(html_class, response.text)
+            self.assertNotIn("focus-item", response.text)
             self.assertIn(marker, css)
             override = css[css.index(marker) :]
             self.assertGreater(css.index(marker), css.index(".recent-run-item {"))
@@ -359,6 +388,7 @@ class WebAppTest(unittest.TestCase):
                 ".status-cell",
                 ".focus-item",
                 ".recent-run-item",
+                ".running-attention-list a",
                 ".platform-card",
                 ".health-metrics div",
                 ".health-action",
@@ -962,7 +992,7 @@ class WebAppTest(unittest.TestCase):
             self.assertEqual(launches, ["xhs-next-after-release"])
             self.assertIn("queue_worker_dispatched", next_events)
 
-    def test_collector_overview_shows_actionable_focus_panel(self):
+    def test_collector_overview_removes_actionable_focus_panel(self):
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "falcon.sqlite3"
             repo = FalconRepository(db_path)
@@ -986,14 +1016,13 @@ class WebAppTest(unittest.TestCase):
             response = client.get("/collector")
 
             self.assertEqual(response.status_code, 200)
-            self.assertIn('class="panel focus-panel"', response.text)
-            self.assertIn("待处理焦点", response.text)
-            self.assertIn("xhs-focus-manual", response.text)
-            self.assertIn("xhs-focus-failed", response.text)
-            self.assertIn("xhs-focus-queued", response.text)
-            self.assertIn('action="/collector/runs/xhs-focus-manual/open-manual-action"', response.text)
-            self.assertIn('action="/collector/runs/xhs-focus-failed/rerun"', response.text)
-            self.assertIn('action="/collector/runs/xhs-focus-queued/start"', response.text)
+            self.assertNotIn('class="panel focus-panel"', response.text)
+            self.assertNotIn("待处理焦点", response.text)
+            self.assertNotIn('action="/collector/runs/xhs-focus-manual/open-manual-action"', response.text)
+            self.assertNotIn('action="/collector/runs/xhs-focus-failed/rerun"', response.text)
+            self.assertNotIn('action="/collector/runs/xhs-focus-queued/start"', response.text)
+            self.assertIn("失败任务", response.text)
+            self.assertIn('href="/collector/runs?status=failed"', response.text)
 
     def test_collector_environment_page_shows_blocked_doctor_details(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1813,7 +1842,11 @@ class WebAppTest(unittest.TestCase):
                     scope="xiaohongshu",
                     event="manual_action_required",
                     message="target missing",
-                    payload_json='{"reason": "waterfall_target_missing", "url": "https://www.xiaohongshu.com/explore/65abc123"}',
+                    payload_json=(
+                        '{"reason": "waterfall_target_missing", '
+                        '"manual_action_url": "https://www.xiaohongshu.com/search_result/65abc123", '
+                        '"url": "https://www.xiaohongshu.com/explore/65abc123"}'
+                    ),
                 )
             )
             evidence_id = repo.save_evidence(
@@ -1832,10 +1865,120 @@ class WebAppTest(unittest.TestCase):
             self.assertIn('class="panel manual-action-context-panel"', response.text)
             self.assertIn(f'src="/collector/runs/xhs-manual-preview/evidences/{evidence_id}"', response.text)
             self.assertIn("waterfall_target_missing", response.text)
+            self.assertIn("search_result?keyword=", response.text)
             self.assertIn(
-                "https://www.xiaohongshu.com/search_result?keyword=%E5%86%85%E5%AE%B9%E8%A1%A8%E7%8E%B0&amp;source=web_search_result_notes",
+                "source=web_search_result_notes",
                 response.text,
             )
+            self.assertNotIn("https://www.xiaohongshu.com/explore/65abc123", response.text)
+
+    def test_collector_waterfall_target_missing_opens_search_scene(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "falcon.sqlite3"
+            profile_root = Path(tmp) / "browser-profiles"
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="xhs-waterfall-scene",
+                    platform="xiaohongshu",
+                    keyword="ai氛围感女",
+                    profile="default",
+                    status="manual_action_required",
+                    progress=50,
+                    current_step="瀑布流定位第 17/30 条时未能找回目标卡片。",
+                )
+            )
+            repo.append_collection_event(
+                CollectionEvent(
+                    run_id="xhs-waterfall-scene",
+                    sequence=1,
+                    scope="xiaohongshu",
+                    event="manual_action_required",
+                    message="target missing",
+                    payload_json=json.dumps(
+                        {
+                            "reason": "waterfall_target_missing",
+                            "url": "https://www.xiaohongshu.com/search_result?keyword=ai%25E6%25B0%259B%25E5%259B%25B4%25E6%2584%259F%25E5%25A5%25B3&source=web_explore_feed",
+                            "matched_signals": [
+                                {
+                                    "target_url": "https://www.xiaohongshu.com/explore/68ece859000000000302fdf7",
+                                    "search_url": "https://www.xiaohongshu.com/search_result?keyword=ai%25E6%25B0%259B%25E5%259B%25B4%25E6%2584%259F%25E5%25A5%25B3&source=web_explore_feed",
+                                }
+                            ],
+                        },
+                        ensure_ascii=False,
+                    ),
+                )
+            )
+            launches = []
+
+            def fake_launcher(**kwargs):
+                launches.append(kwargs)
+
+            client = TestClient(create_app(db_path, profile_root=profile_root, profile_login_launcher=fake_launcher))
+
+            detail = client.get("/collector/runs/xhs-waterfall-scene")
+            response = client.post("/collector/runs/xhs-waterfall-scene/open-manual-action", follow_redirects=False)
+
+            self.assertEqual(detail.status_code, 200)
+            self.assertIn(
+                "https://www.xiaohongshu.com/search_result?keyword=ai%25E6%25B0%259B%25E5%259B%25B4%25E6%2584%259F%25E5%25A5%25B3",
+                detail.text,
+            )
+            self.assertNotIn("https://www.xiaohongshu.com/explore/68ece859000000000302fdf7", detail.text)
+            self.assertEqual(response.status_code, 303)
+            self.assertEqual(len(launches), 1)
+            self.assertEqual(
+                launches[0]["url"],
+                "https://www.xiaohongshu.com/search_result?keyword=ai%25E6%25B0%259B%25E5%259B%25B4%25E6%2584%259F%25E5%25A5%25B3&source=web_explore_feed",
+            )
+
+    def test_collector_run_detail_shows_waterfall_recovery_report_metrics(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "falcon.sqlite3"
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="xhs-waterfall-report",
+                    platform="xiaohongshu",
+                    keyword="内容表现",
+                    profile="default",
+                    status="completed",
+                    progress=100,
+                    current_step="采集完成",
+                )
+            )
+            repo.append_collection_event(
+                CollectionEvent(
+                    run_id="xhs-waterfall-report",
+                    sequence=1,
+                    scope="xiaohongshu",
+                    event="waterfall_target_skipped",
+                    message="target missing",
+                    payload_json='{"skipped_cards": 3, "recovery_threshold": 5}',
+                )
+            )
+            repo.append_collection_event(
+                CollectionEvent(
+                    run_id="xhs-waterfall-report",
+                    sequence=2,
+                    scope="xiaohongshu",
+                    event="waterfall_missing_threshold_recovery",
+                    message="threshold recovery",
+                    payload_json='{"skipped_cards": 5, "threshold_triggers": 1, "recovery_threshold": 5}',
+                )
+            )
+            client = TestClient(create_app(db_path))
+
+            response = client.get("/collector/runs/xhs-waterfall-report")
+
+            self.assertEqual(response.status_code, 200)
+            self.assertIn("跳过卡片数", response.text)
+            self.assertIn("触发阈值数", response.text)
+            self.assertIn("<strong>5</strong>", response.text)
+            self.assertIn("<strong>1 / 5</strong>", response.text)
 
     def test_collector_run_detail_ledger_css_limits_panels_to_seven_scrollable_rows(self):
         css = (Path(__file__).resolve().parents[1] / "falcon" / "web" / "static" / "app.css").read_text(
@@ -1973,6 +2116,29 @@ class WebAppTest(unittest.TestCase):
             self.assertIn('class="run-state-banner status-queued"', detail.text)
             self.assertIn('action="/collector/runs/xhs-queued/start"', detail.text)
 
+    def test_collector_failed_status_filter_is_defaulted_from_query(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "falcon.sqlite3"
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="xhs-failed-filter",
+                    platform="xiaohongshu",
+                    keyword="失败复查",
+                    profile="default",
+                    status="failed",
+                )
+            )
+            client = TestClient(create_app(db_path))
+
+            response = client.get("/collector/runs?status=failed")
+
+            self.assertEqual(response.status_code, 200)
+            self.assertIn('data-status-filter="all" aria-pressed="false"', response.text)
+            self.assertIn('data-status-filter="failed" aria-pressed="true"', response.text)
+            self.assertIn('data-status="failed"', response.text)
+
     def test_collector_queue_running_and_failed_status_badges_are_prominent(self):
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "falcon.sqlite3"
@@ -2080,6 +2246,43 @@ class WebAppTest(unittest.TestCase):
             self.assertIn("profile is already busy", response.text)
             self.assertEqual(run.status, "queued")
             self.assertEqual(launches, [])
+
+    def test_collector_start_redirects_stale_failed_run_to_detail_notice(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "falcon.sqlite3"
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="xhs-stale-failed-start",
+                    platform="xiaohongshu",
+                    keyword="content ops",
+                    profile="default",
+                    status="failed",
+                    progress=15,
+                    current_step="采集器失败",
+                    failed_reason="page.waitForTimeout: Target page, context or browser has been closed",
+                )
+            )
+            launches = []
+            client = TestClient(create_app(db_path, collector_run_launcher=lambda run_id: launches.append(run_id)))
+
+            response = client.post("/collector/runs/xhs-stale-failed-start/start", follow_redirects=False)
+            detail = client.get(response.headers["location"])
+
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            run = repo.get_collection_run("xhs-stale-failed-start")
+            self.assertEqual(response.status_code, 303)
+            self.assertEqual(
+                response.headers["location"],
+                "/collector/runs/xhs-stale-failed-start?run_notice=start_stale_failed",
+            )
+            self.assertEqual(run.status, "failed")
+            self.assertEqual(launches, [])
+            self.assertIn("采集任务已经失败", detail.text)
+            self.assertIn("page.waitForTimeout", detail.text)
+            self.assertIn('action="/collector/runs/xhs-stale-failed-start/rerun"', detail.text)
 
     def test_collector_start_and_resume_redirect_safety_locked_profile_to_friendly_notice(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -2298,7 +2501,7 @@ class WebAppTest(unittest.TestCase):
             self.assertIn("close the existing profile window", response.text)
             self.assertEqual(launches, [])
 
-    def test_collector_manual_action_window_does_not_reopen_blocked_post_url(self):
+    def test_collector_manual_action_window_rejects_post_url_for_target_missing_scene(self):
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "falcon.sqlite3"
             profile_root = Path(tmp) / "browser-profiles"
@@ -2322,7 +2525,7 @@ class WebAppTest(unittest.TestCase):
                     scope="xiaohongshu",
                     event="manual_action_required",
                     message="blocked",
-                    payload_json='{"url": "https://www.xiaohongshu.com/explore/65abc123"}',
+                    payload_json='{"reason": "waterfall_target_missing", "url": "https://www.xiaohongshu.com/explore/65abc123"}',
                 )
             )
             launches = []
@@ -2340,6 +2543,8 @@ class WebAppTest(unittest.TestCase):
                 launches[0]["url"],
                 "https://www.xiaohongshu.com/search_result?keyword=%E5%86%85%E5%AE%B9%E8%A1%A8%E7%8E%B0&source=web_search_result_notes",
             )
+            self.assertNotEqual(launches[0]["url"], "https://www.xiaohongshu.com/explore/65abc123")
+            self.assertNotEqual(launches[0]["url"], "https://www.xiaohongshu.com/search_result/65abc123")
 
     def test_collector_manual_action_can_resume_same_run_after_user_finishes(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -5,7 +5,7 @@
   <div>
     <div class="eyebrow">collector overview</div>
     <h1>采集作战台</h1>
-    <p>采集总览只放本机状态、今日概况、待处理焦点和关键入口。任务创建、完整队列和环境自检拆到独立页面。</p>
+    <p>采集总览只放本机状态、今日概况和关键入口。任务创建、完整队列和环境自检拆到独立页面。</p>
   </div>
   <div class="action-row">
     <a class="button" href="/collector/accounts">检查账号</a>
@@ -25,6 +25,10 @@
   <div class="status-cell"><span>任务总数</span><strong>{{ stats.total_runs }}</strong></div>
   <div class="status-cell"><span>运行中</span><strong>{{ stats.running_runs }}</strong></div>
   <div class="status-cell"><span>等待人工</span><strong>{{ stats.waiting_manual_runs }}</strong></div>
+  <a class="status-cell status-cell-link status-cell-failed" href="/collector/runs?status=failed">
+    <span>失败任务</span>
+    <strong>{{ stats.failed_runs }}</strong>
+  </a>
   <div class="status-cell"><span>采集样本</span><strong>{{ stats.total_posts }}</strong></div>
 </section>
 
@@ -52,42 +56,6 @@
 
 <div class="overview-grid">
   <div class="overview-column overview-column-left">
-    <section class="panel focus-panel">
-      <div class="section-head">
-        <div>
-          <h2>待处理焦点</h2>
-          <p class="muted">把需要人介入或可立即执行的 run 提前露出。</p>
-        </div>
-        <span class="pill">{{ focus_items|length }} 个焦点</span>
-      </div>
-      {% if focus_items %}
-      <div class="focus-list">
-        {% for item in focus_items %}
-        <article class="focus-item focus-item-{{ item.kind }}">
-          <span class="focus-mark" aria-hidden="true"></span>
-          <div class="focus-body">
-            <div class="focus-topline">
-              <a class="run-id" href="/collector/runs/{{ item.run.run_id }}">{{ item.run.run_id }}</a>
-              <span class="status-badge status-{{ item.status }}"><i></i>{{ item.label }}</span>
-            </div>
-            <div class="focus-meta">{{ item.run.platform|platform_label }} / {{ item.run.profile }}</div>
-            <p>{{ item.run.keyword }}</p>
-            <small>{{ item.detail }}</small>
-          </div>
-          <form class="inline-form focus-action" action="/collector/runs/{{ item.run.run_id }}/{{ item.action }}" method="post">
-            <button class="button small primary" type="submit">{{ item.action_label }}</button>
-          </form>
-        </article>
-        {% endfor %}
-      </div>
-      {% else %}
-      <div class="focus-empty">
-        <strong>当前没有待处理 run</strong>
-        <p>队列暂时没有人工阻塞、失败复跑或待启动任务。</p>
-      </div>
-      {% endif %}
-    </section>
-
     <section class="panel recent-runs-panel">
       <div class="section-head">
         <div>

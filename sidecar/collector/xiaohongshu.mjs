@@ -23,6 +23,7 @@ const DEFAULT_PACE = {
   batch_rest_after_cards_range: [5, 11],
   batch_rest_seconds_range: [6, 10],
   click_delay_range_ms: [250, 900],
+  waterfall_missing_recovery_threshold: 5,
   detail_scroll_distance_viewport_range: [0.25, 0.55],
   comment_scroll_delay_range_seconds: [4, 9],
   comment_scroll_distance_viewport_range: [0.25, 0.5],
@@ -229,39 +230,64 @@ async function collectXiaohongshuReal({ request, assetsPath, profilePath, events
     const page = await selectUsableBrowserPage(context, { preferredHost: "xiaohongshu.com" });
     loadedImages.attachPage(page);
 
-    await page.goto("https://www.xiaohongshu.com/", {
-      waitUntil: "domcontentloaded",
-      timeout: 30_000,
-    });
-    await quietWait(page, 2500);
-
-    const landingStop = await detectManualAction(page);
-    if (landingStop) {
-      return manualActionRecords({
-        page,
-        request,
-        assetsPath,
-        events,
-        reason: landingStop.reason,
-        detail: landingStop.detail,
-        matchedSignals: landingStop.matched_signals,
+    try {
+      if (process.env.FALCON_COLLECTOR_FORCE_EARLY_BROWSER_CLOSE === "1") {
+        await page.close().catch(() => {});
+        throw new Error("page.waitForTimeout: Target page, context or browser has been closed");
+      }
+      await page.goto("https://www.xiaohongshu.com/", {
+        waitUntil: "domcontentloaded",
+        timeout: 30_000,
       });
-    }
+      await quietWait(page, 2500);
 
-    await performSearchFromHome(page, request, events);
-    await humanWait(page, secondsRangeToMs(request.pace.scroll_delay_range_seconds));
+      const landingStop = await detectManualAction(page);
+      if (landingStop) {
+        return manualActionRecords({
+          page,
+          request,
+          assetsPath,
+          events,
+          reason: landingStop.reason,
+          detail: landingStop.detail,
+          matchedSignals: landingStop.matched_signals,
+        });
+      }
 
-    const searchStop = await detectManualAction(page);
-    if (searchStop) {
-      return manualActionRecords({
-        page,
-        request,
-        assetsPath,
-        events,
-        reason: searchStop.reason,
-        detail: searchStop.detail,
-        matchedSignals: searchStop.matched_signals,
-      });
+      await performSearchFromHome(page, request, events);
+      await humanWait(page, secondsRangeToMs(request.pace.scroll_delay_range_seconds));
+
+      const searchStop = await detectManualAction(page);
+      if (searchStop) {
+        return manualActionRecords({
+          page,
+          request,
+          assetsPath,
+          events,
+          reason: searchStop.reason,
+          detail: searchStop.detail,
+          matchedSignals: searchStop.matched_signals,
+        });
+      }
+    } catch (error) {
+      if (isPlaywrightTargetClosedError(error)) {
+        return manualActionRecords({
+          page,
+          request,
+          assetsPath,
+          events,
+          reason: "browser_closed_early",
+          detail: "浏览器窗口在采集准备阶段被关闭。请确认窗口状态后继续采集，或重新运行新任务。",
+          matchedSignals: [
+            {
+              reason: "browser_closed_early",
+              signal: error.message || String(error),
+              source: "playwright",
+            },
+          ],
+        });
+      }
+      throw error;
     }
 
     const searchReady = await verifySearchResultsReady(page, request);
@@ -430,6 +456,9 @@ export async function collectWaterfallRecords({
   const collectedIds = new Set(checkpoint.collected_ids || []);
   const skippedIds = new Set(checkpoint.skipped_ids || []);
   const failedIds = new Set(checkpoint.failed_ids || []);
+  let consecutiveMissingTargets = Number(checkpoint.waterfall_consecutive_missing_targets || 0);
+  let waterfallMissingSkipped = Number(checkpoint.waterfall_missing_skipped || 0);
+  let waterfallMissingThresholdTriggers = Number(checkpoint.waterfall_missing_threshold_triggers || 0);
   const paceState = {
     attemptedSinceBatchRest: Number(checkpoint.attempted_since_batch_rest || 0),
     nextBatchRestAfter:
@@ -533,19 +562,78 @@ export async function collectWaterfallRecords({
           failedIds,
           pending,
           paceState,
+          waterfallStats: {
+            consecutiveMissingTargets,
+            missingSkipped: waterfallMissingSkipped,
+            thresholdTriggers: waterfallMissingThresholdTriggers,
+          },
         });
         return {
           records,
           stopped: true,
           collected: collectedIds.size,
           discovered: queuedIds.size,
+          waterfall_missing_skipped: waterfallMissingSkipped,
+          waterfall_missing_threshold_triggers: waterfallMissingThresholdTriggers,
         };
       }
-      if (detailOutcome.skipped) {
+      if (detailOutcome.missingTarget) {
+        skippedIds.add(postId);
+        consecutiveMissingTargets += 1;
+        waterfallMissingSkipped += 1;
+        const threshold = request.pace.waterfall_missing_recovery_threshold;
+        events.write(
+          "warning",
+          "xiaohongshu",
+          "waterfall_target_skipped",
+          `瀑布流未找到目标卡片，已跳过第 ${consecutiveMissingTargets}/${threshold} 个连续缺失目标。`,
+          {
+            run_id: request.run_id,
+            platform: request.platform,
+            reason: "waterfall_target_missing",
+            post_id: postId,
+            search_url: safePageUrl(searchPage),
+            skipped_cards: waterfallMissingSkipped,
+            consecutive_missing: consecutiveMissingTargets,
+            recovery_threshold: threshold,
+            error: detailOutcome.error || "",
+          },
+        );
+        if (consecutiveMissingTargets >= threshold) {
+          waterfallMissingThresholdTriggers += 1;
+          const scrolled = await scrollSearchResultsHalfPage(searchPage, request);
+          events.write(
+            "warning",
+            "xiaohongshu",
+            "waterfall_missing_threshold_recovery",
+            "连续未找到目标卡片达到阈值，已向下滚动半屏并重新收集瀑布流卡片。",
+            {
+              run_id: request.run_id,
+              platform: request.platform,
+              reason: "waterfall_target_missing_threshold",
+              skipped_cards: waterfallMissingSkipped,
+              consecutive_missing: consecutiveMissingTargets,
+              recovery_threshold: threshold,
+              threshold_triggers: waterfallMissingThresholdTriggers,
+              scroll_delta_y: scrolled,
+            },
+          );
+          consecutiveMissingTargets = 0;
+          await discoverMoreWaterfallPosts({
+            searchPage,
+            request,
+            maxPosts,
+            enqueuePosts,
+            alreadyScrolled: true,
+          });
+        }
+      } else if (detailOutcome.skipped) {
         skippedIds.add(postId);
         failedIds.add(postId);
+        consecutiveMissingTargets = 0;
       } else {
         collectedIds.add(postId);
+        consecutiveMissingTargets = 0;
       }
       await writeCheckpoint(checkpointPath, request, {
         collectedIds,
@@ -553,6 +641,11 @@ export async function collectWaterfallRecords({
         failedIds,
         pending,
         paceState,
+        waterfallStats: {
+          consecutiveMissingTargets,
+          missingSkipped: waterfallMissingSkipped,
+          thresholdTriggers: waterfallMissingThresholdTriggers,
+        },
       });
       if (collectedIds.size < maxPosts) {
         await restBetweenCards(searchPage, request, events, paceState);
@@ -562,6 +655,11 @@ export async function collectWaterfallRecords({
           failedIds,
           pending,
           paceState,
+          waterfallStats: {
+            consecutiveMissingTargets,
+            missingSkipped: waterfallMissingSkipped,
+            thresholdTriggers: waterfallMissingThresholdTriggers,
+          },
         });
       }
     } catch (error) {
@@ -574,6 +672,11 @@ export async function collectWaterfallRecords({
         failedIds,
         pending,
         paceState,
+        waterfallStats: {
+          consecutiveMissingTargets,
+          missingSkipped: waterfallMissingSkipped,
+          thresholdTriggers: waterfallMissingThresholdTriggers,
+        },
       });
       error.partialRecords = records;
       throw error;
@@ -586,6 +689,11 @@ export async function collectWaterfallRecords({
     failedIds,
     pending,
     paceState,
+    waterfallStats: {
+      consecutiveMissingTargets,
+      missingSkipped: waterfallMissingSkipped,
+      thresholdTriggers: waterfallMissingThresholdTriggers,
+    },
   });
 
   return {
@@ -594,17 +702,29 @@ export async function collectWaterfallRecords({
     collected: collectedIds.size,
     discovered: queuedIds.size,
     skipped: skippedIds.size,
+    waterfall_missing_skipped: waterfallMissingSkipped,
+    waterfall_missing_threshold_triggers: waterfallMissingThresholdTriggers,
   };
 }
 
-async function discoverMoreWaterfallPosts({ searchPage, request, maxPosts, enqueuePosts }) {
-  await scrollSearchResults(searchPage, request);
+async function discoverMoreWaterfallPosts({ searchPage, request, maxPosts, enqueuePosts, alreadyScrolled = false }) {
+  if (!alreadyScrolled) {
+    await scrollSearchResults(searchPage, request);
+  }
   const rawSnapshot = await extractVisibleSnapshot(searchPage, maxPosts * 4);
   const snapshot = {
     ...rawSnapshot,
     posts: normalizeSearchCards(rawSnapshot.posts, maxPosts),
   };
   return enqueuePosts(snapshot.posts, "scroll");
+}
+
+export async function scrollSearchResultsHalfPage(page, request = {}) {
+  const viewport = page.viewportSize?.() ?? { width: 1366, height: 900 };
+  const deltaY = Math.max(180, Math.round((viewport.height || 900) * 0.5));
+  await page.mouse.wheel(0, deltaY);
+  await humanWait(page, secondsRangeToMs(request.pace?.scroll_delay_range_seconds || DEFAULT_PACE.scroll_delay_range_seconds));
+  return deltaY;
 }
 
 export async function scrollSearchResults(page, request = {}) {
@@ -816,35 +936,7 @@ export async function collectDetailRecords({
         return { records, stopped: true };
       }
       if (isSearchCardNotFoundError(error)) {
-        const collectedPosts = startIndex + records.filter((record) => record.type === "post").length;
-        const detail = `瀑布流定位第 ${
-          progressIndex + 1
-        }/${postTotal} 条时未能找回目标卡片，已保留 ${collectedPosts} 条本轮已采笔记；请检查搜索页后继续或重跑。`;
-        records.push(
-          ...(await manualActionRecords({
-            page: searchPage,
-            request,
-            assetsPath,
-            events,
-            reason: "waterfall_target_missing",
-            detail,
-            matchedSignals: [
-              {
-                reason: "waterfall_target_missing",
-                signal: "target_card_not_found",
-                source: "waterfall_recovery",
-                post_id: postId,
-                target_url: postUrl,
-                search_url: safePageUrl(searchPage),
-                post_index: progressIndex + 1,
-                post_total: postTotal,
-                collected_posts: collectedPosts,
-                error: error.message,
-              },
-            ],
-          })),
-        );
-        return { records, stopped: true };
+        return { records, stopped: false, skipped: true, missingTarget: true, error: error.message };
       }
       if (isDetailOpenFailedError(error)) {
         events.write(
@@ -1379,6 +1471,10 @@ function normalizePace(pace = {}) {
       DEFAULT_PACE.reply_expand_delay_range_seconds,
     ),
     max_relocate_scrolls: Math.max(1, Number(pace.max_relocate_scrolls || DEFAULT_PACE.max_relocate_scrolls)),
+    waterfall_missing_recovery_threshold: Math.max(
+      1,
+      Number(pace.waterfall_missing_recovery_threshold || DEFAULT_PACE.waterfall_missing_recovery_threshold),
+    ),
     max_comment_scrolls_per_post: Math.max(
       0,
       Number(pace.max_comment_scrolls_per_post ?? DEFAULT_PACE.max_comment_scrolls_per_post),
@@ -2168,7 +2264,11 @@ async function readCheckpoint(path, request) {
   }
 }
 
-async function writeCheckpoint(path, request, { collectedIds, skippedIds, failedIds, pending, paceState }) {
+async function writeCheckpoint(
+  path,
+  request,
+  { collectedIds, skippedIds, failedIds, pending, paceState, waterfallStats = {} },
+) {
   if (request.checkpoint_enabled === false) {
     return;
   }
@@ -2184,6 +2284,12 @@ async function writeCheckpoint(path, request, { collectedIds, skippedIds, failed
     pending_posts: pending.slice(0, Math.max(0, Number(request.max_posts || 0))),
     attempted_since_batch_rest: paceState.attemptedSinceBatchRest,
     next_batch_rest_after: paceState.nextBatchRestAfter,
+    waterfall_consecutive_missing_targets: Number(waterfallStats.consecutiveMissingTargets || 0),
+    waterfall_missing_skipped: Number(waterfallStats.missingSkipped || 0),
+    waterfall_missing_threshold_triggers: Number(waterfallStats.thresholdTriggers || 0),
+    waterfall_missing_recovery_threshold: Number(
+      request.pace?.waterfall_missing_recovery_threshold || DEFAULT_PACE.waterfall_missing_recovery_threshold,
+    ),
   };
   await writeFile(path, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
 }

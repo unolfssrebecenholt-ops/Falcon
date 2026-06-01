@@ -20,7 +20,7 @@
 {% if run_notice %}
 <div class="notice run-notice">
   <div>
-    <strong>采集启动已被账号保护拦截</strong>
+    <strong>{{ run_notice_title }}</strong>
     <span>{{ run_notice }}</span>
   </div>
   {% if run_notice_action_url %}
@@ -53,6 +53,8 @@
   <div class="metric"><span>运行时长</span><strong>{{ run|run_duration }}</strong></div>
   <div class="metric"><span>资源占用</span><strong class="fit-text">{{ run|run_resource }}</strong></div>
   <div class="metric"><span>采样范围</span><strong>{{ run.max_posts }} / {{ run.max_comments_per_post }}</strong></div>
+  <div class="metric"><span>跳过卡片数</span><strong>{{ waterfall_report.skipped_cards }}</strong></div>
+  <div class="metric"><span>触发阈值数</span><strong>{{ waterfall_report.threshold_triggers }} / {{ waterfall_report.recovery_threshold }}</strong></div>
 </section>
 
 <section class="run-state-banner status-{{ run.status }}">
@@ -110,7 +112,7 @@
   <div class="section-head">
     <div>
       <h2>处理现场</h2>
-      <p class="muted">原浏览器进程暂停后会关闭；这里保留最近的现场截图，并把处理窗口带回关键词搜索页。</p>
+      <p class="muted">原浏览器进程暂停后会关闭；这里保留最近的现场截图，并优先把处理窗口带回阻塞现场。</p>
     </div>
     <span class="pill">{{ manual_action_context.reason }}</span>
   </div>
