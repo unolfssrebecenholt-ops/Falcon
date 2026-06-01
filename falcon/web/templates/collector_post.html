@@ -1,100 +1,109 @@
 {% extends "base.html" %}
 {% block title %}样本预览 - Falcon{% endblock %}
 {% block content %}
-<header class="page-header">
+{% set effective_score = relevance.score if relevance.score >= 0 else 0 %}
+<header class="page-header sample-page-header">
   <div>
-    <h1>样本预览</h1>
+    <div class="eyebrow">collector sample</div>
+    <h1>{{ post.title or "未命名样本" }}</h1>
     <p>{{ run.run_id }} · {{ run.platform|platform_label }} · {{ run.keyword }}</p>
   </div>
-  <a class="button" href="/collector/runs/{{ run.run_id }}">返回任务详情</a>
+  <div class="sample-header-actions">
+    <button class="button sample-relevance-trigger" type="button" data-relevance-open aria-haspopup="dialog" aria-controls="relevance-dialog">
+      <span>相关性评估</span>
+      <strong>{{ relevance.effective_label }}{% if relevance.score >= 0 %} {{ relevance.score }}{% endif %}</strong>
+    </button>
+    <a class="button" href="/collector/runs/{{ run.run_id }}">返回任务详情</a>
+  </div>
 </header>
 
-<section class="panel">
-  <div class="section-head">
-    <div>
-      <h2>{{ post.title or "未命名样本" }}</h2>
-      <p class="muted">作者：{{ post.author or "-" }} · 点赞 {{ post.like_count or "0" }} · 收藏 {{ post.collect_count or "0" }} · 评论 {{ post.comment_count or "0" }}</p>
-    </div>
+<section class="sample-context-strip" aria-label="样本摘要">
+  <div class="sample-context-primary">
     <span class="pill">{{ post.platform|platform_label }}</span>
+    <strong>{{ post.author or "-" }}</strong>
+    <span>点赞 {{ post.like_count or "0" }}</span>
+    <span>收藏 {{ post.collect_count or "0" }}</span>
+    <span>评论 {{ post.comment_count or "0" }}</span>
   </div>
-  <dl class="summary-list">
-    <div><dt>采集时间</dt><dd>{{ post.collected_at|readable_time }}</dd></div>
-    <div><dt>发布时间</dt><dd>{{ post.published_at or "-" }}</dd></div>
-    <div><dt>关键词</dt><dd>{{ post.keyword }}</dd></div>
-    <div><dt>本地样本 ID</dt><dd>{{ post.post_id }}</dd></div>
+  <dl class="sample-context-meta">
+    <div><dt>采集</dt><dd>{{ post.collected_at|readable_time }}</dd></div>
+    <div><dt>发布</dt><dd>{{ post.published_at or "-" }}</dd></div>
+    <div><dt>ID</dt><dd>{{ post.post_id }}</dd></div>
   </dl>
 </section>
 
-<section class="panel relevance-detail-panel">
-  <div class="section-head">
-    <div>
-      <h2>相关性评估</h2>
-      <p class="muted">采集样本默认视为优质并进入主分析；人工校准会优先生效，但不覆盖默认记录。</p>
+<dialog id="relevance-dialog" class="relevance-modal" aria-labelledby="relevance-modal-title">
+  <div class="relevance-modal-card">
+    <div class="relevance-modal-head">
+      <div>
+        <h2 id="relevance-modal-title">相关性评估</h2>
+        <p class="muted">采集样本默认视为优质并进入主分析；人工校准会优先生效，但不覆盖默认记录。</p>
+      </div>
+      <button class="relevance-modal-close" type="button" data-relevance-close aria-label="关闭相关性评估">×</button>
     </div>
     <span class="relevance-badge relevance-{{ relevance.effective_level }}">{{ relevance.effective_label }} {% if relevance.score >= 0 %}{{ relevance.score }}{% endif %}</span>
+    <div class="relevance-score-meter" style="--score: {{ effective_score }}%;">
+      <div>
+        <span>当前有效评分</span>
+        <strong>{{ relevance.score if relevance.score >= 0 else "待评分" }}</strong>
+      </div>
+      <div class="score-track" aria-hidden="true"><span></span></div>
+      <small>{{ relevance.effective_label }} · {{ relevance.role_label }}</small>
+    </div>
+    <div class="relevance-detail-grid">
+      <div class="relevance-verdict">
+        <strong>默认判定</strong>
+        <span>{{ relevance.default_level|relevance_label }}</span>
+        <p>{{ relevance.reason }}</p>
+      </div>
+      <div class="relevance-verdict">
+        <strong>人工修正</strong>
+        {% if relevance.has_manual %}
+        <span>{{ relevance.manual_level|relevance_label }}</span>
+        <p>{{ relevance.manual_note or "已人工调整等级。" }}</p>
+        {% else %}
+        <span>未修正</span>
+        <p>当前采用默认优质。需要降级或剔除时，在这里人工校准。</p>
+        {% endif %}
+      </div>
+      <div class="relevance-verdict">
+        <strong>下游处理</strong>
+        <span>{{ relevance.role_label }}</span>
+        <p>优质进入主分析；人工改为中等后作为参考，改为劣质后只保留证据。</p>
+      </div>
+    </div>
+    <div class="relevance-breakdown" aria-label="相关性分数拆解">
+      {% for part in relevance.breakdown %}
+      <div class="relevance-breakdown-item">
+        <span>{{ part.label }}</span>
+        <strong>{{ part.value }}</strong>
+      </div>
+      {% endfor %}
+    </div>
+    <div class="manual-correction-bar">
+      <div class="manual-correction-copy">
+        <strong>人工校准</strong>
+        <span>人工纠正用于调整默认判定，保存后会优先生效。</span>
+      </div>
+      <form class="relevance-override-form" method="post" action="/collector/runs/{{ run.run_id }}/posts/{{ post.post_id }}/relevance">
+        <label>
+          <span>纠正为</span>
+          <select class="compact-select" name="manual_relevance_level">
+            <option value="">清除修正</option>
+            <option value="excellent" {% if relevance.manual_level == "excellent" %}selected{% endif %}>优质</option>
+            <option value="medium" {% if relevance.manual_level == "medium" %}selected{% endif %}>中等</option>
+            <option value="poor" {% if relevance.manual_level == "poor" %}selected{% endif %}>劣质</option>
+          </select>
+        </label>
+        <label>
+          <span>备注</span>
+          <input class="compact-note" name="manual_relevance_note" value="{{ relevance.manual_note }}" placeholder="判断依据">
+        </label>
+        <button class="button small primary" type="submit">保存纠正</button>
+      </form>
+    </div>
   </div>
-  {% set effective_score = relevance.score if relevance.score >= 0 else 0 %}
-  <div class="relevance-score-meter" style="--score: {{ effective_score }}%;">
-    <div>
-      <span>当前有效评分</span>
-      <strong>{{ relevance.score if relevance.score >= 0 else "待评分" }}</strong>
-    </div>
-    <div class="score-track" aria-hidden="true"><span></span></div>
-    <small>{{ relevance.effective_label }} · {{ relevance.role_label }}</small>
-  </div>
-  <div class="relevance-detail-grid">
-    <div class="relevance-verdict">
-      <strong>默认判定</strong>
-      <span>{{ relevance.default_level|relevance_label }}</span>
-      <p>{{ relevance.reason }}</p>
-    </div>
-    <div class="relevance-verdict">
-      <strong>人工修正</strong>
-      {% if relevance.has_manual %}
-      <span>{{ relevance.manual_level|relevance_label }}</span>
-      <p>{{ relevance.manual_note or "已人工调整等级。" }}</p>
-      {% else %}
-      <span>未修正</span>
-      <p>当前采用默认优质。需要降级或剔除时，在这里人工校准。</p>
-      {% endif %}
-    </div>
-    <div class="relevance-verdict">
-      <strong>下游处理</strong>
-      <span>{{ relevance.role_label }}</span>
-      <p>优质进入主分析；人工改为中等后作为参考，改为劣质后只保留证据。</p>
-    </div>
-  </div>
-  <div class="relevance-breakdown" aria-label="相关性分数拆解">
-    {% for part in relevance.breakdown %}
-    <div class="relevance-breakdown-item">
-      <span>{{ part.label }}</span>
-      <strong>{{ part.value }}</strong>
-    </div>
-    {% endfor %}
-  </div>
-  <div class="manual-correction-bar">
-    <div class="manual-correction-copy">
-      <strong>人工校准</strong>
-      <span>人工纠正用于调整默认判定，保存后会优先生效。</span>
-    </div>
-    <form class="relevance-override-form" method="post" action="/collector/runs/{{ run.run_id }}/posts/{{ post.post_id }}/relevance">
-      <label>
-        <span>纠正为</span>
-        <select class="compact-select" name="manual_relevance_level">
-          <option value="">清除修正</option>
-          <option value="excellent" {% if relevance.manual_level == "excellent" %}selected{% endif %}>优质</option>
-          <option value="medium" {% if relevance.manual_level == "medium" %}selected{% endif %}>中等</option>
-          <option value="poor" {% if relevance.manual_level == "poor" %}selected{% endif %}>劣质</option>
-        </select>
-      </label>
-      <label>
-        <span>备注</span>
-        <input class="compact-note" name="manual_relevance_note" value="{{ relevance.manual_note }}" placeholder="判断依据">
-      </label>
-      <button class="button small primary" type="submit">保存纠正</button>
-    </form>
-  </div>
-</section>
+</dialog>
 
 <section class="sample-preview-grid">
   <section class="panel sample-preview-panel">
@@ -185,40 +194,52 @@
   </section>
 </section>
 
-<section class="panel">
-  <h2>结构化字段</h2>
-  <dl class="summary-list">
-    <div><dt>标题</dt><dd>{{ post.title or "-" }}</dd></div>
-    <div><dt>作者</dt><dd>{{ post.author or "-" }}</dd></div>
-    <div><dt>点赞</dt><dd>{{ post.like_count or "0" }}</dd></div>
-    <div><dt>收藏</dt><dd>{{ post.collect_count or "0" }}</dd></div>
-    <div><dt>评论</dt><dd>{{ post.comment_count or "0" }}</dd></div>
-    <div><dt>平台地址</dt><dd><code class="collector-url">{{ post.url or "-" }}</code></dd></div>
-  </dl>
-</section>
+<section class="sample-secondary-grid" aria-label="次级信息">
+  <details class="panel sample-meta-panel">
+    <summary>
+      <span>其他元数据</span>
+      <small>采集时间、发布时间、关键词和平台地址</small>
+    </summary>
+    <dl class="summary-list compact-summary-list">
+      <div><dt>标题</dt><dd>{{ post.title or "-" }}</dd></div>
+      <div><dt>作者</dt><dd>{{ post.author or "-" }}</dd></div>
+      <div><dt>点赞</dt><dd>{{ post.like_count or "0" }}</dd></div>
+      <div><dt>收藏</dt><dd>{{ post.collect_count or "0" }}</dd></div>
+      <div><dt>评论</dt><dd>{{ post.comment_count or "0" }}</dd></div>
+      <div><dt>采集时间</dt><dd>{{ post.collected_at|readable_time }}</dd></div>
+      <div><dt>发布时间</dt><dd>{{ post.published_at or "-" }}</dd></div>
+      <div><dt>关键词</dt><dd>{{ post.keyword }}</dd></div>
+      <div><dt>本地样本 ID</dt><dd>{{ post.post_id }}</dd></div>
+      <div class="wide"><dt>平台地址</dt><dd><code class="collector-url">{{ post.url or "-" }}</code></dd></div>
+    </dl>
+  </details>
 
-<section class="panel">
-  <h2>证据链</h2>
-  <div class="asset-list">
-    {% if primary_item and primary_item.is_evidence %}
-    <div class="asset-list-item">
-      <div>
-        <strong>详情页截图</strong>
-        <code>已作为当前预览封面使用</code>
+  <details class="panel sample-meta-panel">
+    <summary>
+      <span>证据链</span>
+      <small>详情页截图和预览封面状态</small>
+    </summary>
+    <div class="asset-list compact-asset-list">
+      {% if primary_item and primary_item.is_evidence %}
+      <div class="asset-list-item">
+        <div>
+          <strong>详情页截图</strong>
+          <code>已作为当前预览封面使用</code>
+        </div>
+        <span class="asset-status">{{ primary_item.status }}</span>
+        <small>{{ primary_item.mime_type }} · {{ primary_item.size_label }}</small>
       </div>
-      <span class="asset-status">{{ primary_item.status }}</span>
-      <small>{{ primary_item.mime_type }} · {{ primary_item.size_label }}</small>
-    </div>
-    {% else %}
-    <div class="asset-list-item missing">
-      <div>
-        <strong>详情页截图</strong>
-        <code>未作为当前封面使用</code>
+      {% else %}
+      <div class="asset-list-item missing">
+        <div>
+          <strong>详情页截图</strong>
+          <code>未作为当前封面使用</code>
+        </div>
+        <span class="asset-status">备用证据</span>
       </div>
-      <span class="asset-status">备用证据</span>
+      {% endif %}
     </div>
-    {% endif %}
-  </div>
+  </details>
 </section>
 
 <script>
@@ -251,6 +272,24 @@
   document.querySelector("[data-carousel-prev]")?.addEventListener("click", () => show(current - 1));
   document.querySelector("[data-carousel-next]")?.addEventListener("click", () => show(current + 1));
   thumbs.forEach((thumb) => thumb.addEventListener("click", () => show(Number(thumb.dataset.index || 0))));
+})();
+
+(() => {
+  const dialog = document.querySelector("#relevance-dialog");
+  if (!dialog) return;
+  const openButton = document.querySelector("[data-relevance-open]");
+  const closeButtons = Array.from(dialog.querySelectorAll("[data-relevance-close]"));
+  openButton?.addEventListener("click", () => {
+    if (typeof dialog.showModal === "function") {
+      dialog.showModal();
+      return;
+    }
+    dialog.setAttribute("open", "");
+  });
+  closeButtons.forEach((button) => button.addEventListener("click", () => dialog.close()));
+  dialog.addEventListener("click", (event) => {
+    if (event.target === dialog) dialog.close();
+  });
 })();
 </script>
 {% endblock %}

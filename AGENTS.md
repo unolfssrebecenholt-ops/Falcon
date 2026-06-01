@@ -1,49 +1,21 @@
-# Codex Local Notes
+# Codex 本地规则
 
-- Keep normal Codex chat, code editing, and completions on the provider configured in `~/.codex/config.toml`.
-- When the user asks to use image2 for image generation or editing, read `~/.codex/image2.toml` and call `base_url` + `endpoint` with OpenAI-style Bearer auth.
-- Do not route normal Codex requests through image2, and do not print the full image2 API key.
-- Always use the GPT-5.5 model for this project in every scenario, including subagents, subprocesses, simple tasks, and any delegated or background work. Do not downgrade or switch to smaller/faster models unless the user explicitly overrides this rule.
+- 普通 Codex 聊天、代码编辑和补全，继续使用 `~/.codex/config.toml` 中配置的服务提供方。
+- 当用户要求使用 image2 进行图片生成或编辑时，读取 `~/.codex/image2.toml`，并使用 `base_url` + `endpoint` 以及 OpenAI 风格的 Bearer 认证发起调用。
+- 不要把普通 Codex 请求路由到 image2，也不要打印完整的 image2 API key。
+- 本项目所有场景都始终使用 GPT-5.5 模型，包括 subagents、subprocesses、简单任务、委托任务和后台任务。除非用户明确覆盖这条规则，否则不要降级或切换到更小/更快的模型。
+- 之后由 Codex 自主补充、整理或记录的项目规则，必须使用中文书写；除非用户明确要求保留英文原文，或者内容本身是代码标识、命令、路径、配置键、API 名称或专有名词。
 
-## Falcon Agent reboot rules
+## Falcon Agent 重启规则
 
-- Falcon is being rebuilt as a first-party local content operations agent.
-- Codex is a development assistant only. Do not design product collection flows that depend on a Codex conversation as the runtime.
-- Do not reintroduce deleted external workflow-builder collection paths unless the user explicitly asks for a separate historical recovery branch.
-- Do not restore old collection adapters, old workflow records, or deleted collection documentation as fallback material.
-- The future collection path is a Falcon-owned browser collector with platform adapters, normalized records, local asset storage, dedupe, analysis, generation, and human-confirmed execution previews.
-- Keep all login codes, cookies, tokens, generated reports, local browser profiles, runtime data, and real API keys out of Git.
+- Falcon 正在重建为第一方本地内容运营 agent。
+- Codex 只作为开发助手使用。不要设计依赖 Codex 对话作为运行时的产品采集流程。
+- 不要重新引入已删除的外部 workflow-builder 采集路径，除非用户明确要求创建单独的历史恢复分支。
+- 不要恢复旧采集适配器、旧 workflow 记录或已删除的采集文档作为兜底材料。
+- 未来的采集路径应由 Falcon 自有浏览器采集器负责，包括平台适配器、标准化记录、本地资产存储、去重、分析、生成，以及人工确认后的执行预览。
 
-## Dual-machine development rules
+## 浏览器控制规则
 
-- The project is developed from both Windows and M1 Mac machines. GitHub is the shared source of truth.
-- At the start of every development session, run `git pull`, then read this file, `README.md`, `docs/progress.md`, `docs/development-guide.md`, and `project.md`.
-- If the user says only "开始工作", follow the start-work protocol below without asking them to paste the reading order again.
-- Before committing, update `docs/progress.md` with current project progress, solved problems, known problems, next steps, validation results, and any Windows/Mac notes needed by the other machine.
-- Every commit should leave the repository in a handoff-ready state: another machine should be able to `git pull` and continue from `docs/progress.md`.
-- Do not commit local runtime data, generated reports, `.env`, real API keys, cache files, browser profiles, or machine-specific IDE settings.
-- The project must remain runnable on both Windows and macOS. Prefer Python standard library code, cross-platform paths via `pathlib`, and commands that have Windows and macOS equivalents.
-- If adding dependencies later, document installation commands for both Windows and macOS in `docs/development-guide.md`.
-
-## Start-work protocol
-
-When the user says "开始工作":
-
-1. Run `git pull`.
-2. Read `AGENTS.md`.
-3. Read `docs/progress.md`.
-4. Read `docs/development-guide.md`.
-5. Read `README.md` and `project.md` as needed for product context.
-6. Run the baseline test command from `docs/development-guide.md`.
-7. Check `git status -sb`.
-8. Continue with the next item in `docs/progress.md` unless the user gives a newer priority.
-
-## Commit handoff checklist
-
-Before every commit:
-
-1. Run the relevant tests or smoke workflow.
-2. Update `docs/progress.md`.
-3. Confirm `git status -sb` only includes intended files.
-4. Commit with a clear message.
-5. Push to GitHub so the other machine can continue.
+- 如果涉及 UI 或视觉布局改动，并且需要通过浏览器查看效果，必须先将浏览器窗口最大化或全屏，再开始检查 UI、截图或判断最终效果。不要在小窗口或局部窗口中评估最终 UI 质量。
+- 如果 Codex 内置浏览器无法可靠地最大化或全屏，就改用外部浏览器查看效果。若外部浏览器控制需要安装或启用插件/扩展，应及时提醒用户。
+- 使用外部浏览器查看 UI 效果时，可以让它在后台运行，避免打断当前桌面上正在进行的其他项目或工作；只有在必须直接交互时才切到前台。

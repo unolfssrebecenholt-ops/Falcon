@@ -3,8 +3,7 @@
 {% block content %}
 <header class="page-header run-page-header">
   <div>
-    <nav class="breadcrumb" aria-label="当前位置">采集总览 -&gt; 任务详情({{ run.run_id }})</nav>
-    <div class="eyebrow">collector run detail</div>
+    <nav class="eyebrow breadcrumb" aria-label="当前位置">采集总览 -&gt; 任务详情({{ run.run_id }})</nav>
     <h1>任务详情</h1>
     <p>{{ run.run_id }} · {{ run.platform|platform_label }} · {{ run.keyword }}</p>
   </div>

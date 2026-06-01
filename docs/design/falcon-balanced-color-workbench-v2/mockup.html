@@ -1,0 +1,894 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Falcon Balanced Color Workbench V2</title>
+  <style>
+    :root {
+      --bg: #f6f7f9;
+      --surface: #ffffff;
+      --surface-2: #f1f3f7;
+      --surface-3: #e7ebf1;
+      --ink: #17202a;
+      --ink-2: #2f3a48;
+      --muted: #647084;
+      --muted-2: #8a94a6;
+      --line: #d9dee7;
+      --line-2: #c6ceda;
+      --blue: #4d7cfe;
+      --blue-ink: #2454c6;
+      --blue-soft: #edf3ff;
+      --blue-line: #cddcff;
+      --sky: #34a7d8;
+      --sky-soft: #eaf7fc;
+      --sky-line: #bee6f4;
+      --teal: #28a9b7;
+      --teal-soft: #e8f8fa;
+      --teal-line: #bee9ee;
+      --amber: #d89a36;
+      --amber-soft: #fff5df;
+      --amber-line: #f1d8a8;
+      --coral: #e36f61;
+      --coral-soft: #fff0ed;
+      --coral-line: #f6c7c0;
+      --sage: #6fa77d;
+      --sage-soft: #edf8f1;
+      --sage-line: #cde7d4;
+      --radius: 8px;
+      --sans: "Inter", "SF Pro Display", "SF Pro Text", "Segoe UI Variable", "MiSans", "Microsoft YaHei UI", "PingFang SC", sans-serif;
+      --mono: "SFMono-Regular", "Cascadia Mono", "JetBrains Mono", monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      margin: 0;
+      width: 1536px;
+      height: 1024px;
+      overflow: hidden;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: var(--sans);
+      font-size: 14px;
+      letter-spacing: 0;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: geometricPrecision;
+    }
+
+    body {
+      display: grid;
+      grid-template-rows: 56px 1fr;
+    }
+
+    .topbar {
+      display: grid;
+      grid-template-columns: 250px 1fr auto;
+      align-items: center;
+      gap: 24px;
+      border-bottom: 1px solid var(--line);
+      padding: 0 24px;
+      background: rgba(255, 255, 255, 0.94);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .brand-mark {
+      width: 30px;
+      height: 30px;
+      display: grid;
+      place-items: center;
+      border-radius: 7px;
+      background: #192330;
+      color: #fff;
+      font: 760 15px/1 var(--mono);
+    }
+
+    .brand-title {
+      display: grid;
+      gap: 2px;
+    }
+
+    .brand-title strong {
+      color: var(--ink);
+      font-size: 14px;
+      line-height: 1;
+    }
+
+    .brand-title span,
+    .context-label,
+    .pill,
+    .nav-kicker,
+    .metric span,
+    .table th {
+      color: var(--muted);
+      font: 680 10px/1 var(--mono);
+      text-transform: uppercase;
+    }
+
+    .context {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .context strong {
+      color: var(--ink-2);
+      font-size: 13px;
+      white-space: nowrap;
+    }
+
+    .top-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .pill {
+      height: 26px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 0 10px;
+      background: var(--surface);
+      color: var(--ink-2);
+      white-space: nowrap;
+    }
+
+    .pill .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--sage);
+    }
+
+    .shell {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: 232px 1fr;
+    }
+
+    .sidebar {
+      min-height: 0;
+      border-right: 1px solid var(--line);
+      padding: 16px 12px;
+      background: #edf1f6;
+    }
+
+    .rail-summary {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 12px;
+      background: #f9fafc;
+    }
+
+    .rail-summary strong {
+      display: block;
+      margin-top: 6px;
+      color: var(--ink);
+      font: 720 18px/1 var(--mono);
+    }
+
+    .nav {
+      display: grid;
+      gap: 14px;
+      margin-top: 16px;
+    }
+
+    .nav-group {
+      display: grid;
+      gap: 4px;
+    }
+
+    .nav-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 8px 4px;
+    }
+
+    .nav-kicker {
+      color: var(--muted);
+    }
+
+    .nav-badge {
+      color: var(--muted-2);
+      font: 650 9px/1 var(--mono);
+    }
+
+    .nav-link {
+      min-height: 34px;
+      display: grid;
+      grid-template-columns: 20px 1fr auto;
+      align-items: center;
+      gap: 8px;
+      border: 1px solid transparent;
+      border-radius: 7px;
+      padding: 7px 8px;
+      color: #445064;
+      font-weight: 620;
+    }
+
+    .nav-link.active {
+      border-color: var(--blue-line);
+      background: var(--blue-soft);
+      color: var(--blue-ink);
+      font-weight: 760;
+    }
+
+    .nav-link small {
+      color: var(--muted-2);
+      font: 680 9px/1 var(--mono);
+    }
+
+    .nav-icon {
+      width: 18px;
+      height: 18px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      background: #fff;
+      color: var(--muted);
+      font: 760 10px/1 var(--mono);
+    }
+
+    .active .nav-icon,
+    .nav-icon.blue {
+      border-color: var(--blue-line);
+      background: var(--blue-soft);
+      color: var(--blue);
+    }
+
+    .nav-icon.sky {
+      border-color: var(--sky-line);
+      background: var(--sky-soft);
+      color: var(--sky);
+    }
+
+    .nav-icon.teal {
+      border-color: var(--teal-line);
+      background: var(--teal-soft);
+      color: var(--teal);
+    }
+
+    .nav-icon.amber {
+      border-color: var(--amber-line);
+      background: var(--amber-soft);
+      color: var(--amber);
+    }
+
+    .nav-icon.sage {
+      border-color: var(--sage-line);
+      background: var(--sage-soft);
+      color: var(--sage);
+    }
+
+    .main {
+      min-width: 0;
+      padding: 22px 26px 28px;
+      background:
+        linear-gradient(180deg, rgba(255,255,255,0.64), rgba(255,255,255,0) 230px),
+        var(--bg);
+    }
+
+    .page {
+      display: grid;
+      gap: 14px;
+      max-width: 1240px;
+    }
+
+    .page-header {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      align-items: end;
+      gap: 18px;
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 14px;
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin: 0;
+    }
+
+    h1 {
+      color: var(--ink);
+      font-size: 24px;
+      font-weight: 740;
+      line-height: 1.16;
+    }
+
+    .lede {
+      max-width: 760px;
+      margin-top: 6px;
+      color: var(--muted);
+      line-height: 1.55;
+      font-weight: 470;
+    }
+
+    .actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+
+    .button {
+      height: 34px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      border: 1px solid var(--line-2);
+      border-radius: 6px;
+      padding: 0 12px;
+      background: var(--surface);
+      color: var(--ink-2);
+      font-size: 12px;
+      font-weight: 720;
+      white-space: nowrap;
+    }
+
+    .button::before {
+      content: "";
+      width: 7px;
+      height: 7px;
+      border-radius: 2px;
+      background: currentColor;
+      opacity: 0.54;
+    }
+
+    .button.primary {
+      border-color: var(--blue);
+      background: var(--blue);
+      color: #fff;
+    }
+
+    .button.info {
+      border-color: var(--sky-line);
+      background: var(--sky-soft);
+      color: #187da5;
+    }
+
+    .button.warning {
+      border-color: var(--amber-line);
+      background: var(--amber-soft);
+      color: #95610f;
+    }
+
+    .button.risk {
+      border-color: var(--coral-line);
+      background: var(--coral-soft);
+      color: #b84e43;
+    }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+    }
+
+    .metric,
+    .panel,
+    .status-rail {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+    }
+
+    .metric {
+      min-height: 86px;
+      display: grid;
+      grid-template-columns: 1fr 30px;
+      grid-template-rows: auto auto auto;
+      column-gap: 12px;
+      padding: 13px 14px;
+    }
+
+    .metric-icon {
+      grid-column: 2;
+      grid-row: 1 / span 2;
+      width: 28px;
+      height: 28px;
+      display: grid;
+      place-items: center;
+      border-radius: 7px;
+      font: 760 13px/1 var(--mono);
+    }
+
+    .metric strong {
+      display: block;
+      margin-top: 12px;
+      color: var(--ink);
+      font: 760 28px/1 var(--mono);
+    }
+
+    .metric small {
+      display: block;
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 560;
+    }
+
+    .icon-blue {
+      border: 1px solid var(--blue-line);
+      background: var(--blue-soft);
+      color: var(--blue);
+    }
+
+    .icon-sky {
+      border: 1px solid var(--sky-line);
+      background: var(--sky-soft);
+      color: var(--sky);
+    }
+
+    .icon-teal {
+      border: 1px solid var(--teal-line);
+      background: var(--teal-soft);
+      color: var(--teal);
+    }
+
+    .icon-amber {
+      border: 1px solid var(--amber-line);
+      background: var(--amber-soft);
+      color: var(--amber);
+    }
+
+    .icon-coral {
+      border: 1px solid var(--coral-line);
+      background: var(--coral-soft);
+      color: var(--coral);
+    }
+
+    .icon-sage {
+      border: 1px solid var(--sage-line);
+      background: var(--sage-soft);
+      color: var(--sage);
+    }
+
+    .content-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr);
+      gap: 12px;
+    }
+
+    .panel {
+      min-width: 0;
+      padding: 14px;
+    }
+
+    .panel-head {
+      display: flex;
+      align-items: start;
+      justify-content: space-between;
+      gap: 14px;
+      margin-bottom: 12px;
+    }
+
+    h2 {
+      color: var(--ink);
+      font-size: 15px;
+      font-weight: 740;
+      line-height: 1.2;
+    }
+
+    .panel-head p {
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .stack {
+      display: grid;
+      gap: 8px;
+    }
+
+    .task {
+      display: grid;
+      grid-template-columns: 26px 1fr auto;
+      align-items: center;
+      gap: 10px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      padding: 11px;
+      background: #fbfcfe;
+    }
+
+    .task .metric-icon {
+      grid-column: auto;
+      grid-row: auto;
+      width: 24px;
+      height: 24px;
+      border-radius: 6px;
+      font-size: 11px;
+    }
+
+    .task h3 {
+      color: var(--ink-2);
+      font-size: 13px;
+      line-height: 1.25;
+    }
+
+    .task p {
+      margin-top: 5px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .facts {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 8px;
+    }
+
+    .fact {
+      min-height: 74px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      padding: 11px;
+      background: #fbfcfe;
+    }
+
+    .fact span {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 650;
+    }
+
+    .fact strong {
+      display: block;
+      margin-top: 10px;
+      color: var(--ink-2);
+      font-size: 13px;
+      line-height: 1.35;
+    }
+
+    .fact .nav-icon {
+      margin-bottom: 8px;
+    }
+
+    .lower-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 288px;
+      gap: 12px;
+    }
+
+    .table-wrap {
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    th,
+    td {
+      height: 44px;
+      border-bottom: 1px solid var(--line);
+      padding: 0 12px;
+      text-align: left;
+      white-space: nowrap;
+    }
+
+    tr:last-child td {
+      border-bottom: 0;
+    }
+
+    td {
+      color: var(--ink-2);
+      font-size: 12px;
+      font-weight: 560;
+    }
+
+    .muted {
+      color: var(--muted);
+    }
+
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 4px 8px;
+      background: #fbfcfe;
+      color: var(--muted);
+      font: 680 10px/1 var(--mono);
+    }
+
+    .tag::before {
+      content: "";
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+
+    .tag.blue {
+      border-color: var(--blue-line);
+      background: var(--blue-soft);
+      color: var(--blue-ink);
+    }
+
+    .tag.sky {
+      border-color: var(--sky-line);
+      background: var(--sky-soft);
+      color: #187da5;
+    }
+
+    .tag.teal {
+      border-color: var(--teal-line);
+      background: var(--teal-soft);
+      color: #147985;
+    }
+
+    .tag.amber {
+      border-color: var(--amber-line);
+      background: var(--amber-soft);
+      color: #95610f;
+    }
+
+    .tag.coral {
+      border-color: var(--coral-line);
+      background: var(--coral-soft);
+      color: #b84e43;
+    }
+
+    .tag.sage {
+      border-color: var(--sage-line);
+      background: var(--sage-soft);
+      color: #4d7d59;
+    }
+
+    .status-rail {
+      padding: 14px;
+    }
+
+    .health {
+      display: grid;
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .health-row {
+      display: grid;
+      grid-template-columns: 24px 1fr auto;
+      align-items: center;
+      gap: 8px;
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 10px;
+    }
+
+    .health-row:last-child {
+      border-bottom: 0;
+      padding-bottom: 0;
+    }
+
+    .health-row span {
+      color: var(--ink-2);
+      font-size: 12px;
+      font-weight: 650;
+    }
+
+    .health-row small {
+      color: var(--muted);
+      font: 680 10px/1 var(--mono);
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark">F</div>
+      <div class="brand-title">
+        <strong>Falcon</strong>
+        <span>production v4</span>
+      </div>
+    </div>
+    <div class="context">
+      <span class="context-label">工作台</span>
+      <strong>仪表盘</strong>
+    </div>
+    <div class="top-actions">
+      <span class="pill"><span class="dot"></span>LOCAL</span>
+      <span class="pill">GPT-5.5</span>
+      <span class="pill">人工确认</span>
+    </div>
+  </header>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="rail-summary">
+        <span class="nav-kicker">Mission map</span>
+        <strong>16 views</strong>
+      </div>
+      <nav class="nav">
+        <section class="nav-group">
+          <div class="nav-head"><span class="nav-kicker">工作台</span><span class="nav-badge">LOCAL</span></div>
+          <div class="nav-link active"><span class="nav-icon blue">H</span><span>仪表盘</span><small>HOME</small></div>
+        </section>
+        <section class="nav-group">
+          <div class="nav-head"><span class="nav-kicker">采集</span><span class="nav-badge">LIVE</span></div>
+          <div class="nav-link"><span class="nav-icon sky">C</span><span>采集首页</span><small>TODAY</small></div>
+          <div class="nav-link"><span class="nav-icon sky">R</span><span>任务队列</span><small>RUNS</small></div>
+          <div class="nav-link"><span class="nav-icon sage">N</span><span>任务创建</span><small>NEW</small></div>
+          <div class="nav-link"><span class="nav-icon amber">P</span><span>账号管理</span><small>PROFILE</small></div>
+          <div class="nav-link"><span class="nav-icon teal">E</span><span>环境自检</span><small>CHECK</small></div>
+        </section>
+        <section class="nav-group">
+          <div class="nav-head"><span class="nav-kicker">分析</span><span class="nav-badge">LOCAL</span></div>
+          <div class="nav-link"><span class="nav-icon teal">A</span><span>分析首页</span><small>INSIGHT</small></div>
+          <div class="nav-link"><span class="nav-icon teal">S</span><span>分析样本</span><small>SAMPLES</small></div>
+          <div class="nav-link"><span class="nav-icon amber">V</span><span>人工复核</span><small>REVIEW</small></div>
+        </section>
+        <section class="nav-group">
+          <div class="nav-head"><span class="nav-kicker">执行</span><span class="nav-badge">LOCAL</span></div>
+          <div class="nav-link"><span class="nav-icon coral">D</span><span>执行首页</span><small>DRAFT</small></div>
+          <div class="nav-link"><span class="nav-icon coral">T</span><span>触达任务</span><small>TASKS</small></div>
+        </section>
+        <section class="nav-group">
+          <div class="nav-head"><span class="nav-kicker">基础</span><span class="nav-badge">LOCAL</span></div>
+          <div class="nav-link"><span class="nav-icon sage">K</span><span>关键词池</span><small>PLAN</small></div>
+          <div class="nav-link"><span class="nav-icon blue">D</span><span>日报</span><small>DOC</small></div>
+          <div class="nav-link"><span class="nav-icon amber">G</span><span>模型配置</span><small>GPT</small></div>
+        </section>
+      </nav>
+    </aside>
+    <main class="main">
+      <div class="page">
+        <header class="page-header">
+          <div>
+            <h1>仪表盘</h1>
+            <p class="lede">保留工作台入口、关键待办和运行状态。采集、分析、执行三条链路分流，所有平台动作进入人工确认。</p>
+          </div>
+          <div class="actions">
+            <button class="button info">环境自检</button>
+            <button class="button">初始化数据库</button>
+            <button class="button primary">整理采集计划</button>
+          </div>
+        </header>
+
+        <section class="metrics">
+          <div class="metric">
+            <span>样本总数</span><span class="metric-icon icon-sky">S</span><strong>248</strong><small>本机 SQLite</small>
+          </div>
+          <div class="metric">
+            <span>待人工</span><span class="metric-icon icon-amber">H</span><strong>12</strong><small>登录 / 风控</small>
+          </div>
+          <div class="metric">
+            <span>高意图</span><span class="metric-icon icon-teal">I</span><strong>36</strong><small>分析后样本</small>
+          </div>
+          <div class="metric">
+            <span>待确认</span><span class="metric-icon icon-coral">Q</span><strong>9</strong><small>草稿执行队列</small>
+          </div>
+        </section>
+
+        <section class="content-grid">
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>今日待办</h2>
+                <p>只保留可行动项，入口不展示完整长表。</p>
+              </div>
+              <span class="tag amber">3 pending</span>
+            </div>
+            <div class="stack">
+              <div class="task">
+                <span class="metric-icon icon-amber">!</span>
+                <div>
+                  <h3>采集队列需要检查</h3>
+                  <p>查看运行、暂停和待启动任务，必要时从账号管理处理登录态。</p>
+                </div>
+                <button class="button warning">处理登录</button>
+              </div>
+              <div class="task">
+                <span class="metric-icon icon-teal">I</span>
+                <div>
+                  <h3>36 条高意图样本待筛选</h3>
+                  <p>从分析结果进入样本列表，再送到复核工作台逐条确认价值。</p>
+                </div>
+                <button class="button primary">开始复核</button>
+              </div>
+              <div class="task">
+                <span class="metric-icon icon-coral">R</span>
+                <div>
+                  <h3>9 条触达草稿待确认</h3>
+                  <p>进入执行链路检查草稿、风险和人工确认状态。</p>
+                </div>
+                <button class="button risk">检查风险</button>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>链路入口</h2>
+                <p>按职责归类，不在首页重复展示表格。</p>
+              </div>
+            </div>
+            <div class="facts">
+              <div class="fact"><span class="nav-icon sky">C</span><span>采集</span><strong>首页 / 队列 / 创建 / 账号 / 自检</strong></div>
+              <div class="fact"><span class="nav-icon teal">A</span><span>分析</span><strong>趋势 / 样本 / 复核</strong></div>
+              <div class="fact"><span class="nav-icon coral">E</span><span>执行</span><strong>草稿入口 / 触达任务</strong></div>
+              <div class="fact"><span class="nav-icon sage">B</span><span>基础</span><strong>关键词池 / 日报 / 模型配置</strong></div>
+            </div>
+          </section>
+        </section>
+
+        <section class="lower-grid">
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>最近采集与分析</th>
+                  <th>平台</th>
+                  <th>样本</th>
+                  <th>状态</th>
+                  <th>人工动作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>内容运营自动化</td>
+                  <td class="muted">小红书</td>
+                  <td>82</td>
+                  <td><span class="tag teal">分析完成</span></td>
+                  <td><button class="button info">查看结果</button></td>
+                </tr>
+                <tr>
+                  <td>AI 生图工作流</td>
+                  <td class="muted">小红书</td>
+                  <td>47</td>
+                  <td><span class="tag amber">等待复核</span></td>
+                  <td><button class="button primary">继续处理</button></td>
+                </tr>
+                <tr>
+                  <td>本地运营工作台</td>
+                  <td class="muted">小红书</td>
+                  <td>119</td>
+                  <td><span class="tag sage">采集归档</span></td>
+                  <td><button class="button">打开日报</button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <aside class="status-rail">
+            <div class="panel-head">
+              <div>
+                <h2>队列健康</h2>
+                <p>本机运行状态。</p>
+              </div>
+            </div>
+            <div class="health">
+              <div class="health-row"><span class="nav-icon sky">C</span><span>Browser Collector</span><small class="tag sky">ready</small></div>
+              <div class="health-row"><span class="nav-icon sage">G</span><span>GPT-5.5 Relay</span><small class="tag sage">ok</small></div>
+              <div class="health-row"><span class="nav-icon amber">I</span><span>Image2 Relay</span><small class="tag amber">check</small></div>
+              <div class="health-row"><span class="nav-icon coral">M</span><span>Manual Queue</span><small class="tag coral">12 wait</small></div>
+            </div>
+          </aside>
+        </section>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

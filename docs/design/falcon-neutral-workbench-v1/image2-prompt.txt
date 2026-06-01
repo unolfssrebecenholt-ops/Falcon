@@ -1,0 +1,12 @@
+Use case: ui-mockup
+Asset type: high-fidelity desktop UI style reference for Falcon Agent local workbench, 1536x1024.
+Primary request: Design a concise, objective, comfortable, premium product UI direction that fixes the current over-green feeling.
+Product context: Falcon Agent is a local-first browser collection, analysis, content operations, and human-confirmed execution workbench. It is a serious production tool, not a marketing site.
+Visual direction: restrained neutral product UI, calm and precise, inspired by high-trust tools such as Linear, Stripe Dashboard, Figma admin surfaces, and Raycast settings, but not copying any brand.
+Palette: true neutral off-white background (#F6F7F9), cool gray surfaces (#FFFFFF, #EEF1F5), deep blue-gray ink (#17202A), secondary text (#5C6675), primary action cold cobalt blue (#2F6FED), tiny amber status accent (#B7791F), red only for destructive warnings. Green is allowed only for tiny success dots under 5% of the image. No teal wash, no mint panels, no emerald sidebar, no purple gradients, no beige/sand/cream theme.
+Layout: Falcon 控制台 app shell with a compact top bar, a sober left navigation rail, and a dense but breathable main dashboard. First viewport should show: page header “仪表盘”, small context badges “LOCAL”, “GPT-5.5”, “人工确认”; four compact KPI tiles; a left workflow panel “今日待办”; a right panel “链路入口”; a lower compact table/list “最近采集与分析”; and a slim status rail for queue health. Use Chinese labels where shown.
+Component style: crisp 1px neutral borders, 6-8px card radius, no nested cards, no large drop shadows, no glassmorphism, no decorative blobs, no side-stripe accents, no oversized hero typography. Buttons are compact rectangles with 6px radius; primary button uses solid cobalt blue. Selected nav item uses a quiet blue tint and left icon/marker, not green.
+Typography: system sans, compact hierarchy, professional dashboard scale, no huge hero type, no negative letter spacing. Text should be legible and must not overlap.
+Mood: objective, local, controlled, audit-friendly, comfortable for daily operations, premium through restraint and precision.
+Camera/framing: straight-on desktop screenshot mockup, full UI visible, no fake browser chrome, no device frame, no marketing illustration, no people, no 3D, no abstract decoration.
+Quality constraints: production-grade UI mockup, clean spacing, stable alignment, realistic data density, polished state colors, no unreadable tiny body text, no random English filler, no text overflow.

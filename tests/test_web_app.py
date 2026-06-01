@@ -422,6 +422,7 @@ class WebAppTest(unittest.TestCase):
         self.assertIn(marker, css)
         override = css[css.index(marker) :]
         self.assertIn("width: min(1560px, 100%);", override)
+        self.assertIn("margin-inline: auto;", override[override.index(".page {") : override.index(".page.doc {")])
         self.assertIn(".page[data-view=\"collector\"] .overview-grid", override)
         self.assertIn("grid-template-columns: minmax(0, 1.06fr) minmax(520px, 0.94fr);", override)
         self.assertIn(".page[data-view=\"collector\"] .health-metrics", override)
@@ -430,8 +431,24 @@ class WebAppTest(unittest.TestCase):
         self.assertIn("grid-template-columns: repeat(3, minmax(0, 1fr));", override)
         self.assertIn(".collector-create-layout", override)
         self.assertIn("max-width: none;", override)
-        self.assertIn(".page[data-view=\"report\"]", override)
+        self.assertIn("height: 89px;", override)
+        self.assertIn("min-height: 89px;", override)
+        self.assertIn(".page-header p {", css)
+        header_copy_rule = css[css.index(".page-header p {") : css.index(".page-header h1,")]
+        self.assertIn("white-space: nowrap;", header_copy_rule)
+        self.assertIn("text-overflow: ellipsis;", header_copy_rule)
+        self.assertNotIn(".family-inspector .page-header", css)
+        self.assertIn(".report-reader", css)
+        report_reader_rule = css[css.index(".report-reader") : css.index(".report-meta")]
+        self.assertIn("width: min(860px, 100%);", report_reader_rule)
         self.assertIn("margin-inline: auto;", override)
+        account_block = override[
+            override.index(".page[data-view=\"collector_accounts\"] {") : override.index(
+                ".page[data-view=\"collector_accounts\"]::before"
+            )
+        ]
+        self.assertNotIn("width:", account_block)
+        self.assertNotIn("margin-inline:", account_block)
 
     def test_collector_overview_links_to_environment_page_without_inline_doctor(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1074,7 +1091,7 @@ class WebAppTest(unittest.TestCase):
             self.assertNotIn("平台账号 / Profile", overview.text)
             self.assertIn("账号管理", accounts.text)
             self.assertIn('action="/collector/profiles/open-login"', accounts.text)
-            self.assertIn("platform/profile", accounts.text)
+            self.assertIn("平台是卡片", accounts.text)
             self.assertIn("xiaohongshu/default", accounts.text)
             self.assertIn("xiaohongshu/backup", accounts.text)
             self.assertIn("douyin/creator", accounts.text)
@@ -1102,14 +1119,15 @@ class WebAppTest(unittest.TestCase):
             response = client.get("/collector/accounts")
 
             self.assertEqual(response.status_code, 200)
-            self.assertIn("account-workbench", response.text)
-            self.assertIn('class="account-platform-section"', response.text)
-            self.assertIn("account-platform-overview", response.text)
-            self.assertIn("account-platform-identity", response.text)
-            self.assertIn("account-platform-meta", response.text)
-            self.assertIn("account-create-toolbar", response.text)
-            self.assertIn("account-action-bar", response.text)
-            self.assertIn("平台用户矩阵", response.text)
+            self.assertIn('class="page-header" aria-labelledby="account-redesign-title"', response.text)
+            self.assertIn('<div class="eyebrow">profile control</div>', response.text)
+            self.assertNotIn("account-redesign-hero", response.text)
+            self.assertIn("account-platform-card", response.text)
+            self.assertIn("account-redesign-list", response.text)
+            self.assertIn("account-redesign-row", response.text)
+            self.assertIn("account-redesign-create", response.text)
+            self.assertIn("account-redesign-row-actions", response.text)
+            self.assertIn("平台账号列表", response.text)
             self.assertNotIn("xiaohongshu/default", response.text)
             self.assertIn("xiaohongshu/backup", response.text)
             self.assertIn("xiaohongshu/creator", response.text)
@@ -1118,17 +1136,36 @@ class WebAppTest(unittest.TestCase):
             self.assertIn("检查", response.text)
             self.assertIn("退出", response.text)
             self.assertIn("新建 Profile", response.text)
-            self.assertIn("请用英文/数字命名", response.text)
+            self.assertIn("英文、数字、点、下划线或短横线。", response.text)
             self.assertIn('action="/collector/profiles/logout"', response.text)
             self.assertNotIn("<select", response.text)
             css_path = Path(__file__).resolve().parents[1] / "falcon" / "web" / "static" / "app.css"
             css_text = css_path.read_text(encoding="utf-8")
-            self.assertIn(".account-action-bar", css_text)
-            self.assertIn(".account-create-toolbar", css_text)
-            self.assertIn(".account-platform-overview", css_text)
-            self.assertIn("max-width: 240px", css_text)
+            self.assertIn(".account-redesign-row-actions", css_text)
+            self.assertIn(".account-redesign-create", css_text)
+            self.assertIn(".account-platform-card", css_text)
+            self.assertIn("grid-template-columns: repeat(3, minmax(0, 1fr))", css_text)
             self.assertIn("width: auto", css_text)
             self.assertNotIn(".account-actions", css_text)
+            self.assertNotIn(".account-redesign-hero", css_text)
+
+    def test_collector_accounts_redesign_route_redirects_to_accounts_page(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            db_path = tmp_path / "falcon.sqlite3"
+            profile_root = tmp_path / "browser-profiles"
+            client = TestClient(create_app(db_path, profile_root=profile_root))
+
+            response = client.get(
+                "/collector/accounts/redesign?profile_action=opened&profile_platform=xiaohongshu&profile_name=default",
+                follow_redirects=False,
+            )
+
+            self.assertEqual(response.status_code, 303)
+            self.assertEqual(
+                response.headers["location"],
+                "/collector/accounts?profile_action=opened&profile_platform=xiaohongshu&profile_name=default",
+            )
 
     def test_collector_profile_logout_clears_idle_local_profile_directory(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1289,7 +1326,7 @@ class WebAppTest(unittest.TestCase):
             notice = client.get(invalid.headers["location"])
             self.assertEqual(notice.status_code, 200)
             self.assertIn("Profile 名称只能使用英文字母、数字", notice.text)
-            self.assertIn('class="account-create-toolbar is-invalid"', notice.text)
+            self.assertIn('class="account-redesign-create is-invalid"', notice.text)
             self.assertIn('value="176扫码登录"', notice.text)
             self.assertIn("data-profile-error", notice.text)
             self.assertIn("data-profile-form", notice.text)

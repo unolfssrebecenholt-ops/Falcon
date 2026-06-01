@@ -1151,6 +1151,7 @@ def create_app(
             "collector_accounts.html",
             {
                 "active": "collector_accounts",
+                "page_view": "collector_accounts",
                 "platforms": _collector_platforms(),
                 "profile_entries": profile_entries,
                 "profile_groups": _profile_groups(profile_entries),
@@ -1162,6 +1163,27 @@ def create_app(
                 "profile_login_supported_platforms": SUPPORTED_PROFILE_LOGIN_PLATFORMS,
             },
         )
+
+    @app.get("/collector/accounts/redesign")
+    def collector_accounts_redesign_page(
+        request: Request,
+        profile_action: str = "",
+        profile_platform: str = "",
+        profile_name: str = "",
+    ):
+        query = urlencode(
+            {
+                key: value
+                for key, value in {
+                    "profile_action": profile_action,
+                    "profile_platform": profile_platform,
+                    "profile_name": profile_name,
+                }.items()
+                if value
+            }
+        )
+        redirect_url = f"/collector/accounts?{query}" if query else "/collector/accounts"
+        return RedirectResponse(redirect_url, status_code=303)
 
     @app.post("/collector/profiles/open-login")
     def open_collector_profile_login(platform: str = Form(...), profile: str = Form(...)):
@@ -1596,6 +1618,8 @@ def create_app(
             "collector_post.html",
             {
                 "active": "collector_run",
+                "page_view": "collector_post",
+                "page_width": "wide",
                 "current_run": run,
                 "run": run,
                 "post": post,

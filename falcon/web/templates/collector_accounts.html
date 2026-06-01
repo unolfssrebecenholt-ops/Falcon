@@ -1,15 +1,11 @@
 {% extends "base.html" %}
 {% block title %}账号管理 - Falcon{% endblock %}
 {% block content %}
-<header class="page-header">
+<header class="page-header" aria-labelledby="account-redesign-title">
   <div>
-    <div class="eyebrow">profile command</div>
-    <h1>账号管理</h1>
-    <p>按 <span class="schema-token">platform/profile</span> 展示每个平台的用户、登录态、任务锁和操作入口。输入新的 Profile 名称并登录，就是创建新的本机账号环境。</p>
-  </div>
-  <div class="action-row">
-    <a class="button" href="/collector">返回采集总览</a>
-    <a class="button primary" href="/collector/create">任务配置</a>
+    <div class="eyebrow">profile control</div>
+    <h1 id="account-redesign-title">账号管理</h1>
+    <p>按平台集中管理本机 Profile、登录态和任务占用。平台是卡片，账号是列表，状态和操作保持在同一行。</p>
   </div>
 </header>
 
@@ -17,143 +13,165 @@
 <p class="notice account-notice">{{ profile_notice }}</p>
 {% endif %}
 
-<section class="account-summary-strip" aria-label="账号概览">
-  <div><span>平台</span><strong>{{ profile_summary.platform_count }}</strong></div>
-  <div><span>用户/Profile</span><strong>{{ profile_summary.profile_count }}</strong></div>
-  <div><span>本机目录</span><strong>{{ profile_summary.local_count }}</strong></div>
-  <div><span>运行占用</span><strong>{{ profile_summary.busy_count }}</strong></div>
-  <div><span>待人工</span><strong>{{ profile_summary.manual_count }}</strong></div>
+<section class="account-redesign-summary" aria-label="账号概览">
+  <div class="account-redesign-summary-item is-primary">
+    <span>Profile 总数</span>
+    <strong>{{ profile_summary.profile_count }}</strong>
+    <small>已进入 Falcon 账号台账</small>
+  </div>
+  <div class="account-redesign-summary-item">
+    <span>平台</span>
+    <strong>{{ profile_summary.platform_count }}</strong>
+    <small>当前可配置平台</small>
+  </div>
+  <div class="account-redesign-summary-item">
+    <span>本机目录</span>
+    <strong>{{ profile_summary.local_count }}</strong>
+    <small>browser-profiles 已创建</small>
+  </div>
+  <div class="account-redesign-summary-item">
+    <span>运行占用</span>
+    <strong>{{ profile_summary.busy_count }}</strong>
+    <small>正在执行采集</small>
+  </div>
+  <div class="account-redesign-summary-item">
+    <span>待人工</span>
+    <strong>{{ profile_summary.manual_count }}</strong>
+    <small>需要处理登录或验证</small>
+  </div>
 </section>
 
-<section class="account-workbench panel">
-  <div class="section-head">
-    <div>
-      <h2>
-        平台用户矩阵
-        <button class="help-dot" type="button" aria-label="账号和 Profile 说明" data-tip="Falcon 的用户等于 platform/profile。每个 profile 是一套独立浏览器登录态和本地目录，可分别登录不同账号。">?</button>
-      </h2>
-      <p class="muted">平台、用户、状态和可执行操作不再藏在下拉框里；任务配置页只选择这里已经创建过的 Profile。</p>
-    </div>
-    <span class="pill">{{ profile_entries|length }} 个 profile</span>
-  </div>
-
-  <div class="platform-stack">
-    {% for group in profile_groups %}
-    <section class="account-platform-section">
-      <div class="account-platform-head">
-        <div class="account-platform-overview">
-          <div class="account-platform-identity">
-            <span class="subtext">platform</span>
-            <h2>{{ group.name }}</h2>
-            <code>{{ group.key }}</code>
-          </div>
-          <div class="account-platform-meta">
-            <div class="account-platform-tags">
-              <span class="pill">{{ group.entries|length }} 个用户</span>
-              {% if group.key in profile_login_supported_platforms %}
-              <span class="account-platform-support is-supported">可登录 / 可检查</span>
-              {% else %}
-              <span class="account-platform-support">Adapter 待接入</span>
-              {% endif %}
-            </div>
-            <p>{{ "支持登录、检查和退出本机 Profile。" if group.key in profile_login_supported_platforms else "只展示已有队列或本机目录，登录入口等 adapter 接入后开放。" }}</p>
-          </div>
+<section class="account-redesign-board" aria-label="平台账号列表">
+  {% for group in profile_groups %}
+  {% set supported = group.key in profile_login_supported_platforms %}
+  {% set profile_invalid = profile_action == "invalid" and profile_platform == group.key %}
+  {% set running_count = group.entries|sum(attribute="running_runs") %}
+  {% set queued_count = group.entries|sum(attribute="queued_runs") %}
+  {% set manual_count = group.entries|sum(attribute="manual_runs") %}
+  {% set local_count = group.entries|selectattr("path_exists")|list|length %}
+  <article class="account-platform-card {{ 'is-supported' if supported else 'is-disabled' }}">
+    <header class="account-platform-card-head">
+      <div class="account-platform-title">
+        <span class="account-platform-mark">{{ group.name[0] if group.name else "F" }}</span>
+        <div>
+          <span class="account-platform-label">平台</span>
+          <h2>{{ group.name }}</h2>
+          <code>{{ group.key }}</code>
         </div>
-        {% if group.key in profile_login_supported_platforms %}
-        {% set profile_invalid = profile_action == "invalid" and profile_platform == group.key %}
-        <form class="account-create-toolbar {{ 'is-invalid' if profile_invalid else '' }}" action="/collector/profiles/open-login" method="post" data-profile-form novalidate>
-          <input type="hidden" name="platform" value="{{ group.key }}">
-          <label>
-            <span>
-              新建 Profile
-              <button class="help-dot" type="button" aria-label="新建 Profile 说明" data-tip="填入新名称会创建 browser-profiles/platform/profile，打开登录窗口后可以登录另一个平台账号。">?</button>
-            </span>
-            <input name="profile" value="{{ profile_name if profile_invalid else 'default' }}" placeholder="default / creator / backup" pattern="[A-Za-z0-9][A-Za-z0-9_.-]{0,127}" title="只能使用英文字母、数字、点、下划线或短横线，并且必须以字母或数字开头。" aria-invalid="{{ 'true' if profile_invalid else 'false' }}" aria-describedby="profile-hint-{{ group.key }} profile-error-{{ group.key }}" data-profile-input {% if profile_invalid %}autofocus{% endif %} required>
-          </label>
-          <button class="button small primary" type="submit">新建 Profile</button>
-          <span id="profile-hint-{{ group.key }}" class="account-create-hint">请用英文/数字命名，例如 creator-1。提交后打开登录窗口。</span>
-          <span id="profile-error-{{ group.key }}" class="account-create-error" data-profile-error {% if not profile_invalid %}hidden{% endif %}>Profile 名称只能使用英文字母、数字、点、下划线或短横线，并且必须以字母或数字开头。</span>
-        </form>
-        {% else %}
-        <div class="account-create-placeholder">
-          <span class="subtext">账号入口</span>
-          <strong>暂不可创建</strong>
-        </div>
-        {% endif %}
       </div>
+      <div class="account-platform-state">
+        {% if supported %}
+        <span class="account-platform-support is-supported">可登录 / 可检查</span>
+        {% else %}
+        <span class="account-platform-support">Adapter 待接入</span>
+        {% endif %}
+        <strong>{{ group.entries|length }} 个账号</strong>
+      </div>
+    </header>
 
-      {% if group.entries %}
-      <div class="account-user-list">
-        {% for item in group.entries %}
-        <article class="account-user-row status-{{ item.status_kind }}">
-          <div class="account-user-main">
-            <span class="subtext">account key</span>
+    <div class="account-platform-card-meta" aria-label="{{ group.name }}账号统计">
+      <span>本机 {{ local_count }}</span>
+      <span>运行 {{ running_count }}</span>
+      <span>排队 {{ queued_count }}</span>
+      <span>人工 {{ manual_count }}</span>
+    </div>
+
+    {% if supported %}
+    <form class="account-redesign-create {{ 'is-invalid' if profile_invalid else '' }}" action="/collector/profiles/open-login" method="post" data-profile-form novalidate>
+      <input type="hidden" name="platform" value="{{ group.key }}">
+      <label>
+        <span>
+          新建 Profile
+          <button class="help-dot" type="button" aria-label="新建 Profile 说明" data-tip="填入新名称会创建 browser-profiles/platform/profile，打开登录窗口后可以登录另一个平台账号。">?</button>
+        </span>
+        <input name="profile" value="{{ profile_name if profile_invalid else 'default' }}" placeholder="default / creator / backup" pattern="[A-Za-z0-9][A-Za-z0-9_.-]{0,127}" title="只能使用英文字母、数字、点、下划线或短横线，并且必须以字母或数字开头。" aria-invalid="{{ 'true' if profile_invalid else 'false' }}" aria-describedby="profile-hint-{{ group.key }} profile-error-{{ group.key }}" data-profile-input {% if profile_invalid %}autofocus{% endif %} required>
+      </label>
+      <button class="button small primary" type="submit">新建</button>
+      <span id="profile-hint-{{ group.key }}" class="account-create-hint">英文、数字、点、下划线或短横线。</span>
+      <span id="profile-error-{{ group.key }}" class="account-create-error" data-profile-error {% if not profile_invalid %}hidden{% endif %}>Profile 名称只能使用英文字母、数字、点、下划线或短横线，并且必须以字母或数字开头。</span>
+    </form>
+    {% else %}
+    <div class="account-redesign-create-placeholder">
+      <strong>账号入口暂不可创建</strong>
+    </div>
+    {% endif %}
+
+    {% if group.entries %}
+    <div class="account-redesign-list">
+      {% for item in group.entries %}
+      <article class="account-redesign-row status-{{ item.status_kind }}">
+        <div class="account-redesign-row-copy">
+          <div class="account-redesign-row-main">
             <strong>{{ item.key }}</strong>
             <code>{{ item.display_path }}</code>
           </div>
-          <div>
+          <div class="account-redesign-row-status">
             <span class="account-status status-{{ item.status_kind }}"><i></i>{{ item.status_label }}</span>
-            <span class="subtext">历史任务 {{ item.total_runs }}</span>
+            <span class="account-run-count">历史 {{ item.total_runs }}</span>
           </div>
-          <div class="account-lock">
-            <span>任务锁</span>
-            <strong>{{ item.queue_label }}</strong>
+        </div>
+        <p class="account-redesign-row-meta">
+          <span>{{ item.queue_label }}</span>
+          {% if item.safety_locked %}
+          <span>风控熔断 / 需人工确认</span>
+          {% elif item.path_exists %}
+          <span>本机目录已创建</span>
+          {% else %}
+          <span>尚未创建本机目录</span>
+          {% endif %}
+        </p>
+        <div class="account-redesign-row-actions">
+          {% if item.login_supported %}
             {% if item.safety_locked %}
-            <span class="subtext">账号风控熔断 / 需人工确认</span>
+            <form class="inline-form" action="/collector/profiles/clear-safety-lock" method="post">
+              <input type="hidden" name="platform" value="{{ item.platform }}">
+              <input type="hidden" name="profile" value="{{ item.profile }}">
+              <button class="button small danger" type="submit">解除熔断</button>
+            </form>
             {% endif %}
-          </div>
-          <div class="account-action-bar">
-            {% if item.login_supported %}
-              {% if item.safety_locked %}
-              <form class="inline-form" action="/collector/profiles/clear-safety-lock" method="post">
-                <input type="hidden" name="platform" value="{{ item.platform }}">
-                <input type="hidden" name="profile" value="{{ item.profile }}">
-                <button class="button small danger" type="submit">解除熔断</button>
-              </form>
-              {% endif %}
-              {% if item.running_runs %}
-              <button class="button small" type="button" disabled>登录</button>
-              <button class="button small" type="button" disabled>检查</button>
-              {% else %}
-              <form class="inline-form" action="/collector/profiles/open-login" method="post">
-                <input type="hidden" name="platform" value="{{ item.platform }}">
-                <input type="hidden" name="profile" value="{{ item.profile }}">
-                <button class="button small {{ 'primary' if not item.path_exists else '' }}" type="submit">登录</button>
-              </form>
-              <form class="inline-form" action="/collector/profiles/open-login" method="post">
-                <input type="hidden" name="platform" value="{{ item.platform }}">
-                <input type="hidden" name="profile" value="{{ item.profile }}">
-                <button class="button small {{ 'primary' if item.path_exists else '' }}" type="submit"{% if not item.path_exists %} disabled{% endif %}>检查</button>
-              </form>
-              {% endif %}
-              {% if item.can_logout %}
-              <form class="inline-form" action="/collector/profiles/logout" method="post">
-                <input type="hidden" name="platform" value="{{ item.platform }}">
-                <input type="hidden" name="profile" value="{{ item.profile }}">
-                <button class="button small danger" type="submit">退出</button>
-              </form>
-              {% else %}
-              <button class="button small" type="button" disabled>退出</button>
-              {% endif %}
-            {% else %}
+            {% if item.running_runs %}
             <button class="button small" type="button" disabled>登录</button>
             <button class="button small" type="button" disabled>检查</button>
+            {% else %}
+            <form class="inline-form" action="/collector/profiles/open-login" method="post">
+              <input type="hidden" name="platform" value="{{ item.platform }}">
+              <input type="hidden" name="profile" value="{{ item.profile }}">
+              <button class="button small {{ 'primary' if not item.path_exists else '' }}" type="submit">登录</button>
+            </form>
+            <form class="inline-form" action="/collector/profiles/open-login" method="post">
+              <input type="hidden" name="platform" value="{{ item.platform }}">
+              <input type="hidden" name="profile" value="{{ item.profile }}">
+              <button class="button small {{ 'primary' if item.path_exists else '' }}" type="submit"{% if not item.path_exists %} disabled{% endif %}>检查</button>
+            </form>
+            {% endif %}
+            {% if item.can_logout %}
+            <form class="inline-form" action="/collector/profiles/logout" method="post">
+              <input type="hidden" name="platform" value="{{ item.platform }}">
+              <input type="hidden" name="profile" value="{{ item.profile }}">
+              <button class="button small danger" type="submit">退出</button>
+            </form>
+            {% else %}
             <button class="button small" type="button" disabled>退出</button>
             {% endif %}
-          </div>
-        </article>
-        {% endfor %}
-      </div>
-      {% else %}
-      <div class="empty-state account-empty-state">
-        <strong>暂无 Profile</strong>
-        <span>{{ "可在平台标题区输入名称创建本机账号环境。" if group.key in profile_login_supported_platforms else "该平台还没有本机账号目录或队列任务。" }}</span>
-      </div>
-      {% endif %}
-    </section>
-    {% endfor %}
-  </div>
+          {% else %}
+          <button class="button small" type="button" disabled>登录</button>
+          <button class="button small" type="button" disabled>检查</button>
+          <button class="button small" type="button" disabled>退出</button>
+          {% endif %}
+        </div>
+      </article>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="account-redesign-empty">
+      <strong>暂无 Profile</strong>
+      <span>{{ "在上方输入名称，即可创建这个平台的本机账号环境。" if supported else "该平台还没有本机账号目录或队列任务。" }}</span>
+    </div>
+    {% endif %}
+  </article>
+  {% endfor %}
 </section>
+
 <script>
 (() => {
   const profilePattern = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/;
