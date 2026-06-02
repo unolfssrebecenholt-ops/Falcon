@@ -161,6 +161,105 @@ console.log(JSON.stringify({ result, screenshot: calls[0] }));
         self.assertEqual(payload["screenshot"]["path"], "detail.png")
         self.assertFalse(payload["screenshot"]["fullPage"])
 
+    def test_xiaohongshu_search_screenshot_extends_timeout_and_falls_back_to_viewport(self):
+        script = r"""
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { captureSearchResultsScreenshot } from "./sidecar/collector/xiaohongshu.mjs";
+
+const calls = [];
+const events = [];
+const assetsPath = mkdtempSync(join(tmpdir(), "falcon-search-screenshot-"));
+const screenshotPath = join(assetsPath, "search.png");
+const page = {
+  async screenshot(options) {
+    calls.push(options);
+    if (calls.length === 1) {
+      throw new Error("full page timeout");
+    }
+    writeFileSync(options.path, "viewport screenshot");
+  },
+};
+const result = await captureSearchResultsScreenshot(page, screenshotPath, {
+  request: { run_id: "search-shot-run", platform: "xiaohongshu" },
+  events: {
+    write(level, scope, event, message, payload) {
+      events.push({ level, scope, event, message, payload });
+    },
+  },
+});
+const payload = { result, calls, events, exists: existsSync(screenshotPath) };
+console.log(JSON.stringify(payload));
+rmSync(assetsPath, { recursive: true, force: true });
+"""
+        result = subprocess.run(
+            ["node", "--input-type=module", "-e", script],
+            cwd=ROOT,
+            text=True,
+            encoding="utf-8",
+            capture_output=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["result"]["mode"], "viewport")
+        self.assertEqual(payload["calls"][0]["timeout"], 90000)
+        self.assertTrue(payload["calls"][0]["fullPage"])
+        self.assertEqual(payload["calls"][1]["timeout"], 15000)
+        self.assertFalse(payload["calls"][1]["fullPage"])
+        self.assertTrue(payload["exists"])
+        self.assertEqual(payload["events"][0]["event"], "search_screenshot_fallback")
+        self.assertIn("full page timeout", payload["events"][0]["payload"]["full_page_error"])
+
+    def test_xiaohongshu_search_screenshot_total_failure_is_nonfatal(self):
+        script = r"""
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { captureSearchResultsScreenshot } from "./sidecar/collector/xiaohongshu.mjs";
+
+const calls = [];
+const events = [];
+const assetsPath = mkdtempSync(join(tmpdir(), "falcon-search-screenshot-failed-"));
+const screenshotPath = join(assetsPath, "search.png");
+const page = {
+  async screenshot(options) {
+    calls.push(options);
+    throw new Error(calls.length === 1 ? "full page timeout" : "viewport timeout");
+  },
+};
+const result = await captureSearchResultsScreenshot(page, screenshotPath, {
+  request: { run_id: "search-shot-run", platform: "xiaohongshu" },
+  events: {
+    write(level, scope, event, message, payload) {
+      events.push({ level, scope, event, message, payload });
+    },
+  },
+});
+console.log(JSON.stringify({ result, calls, events }));
+rmSync(assetsPath, { recursive: true, force: true });
+"""
+        result = subprocess.run(
+            ["node", "--input-type=module", "-e", script],
+            cwd=ROOT,
+            text=True,
+            encoding="utf-8",
+            capture_output=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["result"]["mode"], "failed")
+        self.assertEqual(payload["result"]["path"], "")
+        self.assertEqual(payload["calls"][0]["timeout"], 90000)
+        self.assertEqual(payload["calls"][1]["timeout"], 15000)
+        self.assertEqual(payload["events"][0]["event"], "search_screenshot_failed")
+        self.assertIn("full page timeout", payload["events"][0]["payload"]["full_page_error"])
+        self.assertIn("viewport timeout", payload["events"][0]["payload"]["viewport_error"])
+
     def test_xiaohongshu_collector_static_respects_browser_boundary(self):
         source = (ROOT / "sidecar" / "collector" / "xiaohongshu.mjs").read_text(encoding="utf-8")
 

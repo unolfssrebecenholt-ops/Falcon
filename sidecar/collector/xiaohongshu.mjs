@@ -35,6 +35,8 @@ const DEFAULT_PACE = {
 };
 
 const COMMENT_ITEM_SELECTOR = ".comment-item, [class*='comment-item'], [class*='reply-item']";
+const SEARCH_SCREENSHOT_FULL_PAGE_TIMEOUT_MS = 90_000;
+const SEARCH_SCREENSHOT_VIEWPORT_TIMEOUT_MS = 15_000;
 
 const DEFAULT_REQUEST_POLICY = {
   safety_profile: "respectful_human",
@@ -304,7 +306,10 @@ async function collectXiaohongshuReal({ request, assetsPath, profilePath, events
     }
 
     const screenshotPath = join(assetsPath, "xiaohongshu-search-results.png");
-    await page.screenshot({ path: screenshotPath, fullPage: true });
+    const searchScreenshot = await captureSearchResultsScreenshot(page, screenshotPath, {
+      request,
+      events,
+    });
 
     const rawSnapshot = await extractVisibleSnapshot(page, maxPosts * 4);
     const snapshot = {
@@ -313,6 +318,21 @@ async function collectXiaohongshuReal({ request, assetsPath, profilePath, events
     };
     const snapshotPath = join(assetsPath, "xiaohongshu-search-snapshot.json");
     await writeFile(snapshotPath, `${JSON.stringify(snapshot, null, 2)}\n`, "utf8");
+    const searchScreenshotEvidence = searchScreenshot.path
+      ? [
+          evidenceRecord({
+            request,
+            evidenceId: `${run_id}-search-screenshot`,
+            scope: "search_results_screenshot",
+            path: searchScreenshot.path,
+            payload: {
+              keyword: request.keyword,
+              mode: searchScreenshot.mode,
+              full_page_error: searchScreenshot.fullPageError || "",
+            },
+          }),
+        ]
+      : [];
 
     if (snapshot.posts.length === 0) {
       return manualActionRecords({
@@ -323,13 +343,7 @@ async function collectXiaohongshuReal({ request, assetsPath, profilePath, events
         reason: "no_posts_detected",
         detail: "小红书已打开，但采集器没有识别到可见笔记卡片。",
         existingEvidence: [
-          evidenceRecord({
-            request,
-            evidenceId: `${run_id}-search-screenshot`,
-            scope: "search_results_screenshot",
-            path: screenshotPath,
-            payload: { keyword: request.keyword },
-          }),
+          ...searchScreenshotEvidence,
           evidenceRecord({
             request,
             evidenceId: `${run_id}-search-snapshot`,
@@ -342,13 +356,7 @@ async function collectXiaohongshuReal({ request, assetsPath, profilePath, events
     }
 
     const records = [
-      evidenceRecord({
-        request,
-        evidenceId: `${run_id}-search-screenshot`,
-        scope: "search_results_screenshot",
-        path: screenshotPath,
-        payload: { keyword: request.keyword },
-      }),
+      ...searchScreenshotEvidence,
       evidenceRecord({
         request,
         evidenceId: `${run_id}-search-snapshot`,
@@ -1414,6 +1422,104 @@ export async function captureDetailScreenshot(page, path) {
 
   await page.screenshot({ path, fullPage: false });
   return { mode: "viewport" };
+}
+
+export async function captureSearchResultsScreenshot(page, path, options = {}) {
+  const request = options.request || {};
+  const events = options.events;
+  const fullPageTimeoutMs = positiveTimeoutMs(
+    request.search_screenshot_timeout_ms,
+    SEARCH_SCREENSHOT_FULL_PAGE_TIMEOUT_MS,
+  );
+  const viewportTimeoutMs = positiveTimeoutMs(
+    request.search_screenshot_viewport_timeout_ms,
+    SEARCH_SCREENSHOT_VIEWPORT_TIMEOUT_MS,
+  );
+
+  try {
+    await page.screenshot({ path, fullPage: true, timeout: fullPageTimeoutMs });
+    return {
+      path,
+      mode: "full_page",
+      timeoutMs: fullPageTimeoutMs,
+      fullPageError: "",
+      viewportError: "",
+    };
+  } catch (fullPageError) {
+    const fullPageErrorMessage = errorMessage(fullPageError);
+    try {
+      await page.screenshot({ path, fullPage: false, timeout: viewportTimeoutMs });
+      writeBestEffortEvent(
+        events,
+        "warning",
+        "xiaohongshu",
+        "search_screenshot_fallback",
+        "搜索结果全页截图失败，已降级保存当前屏幕截图。",
+        {
+          run_id: request.run_id,
+          platform: request.platform,
+          path,
+          mode: "viewport",
+          full_page_timeout_ms: fullPageTimeoutMs,
+          viewport_timeout_ms: viewportTimeoutMs,
+          full_page_error: fullPageErrorMessage,
+        },
+      );
+      return {
+        path,
+        mode: "viewport",
+        timeoutMs: viewportTimeoutMs,
+        fullPageError: fullPageErrorMessage,
+        viewportError: "",
+      };
+    } catch (viewportError) {
+      const viewportErrorMessage = errorMessage(viewportError);
+      writeBestEffortEvent(
+        events,
+        "warning",
+        "xiaohongshu",
+        "search_screenshot_failed",
+        "搜索结果页截图失败，已继续采集。",
+        {
+          run_id: request.run_id,
+          platform: request.platform,
+          requested_path: path,
+          mode: "failed",
+          full_page_timeout_ms: fullPageTimeoutMs,
+          viewport_timeout_ms: viewportTimeoutMs,
+          full_page_error: fullPageErrorMessage,
+          viewport_error: viewportErrorMessage,
+        },
+      );
+      return {
+        path: "",
+        requestedPath: path,
+        mode: "failed",
+        timeoutMs: viewportTimeoutMs,
+        fullPageError: fullPageErrorMessage,
+        viewportError: viewportErrorMessage,
+      };
+    }
+  }
+}
+
+function positiveTimeoutMs(value, fallback) {
+  const timeoutMs = Number(value);
+  return Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : fallback;
+}
+
+function errorMessage(error) {
+  return String(error?.message || error || "");
+}
+
+function writeBestEffortEvent(events, level, scope, event, message, payload) {
+  try {
+    if (events?.write) {
+      events.write(level, scope, event, message, payload);
+    }
+  } catch {
+    // Event logging should not break evidence capture fallback paths.
+  }
 }
 
 async function loadPlaywright() {
