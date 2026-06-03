@@ -7,6 +7,7 @@ cd "$PROJECT_ROOT"
 HOST="127.0.0.1"
 PORT="8765"
 PID_FILE="$PROJECT_ROOT/runtime/falcon-web.pid"
+URL_FILE="$PROJECT_ROOT/runtime/falcon-web.url"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -69,5 +70,6 @@ done < <(lsof -tiTCP:"$PORT" -sTCP:LISTEN 2>/dev/null || true)
 if [[ "$STOPPED" -eq 0 ]]; then
   echo "No Falcon web process found on ${HOST}:${PORT}"
 else
+  rm -f "$URL_FILE"
   echo "Falcon web stopped."
 fi

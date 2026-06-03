@@ -1,90 +1,125 @@
-<form id="collector-create-form" method="post" action="/collector/create" class="collector-create-form">
+{% set form_platforms = create_platforms|default(platforms) %}
+{% set form_profile_options = profile_options|default([]) %}
+{% set form_defaults = defaults|default({"platform": "xiaohongshu", "profile": "", "max_posts": 8, "max_comments_per_post": 5}) %}
+{% set create_form_mode = create_form_mode|default("page") %}
+<form id="collector-create-form" method="post" action="/collector/create" class="collector-create-form collector-create-form-{{ create_form_mode }}">
   <input type="hidden" name="keyword" value="">
-  <section class="panel create-task-panel" id="create-task">
-    <div class="section-head">
-      <div>
-        <h2>任务配置</h2>
-        <p class="muted">先选已有 Profile，再添加关键词组；默认低频浏览器采集，保存已加载图片，失败回退截图。</p>
-      </div>
-      <button class="button small primary" type="submit"{% if not profile_options %} disabled{% endif %}>加入队列</button>
-    </div>
-
-    <div class="field wide">
-      <div class="field-title">
-        <span>平台</span>
-        <button class="help-dot" type="button" aria-label="平台参数说明" data-tip="选择采集适配器。当前只有小红书可运行，其他平台保留入口但不会入队。">?</button>
-      </div>
-      <div class="platform-picker">
-        {% for platform in platforms %}
-        <label class="option-card {{ 'selected' if platform.key == defaults.platform else '' }}">
-          <input type="radio" name="platform" value="{{ platform.key }}" {{ "checked" if platform.key == defaults.platform else "" }} {{ "disabled" if platform.key != "xiaohongshu" else "" }}>
-          <strong>{{ platform.name }} <span class="status-badge {{ 'status-completed' if platform.key == 'xiaohongshu' else 'status-cancelled' }}"><i></i>{{ platform.status }}</span></strong>
-          <p>{{ "首页搜索、瀑布流点击、保存浏览器已加载图片；低频采集，遇到风控提示立即暂停。" if platform.key == "xiaohongshu" else "保留入口，不允许误判为可运行。" }}</p>
-        </label>
-        {% endfor %}
-      </div>
-    </div>
-
-    <div class="field-grid task-config-grid">
-      <div class="field profile-field">
-        <div class="field-title">
-          <span>Profile</span>
-          <button class="help-dot" type="button" aria-label="Profile 参数说明" data-tip="只能选择账号管理里已有的 Profile。同一 profile 同一时间只执行一个采集任务。">?</button>
+  <section class="panel create-task-panel create-task-card" id="create-task">
+    <div class="section-head create-task-card-head">
+      <div class="create-task-heading">
+        <span class="task-title-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M12 5v14"></path><path d="M5 12h14"></path></svg>
+        </span>
+        <div>
+          <h2>创建任务</h2>
+          <p class="muted">先选已有 Profile，再添加关键词组；默认低频浏览器采集，保存已加载图片，失败回退截图。</p>
         </div>
-        <select id="profile-select" name="profile" required{% if not profile_options %} disabled{% endif %}>
-          {% if profile_options %}
-          {% for profile in profile_options %}
-          <option value="{{ profile.profile }}" {{ "selected" if profile.profile == defaults.profile else "" }}>{{ profile.profile }}</option>
+      </div>
+      <button class="button small primary has-icon" type="submit"{% if not form_profile_options %} disabled{% endif %}>
+        <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"></path><path d="M12 5v14"></path></svg>
+        加入队列
+      </button>
+    </div>
+
+    <div class="create-task-card-strip" aria-label="创建任务状态">
+      <span><i class="strip-icon strip-icon-profile" aria-hidden="true"></i>Profile 串行</span>
+      <span><i class="strip-icon strip-icon-keyword" aria-hidden="true"></i>关键词拆分</span>
+      <span><i class="strip-icon strip-icon-capture" aria-hidden="true"></i>图片留存</span>
+    </div>
+
+    <div class="create-task-fields">
+      <div class="field wide platform-field">
+        <div class="field-title">
+          <span>平台</span>
+          <button class="help-dot" type="button" aria-label="平台参数说明" data-tip="选择采集适配器。当前只有小红书可运行，其他平台保留入口但不会入队。">?</button>
+        </div>
+        <div class="platform-picker">
+          {% for platform in form_platforms %}
+          <label class="option-card {{ 'selected' if platform.key == form_defaults.platform else '' }}">
+            <input type="radio" name="platform" value="{{ platform.key }}" {{ "checked" if platform.key == form_defaults.platform else "" }} {{ "disabled" if platform.key != "xiaohongshu" else "" }}>
+            <strong>
+              <span class="option-title">
+                <span class="option-icon {{ 'active' if platform.key == 'xiaohongshu' else 'pending' }}" aria-hidden="true">
+                  {% if platform.key == "xiaohongshu" %}
+                  <svg viewBox="0 0 24 24"><path d="M8 4h8a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"></path><path d="M9 9h6"></path><path d="M9 13h4"></path></svg>
+                  {% else %}
+                  <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"></circle><path d="M12 8v4l3 2"></path></svg>
+                  {% endif %}
+                </span>
+                <span class="option-title-text">{{ platform.name }}</span>
+              </span>
+              <span class="status-badge {{ 'status-completed' if platform.key == 'xiaohongshu' else 'status-cancelled' }}"><i></i>{{ platform.status }}</span>
+            </strong>
+            <p>{{ "首页搜索、瀑布流点击、保存浏览器已加载图片；低频采集，遇到风控提示立即暂停。" if platform.key == "xiaohongshu" else "保留入口，不允许误判为可运行。" }}</p>
+          </label>
           {% endfor %}
+        </div>
+      </div>
+
+      <div class="field-grid task-config-grid">
+        <div class="field profile-field">
+          <div class="field-title">
+            <span>Profile</span>
+            <button class="help-dot" type="button" aria-label="Profile 参数说明" data-tip="只能选择账号管理里已有的 Profile。同一 profile 同一时间只执行一个采集任务。">?</button>
+          </div>
+          <select id="profile-select" name="profile" required{% if not form_profile_options %} disabled{% endif %}>
+            {% if form_profile_options %}
+            {% for profile in form_profile_options %}
+            <option value="{{ profile.profile }}" {{ "selected" if profile.profile == form_defaults.profile else "" }}>{{ profile.profile }}</option>
+            {% endfor %}
+            {% else %}
+            <option value="" selected>请先在账号管理创建 Profile</option>
+            {% endif %}
+          </select>
+          {% if form_profile_options %}
+          <span class="subtext">只能选择账号管理里已有的 Profile，可按 profile 串行执行任务。</span>
           {% else %}
-          <option value="" selected>请先在账号管理创建 Profile</option>
+          <span class="subtext">请先在 <a class="inline-link" href="/collector/accounts">账号管理</a> 创建 Profile，再回来加入队列。</span>
           {% endif %}
-        </select>
-        {% if profile_options %}
-        <span class="subtext">只能选择账号管理里已有的 Profile，可按 profile 串行执行任务。</span>
-        {% else %}
-        <span class="subtext">请先在 <a class="inline-link" href="/collector/accounts">账号管理</a> 创建 Profile，再回来加入队列。</span>
-        {% endif %}
-      </div>
-
-      <div class="field keyword-field">
-        <div class="field-title">
-          <span>关键词组</span>
-          <button class="help-dot" type="button" aria-label="关键词组参数说明" data-tip="支持多个关键词。按 Enter、逗号或点击添加生成标签；提交后按关键词拆成独立 queued run。">?</button>
         </div>
-        <div class="keyword-builder">
-          <div class="keyword-tags" id="keyword-tags" aria-label="已添加关键词"></div>
-          <div class="keyword-entry">
-            <input id="keyword-input" placeholder="输入关键词，按 Enter 或逗号添加" aria-label="添加关键词">
-            <button class="button small" type="button" id="keyword-add">添加</button>
+
+        <div class="field keyword-field">
+          <div class="field-title">
+            <span>关键词组</span>
+            <button class="help-dot" type="button" aria-label="关键词组参数说明" data-tip="支持多个关键词。按 Enter、逗号或点击添加生成标签；提交后按关键词拆成独立 queued run。">?</button>
           </div>
-          <input type="hidden" id="keywords-hidden" name="keywords" value="">
-          <div class="keyword-plan">
-            <span class="pill" id="keyword-count-chip">0 个关键词</span>
-            <span>添加关键词后入队，每个关键词生成 1 个独立 run，共用 profile、帖子数和评论数参数。</span>
+          <div class="keyword-builder">
+            <div class="keyword-tags" id="keyword-tags" aria-label="已添加关键词"></div>
+            <div class="keyword-entry">
+              <input id="keyword-input" placeholder="输入关键词，按 Enter 或逗号添加" aria-label="添加关键词">
+              <button class="button small has-icon" type="button" id="keyword-add">
+                <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"></path><path d="M12 5v14"></path></svg>
+                添加
+              </button>
+            </div>
+            <input type="hidden" id="keywords-hidden" name="keywords" value="">
+            <div class="keyword-plan">
+              <span class="pill" id="keyword-count-chip">0 个关键词</span>
+              <span>添加关键词后入队，每个关键词生成 1 个独立 run，共用 profile、帖子数和评论数参数。</span>
+            </div>
           </div>
         </div>
-      </div>
 
-      <div class="field compact-field">
-        <div class="field-title">
-          <span>最大帖子数</span>
-          <button class="help-dot" type="button" aria-label="最大帖子数参数说明" data-tip="限制详情页抓取数量。数值越大，采集时间和平台风控概率越高。">?</button>
+        <div class="field compact-field">
+          <div class="field-title">
+            <span>最大帖子数</span>
+            <button class="help-dot" type="button" aria-label="最大帖子数参数说明" data-tip="限制详情页抓取数量。数值越大，采集时间和平台风控概率越高。">?</button>
+          </div>
+          <input name="max_posts" type="number" min="1" max="30" value="{{ form_defaults.max_posts }}">
+          <span class="subtext">保守建议值：8；更大批量请拆分多次执行。</span>
         </div>
-        <input name="max_posts" type="number" min="1" max="30" value="{{ defaults.max_posts }}">
-        <span class="subtext">保守建议值：8；更大批量请拆分多次执行。</span>
-      </div>
-      <div class="field compact-field">
-        <div class="field-title">
-          <span>每帖评论数</span>
-          <button class="help-dot" type="button" aria-label="每帖评论数参数说明" data-tip="每个帖子最多保留的评论数量。填 0 表示只采集帖子主体。">?</button>
+        <div class="field compact-field">
+          <div class="field-title">
+            <span>每帖评论数</span>
+            <button class="help-dot" type="button" aria-label="每帖评论数参数说明" data-tip="每个帖子最多保留的评论数量。填 0 表示只采集帖子主体。">?</button>
+          </div>
+          <input name="max_comments_per_post" type="number" min="0" max="50" value="{{ form_defaults.max_comments_per_post }}">
+          <span class="subtext">保守建议值：5；评论区只读取可见内容。</span>
         </div>
-        <input name="max_comments_per_post" type="number" min="0" max="50" value="{{ defaults.max_comments_per_post }}">
-        <span class="subtext">保守建议值：5；评论区只读取可见内容。</span>
       </div>
     </div>
-
   </section>
+
   <dialog id="collector-create-confirm-dialog" class="create-confirm-dialog" aria-labelledby="create-confirm-title">
     <div class="create-confirm-card">
       <div class="section-head">
@@ -95,11 +130,11 @@
       </div>
       <div class="create-confirm-summary" aria-label="任务确认信息">
         <div class="summary-row"><span>平台</span><strong id="confirm-platform">小红书 / xiaohongshu</strong></div>
-        <div class="summary-row"><span>Profile</span><strong id="confirm-profile">{{ defaults.profile or '未选择' }}</strong></div>
+        <div class="summary-row"><span>Profile</span><strong id="confirm-profile">{{ form_defaults.profile or '未选择' }}</strong></div>
         <div class="summary-row"><span>关键词组</span><strong id="confirm-keywords">待确认</strong></div>
         <div class="summary-row"><span>将创建 run</span><strong id="confirm-run-count">0 个</strong></div>
-        <div class="summary-row"><span>最大帖子数</span><strong id="confirm-max-posts">{{ defaults.max_posts }}</strong></div>
-        <div class="summary-row"><span>每帖评论数</span><strong id="confirm-max-comments">{{ defaults.max_comments_per_post }}</strong></div>
+        <div class="summary-row"><span>最大帖子数</span><strong id="confirm-max-posts">{{ form_defaults.max_posts }}</strong></div>
+        <div class="summary-row"><span>每帖评论数</span><strong id="confirm-max-comments">{{ form_defaults.max_comments_per_post }}</strong></div>
         <div class="summary-row"><span>执行策略</span><strong id="confirm-strategy">低频浏览器采集 / 已加载图片 / 截图回退</strong></div>
       </div>
       <div class="create-confirm-actions">
@@ -109,3 +144,141 @@
     </div>
   </dialog>
 </form>
+
+<script>
+(() => {
+  const createForm = document.getElementById("collector-create-form");
+  const keywordTags = document.getElementById("keyword-tags");
+  const keywordInput = document.getElementById("keyword-input");
+  const keywordAdd = document.getElementById("keyword-add");
+  const keywordsHidden = document.getElementById("keywords-hidden");
+  const keywordCountChip = document.getElementById("keyword-count-chip");
+  const profileSelect = document.getElementById("profile-select");
+  const platformInputs = Array.from(document.querySelectorAll('input[name="platform"]'));
+  const maxPostsInput = document.querySelector('input[name="max_posts"]');
+  const maxCommentsInput = document.querySelector('input[name="max_comments_per_post"]');
+  const confirmDialog = document.getElementById("collector-create-confirm-dialog");
+  const confirmPlatform = document.getElementById("confirm-platform");
+  const confirmProfile = document.getElementById("confirm-profile");
+  const confirmKeywords = document.getElementById("confirm-keywords");
+  const confirmRunCount = document.getElementById("confirm-run-count");
+  const confirmMaxPosts = document.getElementById("confirm-max-posts");
+  const confirmMaxComments = document.getElementById("confirm-max-comments");
+  const confirmCancel = document.getElementById("confirm-create-cancel");
+  const confirmSubmit = document.getElementById("confirm-create-submit");
+  let confirmedSubmit = false;
+
+  function getKeywords() {
+    return Array.from(keywordTags?.querySelectorAll(".keyword-chip") || [])
+      .map((chip) => chip.dataset.keyword || chip.firstChild?.textContent?.trim())
+      .filter(Boolean);
+  }
+
+  function updateKeywordSummary() {
+    const keywords = getKeywords();
+    const count = keywords.length;
+    if (keywordsHidden) keywordsHidden.value = keywords.join("\n");
+    if (keywordCountChip) keywordCountChip.textContent = `${count} 个关键词`;
+  }
+
+  function createKeywordChip(keyword) {
+    const chip = document.createElement("span");
+    chip.className = "keyword-chip";
+    chip.dataset.keyword = keyword;
+    chip.append(document.createTextNode(`${keyword} `));
+    const removeButton = document.createElement("button");
+    removeButton.type = "button";
+    removeButton.setAttribute("aria-label", `移除 ${keyword}`);
+    removeButton.textContent = "×";
+    removeButton.addEventListener("click", () => {
+      chip.remove();
+      updateKeywordSummary();
+    });
+    chip.append(removeButton);
+    return chip;
+  }
+
+  function addKeywordsFromInput() {
+    if (!keywordInput || !keywordTags) return;
+    const existing = new Set(getKeywords());
+    const values = keywordInput.value.split(/[,，\n]/).map((value) => value.trim()).filter(Boolean);
+    values.forEach((keyword) => {
+      if (!existing.has(keyword)) {
+        keywordTags.append(createKeywordChip(keyword));
+        existing.add(keyword);
+      }
+    });
+    keywordInput.value = "";
+    keywordInput.setCustomValidity("");
+    updateKeywordSummary();
+  }
+
+  function selectedPlatformLabel() {
+    const selected = platformInputs.find((input) => input.checked);
+    const platformName = selected?.closest(".option-card")?.querySelector(".option-title-text")?.textContent?.trim();
+    return selected ? `${platformName || "小红书"} / ${selected.value}` : "未选择";
+  }
+
+  function populateConfirmDialog() {
+    const keywords = getKeywords();
+    if (confirmPlatform) confirmPlatform.textContent = selectedPlatformLabel();
+    if (confirmProfile) confirmProfile.textContent = profileSelect?.value || "未选择";
+    if (confirmKeywords) confirmKeywords.textContent = keywords.join(" / ");
+    if (confirmRunCount) confirmRunCount.textContent = `${keywords.length} 个`;
+    if (confirmMaxPosts) confirmMaxPosts.textContent = maxPostsInput?.value || "8";
+    if (confirmMaxComments) confirmMaxComments.textContent = maxCommentsInput?.value || "5";
+  }
+
+  function openConfirmDialog() {
+    populateConfirmDialog();
+    if (confirmDialog?.showModal) {
+      confirmDialog.showModal();
+    } else {
+      confirmDialog?.setAttribute("open", "");
+    }
+  }
+
+  function closeConfirmDialog() {
+    if (confirmDialog?.close) {
+      confirmDialog.close();
+    } else {
+      confirmDialog?.removeAttribute("open");
+    }
+  }
+
+  keywordAdd?.addEventListener("click", addKeywordsFromInput);
+  keywordInput?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === "," || event.key === "，") {
+      event.preventDefault();
+      addKeywordsFromInput();
+    }
+  });
+  keywordInput?.addEventListener("input", () => keywordInput.setCustomValidity(""));
+  confirmCancel?.addEventListener("click", () => {
+    confirmedSubmit = false;
+    closeConfirmDialog();
+  });
+  confirmSubmit?.addEventListener("click", () => {
+    confirmedSubmit = true;
+    closeConfirmDialog();
+    if (createForm?.requestSubmit) {
+      createForm.requestSubmit();
+    } else {
+      createForm?.submit();
+    }
+  });
+  createForm?.addEventListener("submit", (event) => {
+    if (confirmedSubmit) return;
+    event.preventDefault();
+    addKeywordsFromInput();
+    if (!getKeywords().length) {
+      keywordInput?.setCustomValidity("请先添加至少一个关键词");
+      keywordInput?.reportValidity();
+      keywordInput?.focus();
+      return;
+    }
+    openConfirmDialog();
+  });
+  updateKeywordSummary();
+})();
+</script>

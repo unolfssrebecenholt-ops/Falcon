@@ -210,6 +210,7 @@ class WebAppTest(unittest.TestCase):
 
             self.assertEqual(response.status_code, 200)
             self.assertIn("采集总览", response.text)
+            self.assertIn("最近状态", response.text)
             self.assertIn("平台入口", response.text)
             self.assertIn('class="running-attention-banner"', response.text)
             self.assertIn('class="platform-card active has-running"', response.text)
@@ -283,7 +284,7 @@ class WebAppTest(unittest.TestCase):
             self.assertIn(".queue-wrap td:nth-child(9) {\n  overflow: visible;", css)
             self.assertNotIn("min-width: 1240px", css)
 
-    def test_web_theme_uses_teal_amber_glass_palette_without_purple(self):
+    def test_web_theme_uses_neutral_teal_glass_palette_without_purple(self):
         css = (Path(__file__).resolve().parents[1] / "falcon" / "web" / "static" / "app.css").read_text(
             encoding="utf-8"
         )
@@ -294,15 +295,15 @@ class WebAppTest(unittest.TestCase):
         body_rule = css[css.index("body {") : css.index(".inline-link {")]
         sidebar_rule = css[css.index(".sidebar {") : css.index(".brand {")]
 
-        self.assertIn("--bg: #e8f1f2;", css)
-        self.assertIn("--panel: rgba(241, 248, 247, 0.64);", css)
-        self.assertIn("--ink-strong: #10272c;", css)
-        self.assertIn("--accent: #0aa6c2;", css)
-        self.assertIn("--accent-dark: #087d7a;", css)
-        self.assertIn("--blue: #0aa6c2;", css)
-        self.assertIn("--amber: #d1a24d;", css)
-        self.assertIn("--danger: #c85b4a;", css)
-        self.assertIn("--ok: #138d68;", css)
+        self.assertIn("--bg: #f6f7f9;", css)
+        self.assertIn("--panel: #ffffff;", css)
+        self.assertIn("--ink-strong: #121a24;", css)
+        self.assertIn("--accent: #5f7190;", css)
+        self.assertIn("--accent-dark: #52677f;", css)
+        self.assertIn("--blue: #5f7190;", css)
+        self.assertIn("--amber: #d89a36;", css)
+        self.assertIn("--danger: #e36f61;", css)
+        self.assertIn("--ok: #7f8794;", css)
         self.assertIn('font-size: 17px;', css[css.index("h1 {") : css.index("h2 {")])
         self.assertIn("position: sticky;", css[css.index(".topbar {") : css.index(".brand {")])
         self.assertIn(".nav-group.current", css)
@@ -314,7 +315,7 @@ class WebAppTest(unittest.TestCase):
         self.assertNotIn("slate-command-reference-pages-20260524", base_template)
         self.assertNotIn("slate-command-soft-sage-pages-20260524", base_template)
         self.assertNotIn("slate-command-stone-moss-pages-", base_template)
-        self.assertIn("teal-amber-glass-v3-light", base_template)
+        self.assertIn("controlled-color-v3-analysis-single-screen-v2", base_template)
 
     def test_help_tooltips_are_not_clipped_by_panels(self):
         css = (Path(__file__).resolve().parents[1] / "falcon" / "web" / "static" / "app.css").read_text(
@@ -551,9 +552,12 @@ class WebAppTest(unittest.TestCase):
             )
 
             self.assertEqual(response.status_code, 200)
-            self.assertIn('class="panel queue-health-panel"', response.text)
+            self.assertIn('class="panel recent-status-panel queue-health-panel"', response.text)
+            self.assertIn('class="recent-status-body"', response.text)
             self.assertIn('class="health-metrics"', response.text)
             self.assertIn('class="health-actions"', response.text)
+            self.assertIn("最近状态", response.text)
+            self.assertIn("平台入口", response.text)
             self.assertNotIn('class="panel rhythm-panel"', response.text)
             self.assertNotIn("采集节奏", response.text)
             self.assertIn("运行中", response.text)
@@ -561,12 +565,14 @@ class WebAppTest(unittest.TestCase):
             self.assertIn("待启动", response.text)
             self.assertIn('href="/collector/create"', response.text)
             self.assertIn('action="/collector/queue/start"', response.text)
-            self.assertIn(".queue-health-panel", css)
+            self.assertIn(".recent-status-panel.queue-health-panel", css)
+            self.assertIn(".recent-status-body", css)
             self.assertIn(".health-metrics", css)
-            self.assertIn("grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr))", css)
-            self.assertIn("grid-template-columns: minmax(170px, 0.75fr) minmax(240px, 1.25fr)", css)
-            self.assertIn(".health-actions {\n  display: grid;\n  grid-template-columns: 1fr;", css)
-            self.assertNotIn("grid-template-columns: repeat(4, minmax(160px, 1fr));", css)
+            self.assertIn("align-items: stretch", css)
+            self.assertIn("min-height: 560px;", css)
+            self.assertIn("max-height: clamp(420px, calc(100vh - 360px), 620px);", css)
+            self.assertIn(".recent-run-list {\n  min-height: 0;", css)
+            self.assertIn("overflow-y: auto;", css)
 
     def test_collector_create_get_renders_standalone_task_creation_page(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -612,7 +618,10 @@ class WebAppTest(unittest.TestCase):
             self.assertIn("独立承载筛选器", queue.text)
             self.assertIn("xhs-layout-queued", queue.text)
             self.assertIn('action="/collector/runs/xhs-layout-queued/start"', queue.text)
-            self.assertIn('href="/collector/create"', queue.text)
+            self.assertIn('id="queue-create-task-open"', queue.text)
+            self.assertIn('id="queue-create-task-dialog"', queue.text)
+            self.assertIn('id="collector-create-form"', queue.text)
+            self.assertIn('action="/collector/create"', queue.text)
             self.assertEqual(create.status_code, 200)
             self.assertIn("任务创建", create.text)
             self.assertIn('id="collector-create-form"', create.text)
@@ -674,7 +683,31 @@ class WebAppTest(unittest.TestCase):
             self.assertIn('href="/collector/create"', response.text)
             self.assertIn('href="/analysis/samples"', response.text)
             self.assertIn('href="/tasks"', response.text)
+            self.assertIn('href="/settings"', response.text)
+            self.assertIn('class="settings-nav-link ', response.text)
+            self.assertNotIn('<div class="nav-title"><span>基础</span>', response.text)
+            nav_block = response.text[
+                response.text.index('<nav class="nav-section-wrap">') : response.text.index('<div class="rail-settings"')
+            ]
+            self.assertNotIn('href="/collector/create"', nav_block)
+            self.assertNotIn("任务创建", nav_block)
+
+    def test_settings_page_groups_foundation_tools_as_cards(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "falcon.sqlite3"
+            client = TestClient(create_app(db_path))
+
+            response = client.get("/settings")
+
+            self.assertEqual(response.status_code, 200)
+            self.assertIn("<h1>设置</h1>", response.text)
+            self.assertIn('class="settings-card-grid"', response.text)
+            self.assertIn('href="/keywords"', response.text)
+            self.assertIn('href="/report"', response.text)
             self.assertIn('href="/settings/gpt"', response.text)
+            self.assertIn("关键词池", response.text)
+            self.assertIn("日报", response.text)
+            self.assertIn("模型配置", response.text)
 
     def test_gpt_settings_page_reads_and_saves_local_env(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -716,7 +749,8 @@ class WebAppTest(unittest.TestCase):
 
                 self.assertEqual(page.status_code, 200)
                 self.assertIn("模型配置", page.text)
-                self.assertIn('href="/settings/gpt"', page.text)
+                self.assertIn('href="/settings"', page.text)
+                self.assertIn('action="/settings/gpt"', page.text)
                 self.assertIn('id="gpt-api-key-toggle"', page.text)
                 self.assertIn("old-...-key", page.text)
                 self.assertNotIn(">old-secret-key<", page.text)
@@ -1279,6 +1313,9 @@ class WebAppTest(unittest.TestCase):
             ".review-workbench",
             ".execution-grid",
             ".task-table-wrap",
+            ".settings-directory",
+            ".settings-card-grid",
+            ".settings-nav-link",
         ]:
             self.assertIn(selector, css)
         self.assertIn("max-width: 860px", css)
@@ -1369,7 +1406,7 @@ class WebAppTest(unittest.TestCase):
             response = client.get("/collector/create")
 
             self.assertEqual(response.status_code, 200)
-            self.assertIn("任务配置", response.text)
+            self.assertIn("创建任务", response.text)
             self.assertIn('name="keyword"', response.text)
             self.assertIn('name="max_posts"', response.text)
             self.assertIn('name="max_posts" type="number" min="1" max="30" value="8"', response.text)
@@ -1386,7 +1423,7 @@ class WebAppTest(unittest.TestCase):
             response = client.get("/collector/create")
 
             self.assertEqual(response.status_code, 200)
-            self.assertIn("任务配置", response.text)
+            self.assertIn("创建任务", response.text)
             self.assertIn("关键词组", response.text)
             self.assertIn('name="keywords"', response.text)
             self.assertIn('class="help-dot"', response.text)
@@ -3583,6 +3620,9 @@ class WebAppTest(unittest.TestCase):
                         title=f"{keyword}帖子",
                         content=f"{keyword}正文",
                         url=f"local://{run_id}/post",
+                        like_count=str(10 * index),
+                        collect_count=str(5 * index),
+                        comment_count="3",
                         detail_fingerprint=f"{run_id}-post",
                     )
                 )
@@ -3592,6 +3632,7 @@ class WebAppTest(unittest.TestCase):
                         run_id=run_id,
                         commenter="reader",
                         content=f"{keyword}评论",
+                        like_count=str(index),
                     )
                 )
             repo.create_collection_run(
@@ -3620,10 +3661,17 @@ class WebAppTest(unittest.TestCase):
             self.assertIn("小红书", home.text)
             self.assertIn("抖音", home.text)
             self.assertIn('action="/analysis/tasks"', home.text)
+            self.assertIn('class="analysis-command-shell"', home.text)
+            self.assertIn('class="panel analysis-workbench"', home.text)
             self.assertIn('class="intent-run-list"', home.text)
             self.assertIn("生图软件 · 2026-05-25 09:00:00", home.text)
             self.assertIn("AI 工具 · 2026-05-25 10:00:00", home.text)
             self.assertIn("xhs-market-1", home.text)
+            self.assertIn('data-posts="1"', home.text)
+            self.assertIn('data-comments="3"', home.text)
+            self.assertIn('data-likes="11"', home.text)
+            self.assertIn('data-collects="5"', home.text)
+            self.assertIn("质 未评", home.text)
             self.assertNotIn('value="douyin-market-1"', home.text)
             self.assertIn('action="/analysis/promote"', home.text)
             self.assertEqual(response.status_code, 303)
@@ -3790,6 +3838,8 @@ class WebAppTest(unittest.TestCase):
             self.assertIn('id="probe-stream-panel"', detail.text)
             self.assertIn('class="probe-card-top"', detail.text)
             self.assertIn('class="probe-signal positive"', detail.text)
+            self.assertIn('id="probe-create-dialog"', detail.text)
+            self.assertIn("data-probe-modal-open", detail.text)
             self.assertIn('form="probe-editor-form"', detail.text)
             self.assertEqual(streamed.status_code, 200)
             self.assertIn("text/event-stream", streamed.headers["content-type"])

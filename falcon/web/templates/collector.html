@@ -60,12 +60,12 @@
       <div class="section-head">
         <div>
           <h2>最近任务</h2>
-          <p class="muted">只展示最近 5 条，完整筛选和操作进入任务队列。</p>
+          <p class="muted">按最近更新时间展示，数据较多时在卡片内滚动。</p>
         </div>
         <a class="button small" href="/collector/runs">查看队列</a>
       </div>
       <div class="recent-run-list">
-        {% for run in runs[:5] %}
+        {% for run in runs %}
         <article class="recent-run-item status-{{ run.status }}">
           <div>
             <a class="run-id" href="/collector/runs/{{ run.run_id }}">{{ run.run_id }}</a>
@@ -85,68 +85,131 @@
   </div>
 
   <div class="overview-column overview-column-right">
-    <section class="panel">
+    <section class="panel recent-status-panel queue-health-panel">
       <div class="section-head">
         <div>
-          <h2>平台入口</h2>
-          <p class="muted">小红书是当前开发入口，其他平台作为明确的待接入配置位。</p>
-        </div>
-        <span class="pill">小红书主线</span>
-      </div>
-      <div class="platform-grid">
-        {% for platform in platforms %}
-        <article class="platform-card {{ 'active' if platform.key == 'xiaohongshu' else '' }} {{ 'has-running' if platform.running_count else '' }}">
-          <h3>{{ platform.name }} <span class="pill">{{ platform.status }}</span></h3>
-          <div class="platform-kv">
-            <div><span>任务</span><strong>{{ platform.run_count }}</strong></div>
-            <div><span>样本</span><strong>{{ platform.post_count }}</strong></div>
-            <div><span>最近状态</span><strong>{{ platform.latest.status|collector_status if platform.latest else "未开始" }}</strong></div>
-          </div>
-        </article>
-        {% endfor %}
-      </div>
-    </section>
-
-    <section class="panel queue-health-panel">
-      <div class="section-head">
-        <div>
-          <h2>队列健康</h2>
-          <p class="muted">队列态势、Profile 锁和启动候选集中判断。</p>
+          <h2>
+            <span class="section-title-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M22 12h-4l-3 8-6-16-3 8H2"></path></svg>
+            </span>
+            最近状态
+          </h2>
+          <p class="muted">平台入口和队列健康集中管理，先判断可进场的平台，再看队列是否需要处理。</p>
         </div>
         <span class="pill">{{ queue_health.manual_label }}</span>
       </div>
 
-      <div class="health-metrics" aria-label="队列健康指标">
-        <div><span>运行中</span><strong>{{ stats.running_runs }}</strong></div>
-        <div><span>待人工</span><strong>{{ queue_health.manual_count }}</strong></div>
-        <div><span>可复跑</span><strong>{{ queue_health.failed_count }}</strong></div>
-        <div><span>待启动</span><strong>{{ queue_health.queued_count }}</strong></div>
+      <div class="status-overview-row" aria-label="最近状态摘要">
+        <div class="status-overview-chip {{ 'ready' if environment_ready else 'warn' }}">
+          <span class="status-chip-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"></path></svg>
+          </span>
+          <div><span>环境</span><strong>{{ 'READY' if environment_ready else 'ACTION' }}</strong></div>
+        </div>
+        <div class="status-overview-chip {{ 'warn' if queue_health.manual_count else 'ready' }}">
+          <span class="status-chip-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M18 21a6 6 0 0 0-12 0"></path><circle cx="12" cy="8" r="4"></circle><path d="m17 11 2 2 4-4"></path></svg>
+          </span>
+          <div><span>人工</span><strong>{{ queue_health.manual_count }}</strong></div>
+        </div>
+        <div class="status-overview-chip {{ 'failed' if queue_health.failed_count else 'idle' }}">
+          <span class="status-chip-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.64-6.36"></path><path d="M21 3v6h-6"></path></svg>
+          </span>
+          <div><span>复跑</span><strong>{{ queue_health.failed_count }}</strong></div>
+        </div>
       </div>
 
-      <div class="health-list">
-        <article class="health-item warn">
-          <span class="health-mark" aria-hidden="true"></span>
-          <div><strong>{{ queue_health.manual_label }}</strong><p>等待人工处理的任务不占用采集器，但需要打开对应 profile 处理。</p></div>
-          <span class="status-badge status-manual_action_required"><i></i>需人工</span>
-        </article>
-        <article class="health-item failed">
-          <span class="health-mark" aria-hidden="true"></span>
-          <div><strong>{{ queue_health.failed_label }}</strong><p>失败任务不复用旧 run，重新入队生成新证据链。</p></div>
-          <span class="status-badge status-failed"><i></i>复跑</span>
-        </article>
-        <article class="health-item">
-          <span class="health-mark" aria-hidden="true"></span>
-          <div><strong>{{ queue_health.queued_label }}</strong><p>未启动任务不占用浏览器资源，可以按 profile 串行启动。</p></div>
-          <span class="status-badge status-completed"><i></i>可用</span>
-        </article>
-      </div>
+      <div class="recent-status-body">
+        <div class="status-block">
+          <div class="status-block-head">
+            <div>
+              <h3><span class="status-heading-icon platform" aria-hidden="true"></span>平台入口</h3>
+              <p class="muted">小红书是当前开发入口，其他平台作为明确的待接入配置位。</p>
+            </div>
+            <span class="pill">小红书主线</span>
+          </div>
+          <div class="platform-grid">
+            {% for platform in platforms %}
+            <article class="platform-card {{ 'active' if platform.key == 'xiaohongshu' else '' }} {{ 'has-running' if platform.running_count else '' }}">
+              <h3>
+                <span class="platform-title">
+                  <span class="platform-icon {{ 'active' if platform.key == 'xiaohongshu' else 'pending' }}" aria-hidden="true">
+                    {% if platform.key == 'xiaohongshu' %}
+                    <svg viewBox="0 0 24 24"><path d="M12 4v16"></path><path d="M6 8h12"></path><path d="M8 4h8a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"></path></svg>
+                    {% else %}
+                    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="M12 8v4l3 2"></path></svg>
+                    {% endif %}
+                  </span>
+                  {{ platform.name }}
+                </span>
+                <span class="pill platform-state {{ 'active' if platform.key == 'xiaohongshu' else 'pending' }}">{{ platform.status }}</span>
+              </h3>
+              <div class="platform-kv">
+                <div><span>任务</span><strong>{{ platform.run_count }}</strong></div>
+                <div><span>样本</span><strong>{{ platform.post_count }}</strong></div>
+                <div><span>最近状态</span><strong>{{ platform.latest.status|collector_status if platform.latest else "未开始" }}</strong></div>
+              </div>
+            </article>
+            {% endfor %}
+          </div>
+        </div>
 
-      <div class="health-actions">
-        <a class="health-action" href="/collector/create"><span>配置任务</span><strong>Profile + 关键词</strong></a>
-        <form class="health-action-form" action="/collector/queue/start" method="post">
-          <button class="health-action" type="submit"><span>启动队列</span><strong>{{ queue_health.queued_count }} 个候选</strong></button>
-        </form>
-        <a class="health-action" href="/collector/environment"><span>环境自检</span><strong>{{ 'READY' if environment_ready else 'ACTION' }}</strong></a>
+        <div class="status-block">
+          <div class="status-block-head">
+            <div>
+              <h3><span class="status-heading-icon queue" aria-hidden="true"></span>队列健康</h3>
+              <p class="muted">队列态势、Profile 锁和启动候选集中判断。</p>
+            </div>
+          </div>
+
+          <div class="health-metrics" aria-label="队列健康指标">
+            <div class="metric-running"><span><i aria-hidden="true"></i>运行中</span><strong>{{ stats.running_runs }}</strong></div>
+            <div class="metric-manual"><span><i aria-hidden="true"></i>待人工</span><strong>{{ queue_health.manual_count }}</strong></div>
+            <div class="metric-failed"><span><i aria-hidden="true"></i>可复跑</span><strong>{{ queue_health.failed_count }}</strong></div>
+            <div class="metric-queued"><span><i aria-hidden="true"></i>待启动</span><strong>{{ queue_health.queued_count }}</strong></div>
+          </div>
+
+          {% if queue_health.manual_count or queue_health.failed_count or queue_health.queued_count %}
+          <div class="health-list">
+            {% if queue_health.manual_count %}
+            <article class="health-item warn">
+              <span class="health-mark manual" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M18 21a6 6 0 0 0-12 0"></path><circle cx="12" cy="8" r="4"></circle></svg>
+              </span>
+              <div><strong>{{ queue_health.manual_label }}</strong><p>等待人工处理的任务不占用采集器，但需要打开对应 profile 处理。</p></div>
+              <span class="status-badge status-manual_action_required"><i></i>需人工</span>
+            </article>
+            {% endif %}
+            {% if queue_health.failed_count %}
+            <article class="health-item failed">
+              <span class="health-mark rerun" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.64-6.36"></path><path d="M21 3v6h-6"></path></svg>
+              </span>
+              <div><strong>{{ queue_health.failed_label }}</strong><p>失败任务不复用旧 run，重新入队生成新证据链。</p></div>
+              <span class="status-badge status-failed"><i></i>复跑</span>
+            </article>
+            {% endif %}
+            {% if queue_health.queued_count %}
+            <article class="health-item queued">
+              <span class="health-mark queued" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>
+              </span>
+              <div><strong>{{ queue_health.queued_label }}</strong><p>未启动任务不占用浏览器资源，可以按 profile 串行启动。</p></div>
+              <span class="status-badge status-completed"><i></i>可用</span>
+            </article>
+            {% endif %}
+          </div>
+          {% endif %}
+
+          <div class="health-actions">
+            <a class="health-action" href="/collector/create"><span><i class="action-icon config" aria-hidden="true"></i>配置任务</span><strong>Profile + 关键词</strong></a>
+            <form class="health-action-form" action="/collector/queue/start" method="post">
+              <button class="health-action" type="submit"><span><i class="action-icon start" aria-hidden="true"></i>启动队列</span><strong>{{ queue_health.queued_count }} 个候选</strong></button>
+            </form>
+            <a class="health-action" href="/collector/environment"><span><i class="action-icon environment" aria-hidden="true"></i>环境自检</span><strong>{{ 'READY' if environment_ready else 'ACTION' }}</strong></a>
+          </div>
+        </div>
       </div>
     </section>
   </div>

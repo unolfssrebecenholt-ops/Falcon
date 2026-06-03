@@ -13,7 +13,7 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Stre
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from ..collector import CollectorService, safe_collector_identifier
+from ..collector import CollectorService, clean_metric_count, safe_collector_identifier
 from ..config import load_gpt_config_view, save_gpt_config
 from ..db import FalconRepository
 from ..doctor import build_doctor_report, checks_for_web
@@ -909,6 +909,38 @@ def create_app(
     def all_collected_relevance(repository: FalconRepository):
         return relevance_summary(repository.list_collected_posts(limit=1000))
 
+    def metric_count_int(value: object) -> int:
+        cleaned = clean_metric_count(value)
+        return int(cleaned) if cleaned else 0
+
+    def attach_analysis_run_summaries(repository: FalconRepository, runs: list[CollectionRun]) -> None:
+        for run in runs:
+            posts = repository.list_collected_posts(run_id=run.run_id)
+            comments = repository.list_collected_comments(run_id=run.run_id)
+            comment_total = max(
+                len(comments),
+                sum(metric_count_int(post.comment_count) for post in posts),
+            )
+            quality = relevance_summary(posts)
+            quality_counts = quality["counts"]
+            ranked_quality = [
+                ("excellent", "优", quality_counts.get("excellent", 0)),
+                ("medium", "中", quality_counts.get("medium", 0)),
+                ("poor", "劣", quality_counts.get("poor", 0)),
+                ("unscored", "未评", quality_counts.get("unscored", 0)),
+            ]
+            dominant_quality = max(ranked_quality, key=lambda item: item[2]) if posts else ranked_quality[-1]
+            run.summary = {
+                "post_count": len(posts),
+                "comment_count": comment_total,
+                "like_count": sum(metric_count_int(post.like_count) for post in posts)
+                + sum(metric_count_int(comment.like_count) for comment in comments),
+                "collect_count": sum(metric_count_int(post.collect_count) for post in posts),
+                "quality_counts": quality_counts,
+                "quality_label": dominant_quality[1],
+                "quality_level": dominant_quality[0],
+            }
+
     def analysis_platform_context(repository: FalconRepository, platform: str, reuse_task_id: Optional[int] = None):
         allowed = {item["key"] for item in _collector_platforms()}
         selected = platform if platform in allowed else "xiaohongshu"
@@ -917,6 +949,7 @@ def create_app(
             for run in repository.list_collection_runs(limit=1000)
             if run.platform == selected and run.status == "completed"
         ]
+        attach_analysis_run_summaries(repository, runs)
         tasks = repository.list_intent_analysis_tasks(platform=selected, limit=8)
         histories = []
         for task in tasks:
@@ -1066,6 +1099,43 @@ def create_app(
         app.state.last_run = {"message": "数据库已初始化", "report_path": ""}
         return RedirectResponse("/", status_code=303)
 
+    @app.get("/settings")
+    def settings_page(request: Request):
+        return templates.TemplateResponse(
+            request,
+            "settings.html",
+            {
+                "active": "settings",
+                "page_view": "settings",
+                "settings_cards": [
+                    {
+                        "title": "关键词池",
+                        "code": "PLAN",
+                        "href": "/keywords",
+                        "summary": "维护采集主题、关键词、场景权重和每日采样量。",
+                        "meta": "本地 CSV",
+                        "action": "管理关键词",
+                    },
+                    {
+                        "title": "日报",
+                        "code": "DOC",
+                        "href": "/report",
+                        "summary": "阅读本地生成的日报，复核样本摘要和当日证据。",
+                        "meta": "Markdown",
+                        "action": "打开日报",
+                    },
+                    {
+                        "title": "模型配置",
+                        "code": "GPT",
+                        "href": "/settings/gpt",
+                        "summary": "配置 GPT-5.5 中转站地址和本机 API key。",
+                        "meta": ".env",
+                        "action": "配置模型",
+                    },
+                ],
+            },
+        )
+
     @app.get("/report")
     def report_page(request: Request, path: str = "reports/daily-report.md"):
         report_path = Path(path)
@@ -1166,11 +1236,13 @@ def create_app(
             {
                 "active": "collector_runs",
                 "platforms": _platform_cards(runs, posts),
+                "create_platforms": _collector_platforms(),
                 "runs": runs,
                 "queued_count": sum(1 for run in runs if run.status == "queued"),
                 "default_status_filter": default_status_filter,
                 "created_count": created_count,
                 "calendar_state": _collector_calendar_state(runs),
+                **collector_create_context(repository),
             },
         )
 
@@ -1745,6 +1817,7 @@ def create_app(
             "analysis.html",
             {
                 "active": "analysis",
+                "page_view": "analysis",
                 "items": scored_items,
                 "keyword_stats": keyword_stats,
                 "quality_pool": quality_pool,

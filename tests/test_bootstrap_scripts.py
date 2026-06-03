@@ -99,6 +99,8 @@ class BootstrapScriptsTest(unittest.TestCase):
             root = Path(tmp)
 
             self.assertEqual(bootstrap.pid_file_path(root), root / "runtime" / "falcon-web.pid")
+            self.assertEqual(bootstrap.log_file_path(root), root / "runtime" / "falcon-web.log")
+            self.assertEqual(bootstrap.url_file_path(root), root / "runtime" / "falcon-web.url")
 
     def test_run_step_writes_and_removes_pid_file_for_blocking_process(self):
         bootstrap = load_bootstrap_module()
@@ -119,8 +121,10 @@ class BootstrapScriptsTest(unittest.TestCase):
     def test_stop_and_restart_shell_scripts_have_valid_syntax(self):
         root = Path(__file__).resolve().parents[1]
 
+        subprocess.run(["bash", "-n", str(root / "scripts" / "start.sh")], check=True)
         subprocess.run(["bash", "-n", str(root / "scripts" / "stop.sh")], check=True)
         subprocess.run(["bash", "-n", str(root / "scripts" / "restart.sh")], check=True)
+        subprocess.run(["bash", "-n", str(root / "scripts" / "status.sh")], check=True)
 
 
 if __name__ == "__main__":

@@ -1,129 +1,274 @@
 {% extends "base.html" %}
 {% block title %}分析总览 - Falcon{% endblock %}
 {% block content %}
-<header class="page-header">
+<header class="page-header analysis-page-header">
   <div>
     <div class="eyebrow">analysis home</div>
     <h1>分析总览</h1>
     <p>按平台选择采集数据包，输入分析意图，用 GPT-5.5 生成可编辑探针并手动执行语义分析。</p>
   </div>
-  <form method="post" action="/analysis/promote" class="action-row">
-    <a class="button" href="/analysis/samples">分析样本</a>
-    <button class="button primary" type="submit">送入旧分析队列 · {{ stats.promotable_count }}</button>
-  </form>
+  <a class="button" href="/analysis/samples">分析样本</a>
 </header>
 
-<section class="metrics">
-  <div class="metric"><span>已评分样本</span><strong>{{ stats.scored_count }}</strong></div>
-  <div class="metric"><span>高意图</span><strong>{{ stats.high_intent_count }}</strong></div>
-  <div class="metric"><span>关键词</span><strong>{{ stats.keyword_count }}</strong></div>
-  <div class="metric"><span>模型层</span><strong class="fit-text">GPT-5.5</strong></div>
-</section>
-
-<section class="panel">
-  <div class="section-head">
-    <div>
-      <h2>平台数据包 <button class="help-dot" type="button" data-tip="选择同一平台下已完成的采集任务，组成这次意向分析的数据包。Falcon 会读取帖子正文和评论作为 GPT-5.5 探针判断的上下文。">?</button></h2>
-      <p class="muted">v1 只分析同一平台下的一个或多个采集任务；历史组合可一键复用。</p>
+<section class="analysis-command-shell" aria-label="分析工作台">
+  <section class="panel analysis-workspace" aria-labelledby="analysis-workspace-title">
+    <div class="section-head analysis-workspace-head">
+      <div>
+        <h2 id="analysis-workspace-title">工作区 <button class="help-dot" type="button" data-tip="工作区承载探针生成状态、历史组合和旧分析质量入口；右侧选择数据包，底部工作台输入本次分析意图。">?</button></h2>
+        <p class="muted">生成探针时会先显示加载状态，任务创建后进入可编辑探针卡片。</p>
+      </div>
+      <div class="analysis-workspace-actions">
+        <span class="pill" id="analysis-selected-pill">已选 0 个数据包</span>
+        <form method="post" action="/analysis/promote" class="inline-form">
+          <button class="button" type="submit">送入旧分析队列 · {{ stats.promotable_count }}</button>
+        </form>
+      </div>
     </div>
-    <div class="action-row">
+
+    <div id="analysis-probe-loading" class="analysis-probe-loading" hidden>
+      <div class="analysis-loading-copy">
+        <span>GPT-5.5 stream</span>
+        <strong>正在准备探针工作区</strong>
+        <p>Falcon 正在读取选中的数据包、分析意图和评论上下文。</p>
+      </div>
+      <div class="analysis-loading-steps" aria-label="探针生成进度">
+        <span class="is-active">接入数据包</span>
+        <span>生成探针</span>
+        <span>进入编辑</span>
+      </div>
+      <div class="analysis-skeleton-grid" aria-hidden="true">
+        <i></i><i></i><i></i>
+      </div>
+    </div>
+
+    <div class="analysis-workspace-scroll">
+      <section class="analysis-overview-strip" aria-label="分析概况">
+        <div><span>已评分样本</span><strong>{{ stats.scored_count }}</strong></div>
+        <div><span>高意图</span><strong>{{ stats.high_intent_count }}</strong></div>
+        <div><span>关键词</span><strong>{{ stats.keyword_count }}</strong></div>
+        <div><span>模型层</span><strong>GPT-5.5</strong></div>
+      </section>
+
+      <section class="analysis-history-section" aria-labelledby="analysis-history-title">
+        <div class="section-head compact">
+          <div>
+            <h2 id="analysis-history-title">历史组合 <button class="help-dot" type="button" data-tip="这里保存过往意向分析任务。继续编辑会回到原任务和已保存探针；复用组合会只带回分析意图和采集任务，创建一个新任务。">?</button></h2>
+            <p class="muted">点击复用会创建一个新的分析任务，原历史记录不被修改。</p>
+          </div>
+        </div>
+        <div class="analysis-history-list">
+          {% for history in intent_histories %}
+          <article class="analysis-history-card intent-history-row">
+            <div class="analysis-history-card-head">
+              <strong>{{ history.task.user_intent }}</strong>
+              <span class="status ready">{{ history.task.status }}</span>
+            </div>
+            <div class="analysis-history-meta">
+              <span>{{ history.sources|length }} 个任务</span>
+              <span>{{ history.post_count|default(0) }} 篇帖子</span>
+              <span>{{ history.comment_count|default(0) }} 条评论</span>
+              <span>{{ history.enabled_probe_count|default(0) }}/{{ history.probes|length }} 个探针</span>
+            </div>
+            <strong class="analysis-history-summary">{{ history.sources|length }} 个任务 · {{ history.post_count|default(0) }} 篇帖子 · {{ history.comment_count|default(0) }} 条评论 · {{ history.enabled_probe_count|default(0) }}/{{ history.probes|length }} 个探针</strong>
+            <div class="analysis-probe-chip-row" aria-label="历史探针">
+              {% for probe in history.probes[:4] %}
+              <span>{{ probe.title }}</span>
+              {% else %}
+              <span>暂无探针</span>
+              {% endfor %}
+            </div>
+            <div class="action-row left-actions">
+              <a class="button small primary" href="/analysis/tasks/{{ history.task.task_id }}">继续编辑</a>
+              <a class="button small blue" href="/analysis?platform={{ history.task.platform }}&reuse_task_id={{ history.task.task_id }}">复用组合</a>
+              <form class="inline-form" method="post" action="/analysis/tasks/{{ history.task.task_id }}/delete" onsubmit="return confirm('删除这个分析任务？已采集的数据不会删除。');">
+                <button class="button small danger" type="submit">删除</button>
+              </form>
+            </div>
+          </article>
+          {% else %}
+          <div class="analysis-empty-state">
+            <strong>暂无意向分析历史</strong>
+            <span>在底部工作台输入分析意图并选择右侧数据包后，新的探针任务会出现在这里。</span>
+          </div>
+          {% endfor %}
+        </div>
+      </section>
+
+      <section class="analysis-support-grid" aria-label="辅助分析入口">
+        <div class="analysis-support-box analysis-quality-panel">
+          <div class="section-head compact">
+            <div>
+              <h2>采集质量入口 <button class="help-dot" type="button" data-tip="这是旧分析链路的质量闸门，按人工或规则评分把采集样本分为主分析、参考和跳过，不影响上方意向探针任务。">?</button></h2>
+              <p class="muted">旧分析链路仍保留：优质进入主分析，中等进入参考，劣质跳过。</p>
+            </div>
+            <span class="pill">可推进 {{ quality_pool.promotable }} 条</span>
+          </div>
+          <div class="relevance-flow analysis-quality-flow">
+            <span>优质主分析 {{ quality_pool.roles.primary }} 条</span>
+            <span>中等参考 {{ quality_pool.roles.reference }} 条</span>
+            <span>劣质跳过 {{ quality_pool.roles.discard }} 条</span>
+            <span>未评分 {{ quality_pool.roles.pending }} 条</span>
+          </div>
+          {% if last_run %}
+          <p class="notice">{{ last_run.message }}</p>
+          {% endif %}
+        </div>
+
+        <div class="analysis-support-box">
+          <div class="section-head compact">
+            <div>
+              <h2>选题洞察 <button class="help-dot" type="button" data-tip="展示旧分析链路已经沉淀出的可写选题和痛点，适合快速挑选后续要生成草稿或复核的方向。">?</button></h2>
+              <p class="muted">基于旧分析结果的可写方向。</p>
+            </div>
+          </div>
+          {% for item in items[:3] %}
+          <article class="compact-insight">
+            <strong>{{ item.suggested_topic or item.title }}</strong>
+            <span>{{ item.pain_point or "等待分析结果" }}</span>
+          </article>
+          {% else %}
+          <p class="muted">暂无可写选题。</p>
+          {% endfor %}
+        </div>
+      </section>
+    </div>
+  </section>
+
+  <aside class="panel analysis-task-sidebar" aria-labelledby="analysis-runs-title">
+    <div class="section-head compact analysis-task-sidebar-head">
+      <div>
+        <h2 id="analysis-runs-title">采集任务选择区 <button class="help-dot" type="button" data-tip="选择同一平台下已完成的采集任务，组成这次意向分析的数据包。Falcon 会读取帖子正文和评论作为 GPT-5.5 探针判断的上下文。">?</button></h2>
+        <p class="muted">任务列表固定在右侧，超过 7 条后滚动查看。</p>
+      </div>
+    </div>
+    <div class="analysis-platform-tabs" aria-label="平台选择">
       {% for platform in platforms %}
       <a class="button small {{ 'primary' if platform.key == selected_platform else '' }}" href="/analysis?platform={{ platform.key }}">{{ platform.name }}</a>
       {% endfor %}
     </div>
-  </div>
+    <div class="intent-run-head">
+      <span>采集任务</span>
+      <small>关键词 · 开始时间</small>
+    </div>
+    <div class="intent-run-list" role="group" aria-label="采集任务">
+      {% for run in analysis_runs %}
+      <label class="intent-run-option analysis-run-card">
+        <input type="checkbox" name="run_ids" value="{{ run.run_id }}" {% if run.run_id in prefill_run_ids %}checked{% endif %} form="analysis-workbench-form" data-analysis-run data-posts="{{ run.summary.post_count }}" data-comments="{{ run.summary.comment_count }}" data-likes="{{ run.summary.like_count }}" data-collects="{{ run.summary.collect_count }}" data-quality-excellent="{{ run.summary.quality_counts.excellent }}" data-quality-medium="{{ run.summary.quality_counts.medium }}" data-quality-poor="{{ run.summary.quality_counts.poor }}" data-quality-unscored="{{ run.summary.quality_counts.unscored }}">
+        <span class="intent-run-copy">
+          <strong>{{ run.keyword or "未命名关键词" }} · {{ run.created_at|readable_time }}</strong>
+          <small>{{ run.run_id }}</small>
+          <span class="analysis-run-meta">
+            <em>{{ run.summary.post_count }} 帖</em>
+            <em>{{ run.summary.comment_count }} 评</em>
+            <em>质 {{ run.summary.quality_label }}</em>
+          </span>
+        </span>
+      </label>
+      {% else %}
+      <p class="muted intent-run-empty">当前平台还没有可分析的已完成采集任务。</p>
+      {% endfor %}
+    </div>
+  </aside>
 
-  <form method="post" action="/analysis/tasks" class="form-layout intent-task-form">
+  <form id="analysis-workbench-form" method="post" action="/analysis/tasks" class="panel analysis-workbench">
     <input type="hidden" name="platform" value="{{ selected_platform }}">
-    <div class="field-grid">
+    <div class="analysis-workbench-intent">
       <label>
         <span>分析意图</span>
-        <textarea name="user_intent" rows="3" placeholder="例如：我想分析生图软件的市场，或者我想知道哪些人需要生图软件">{{ prefill_user_intent }}</textarea>
+        <textarea name="user_intent" rows="3" placeholder="例如：我想分析生图软件的市场，或者我想知道哪些人需要生图软件" required>{{ prefill_user_intent }}</textarea>
       </label>
-    </div>
-    <div class="intent-run-picker">
-      <div class="intent-run-head">
-        <span>采集任务</span>
-        <small>关键词 · 开始时间</small>
-      </div>
-      <div class="intent-run-list" role="group" aria-label="采集任务">
-        {% for run in analysis_runs %}
-        <label class="intent-run-option">
-          <input type="checkbox" name="run_ids" value="{{ run.run_id }}" {% if run.run_id in prefill_run_ids %}checked{% endif %}>
-          <span class="intent-run-copy">
-            <strong>{{ run.keyword or "未命名关键词" }} · {{ run.created_at|readable_time }}</strong>
-            <small>{{ run.run_id }}</small>
-          </span>
-        </label>
-        {% else %}
-        <p class="muted intent-run-empty">当前平台还没有可分析的已完成采集任务。</p>
-        {% endfor %}
+      <div class="analysis-workbench-actions">
+        <button id="analysis-create-button" class="button primary" type="submit">创建意向分析任务</button>
+        <span id="analysis-submit-error" class="analysis-submit-error" hidden>请先在右侧选择至少 1 个采集任务。</span>
       </div>
     </div>
-    <div class="action-row left-actions">
-      <button class="button primary" type="submit">创建意向分析任务</button>
+    <div class="analysis-workbench-meta" aria-live="polite">
+      <div class="analysis-meta-kicker">选中数据包</div>
+      <div class="analysis-meta-grid">
+        <div><span>数据包</span><strong id="analysis-meta-runs">0</strong></div>
+        <div><span>帖子</span><strong id="analysis-meta-posts">0</strong></div>
+        <div><span>评论</span><strong id="analysis-meta-comments">0</strong></div>
+        <div><span>点赞</span><strong id="analysis-meta-likes">0</strong></div>
+        <div><span>收藏</span><strong id="analysis-meta-collects">0</strong></div>
+        <div class="analysis-meta-quality"><span>质量评分</span><strong id="analysis-meta-quality">未选择</strong></div>
+      </div>
     </div>
   </form>
 </section>
 
-<section class="layout-grid analysis-home-grid">
-  <section class="panel">
-    <div class="section-head">
-      <div>
-        <h2>历史组合 <button class="help-dot" type="button" data-tip="这里保存过往意向分析任务。继续编辑会回到原任务和已保存探针；复用组合会只带回分析意图和采集任务，创建一个新任务。">?</button></h2>
-        <p class="muted">点击复用会创建一个新的分析任务，原历史记录不被修改。</p>
-      </div>
-    </div>
-    <div class="trend-list">
-      {% for history in intent_histories %}
-      <div class="trend-row intent-history-row">
-        <span>{{ history.task.user_intent }}</span>
-        <strong>{{ history.sources|length }} 个任务 · {{ history.post_count|default(0) }} 篇帖子 · {{ history.comment_count|default(0) }} 条评论 · {{ history.enabled_probe_count|default(0) }}/{{ history.probes|length }} 个探针</strong>
-        <div class="action-row">
-          <a class="button small primary" href="/analysis/tasks/{{ history.task.task_id }}">继续编辑</a>
-          <a class="button small blue" href="/analysis?platform={{ history.task.platform }}&reuse_task_id={{ history.task.task_id }}">复用组合</a>
-          <form class="inline-form" method="post" action="/analysis/tasks/{{ history.task.task_id }}/delete" onsubmit="return confirm('删除这个分析任务？已采集的数据不会删除。');">
-            <button class="button small danger" type="submit">删除</button>
-          </form>
-        </div>
-      </div>
-      {% else %}
-      <p class="muted">暂无意向分析历史。</p>
-      {% endfor %}
-    </div>
-  </section>
+<script>
+(() => {
+  const checkboxes = Array.from(document.querySelectorAll("[data-analysis-run]"));
+  const form = document.getElementById("analysis-workbench-form");
+  const loading = document.getElementById("analysis-probe-loading");
+  const createButton = document.getElementById("analysis-create-button");
+  const submitError = document.getElementById("analysis-submit-error");
+  const selectedPill = document.getElementById("analysis-selected-pill");
+  const fields = {
+    runs: document.getElementById("analysis-meta-runs"),
+    posts: document.getElementById("analysis-meta-posts"),
+    comments: document.getElementById("analysis-meta-comments"),
+    likes: document.getElementById("analysis-meta-likes"),
+    collects: document.getElementById("analysis-meta-collects"),
+    quality: document.getElementById("analysis-meta-quality"),
+  };
+  const numberFormat = new Intl.NumberFormat("zh-CN");
+  const toInt = (value) => Number.parseInt(value || "0", 10) || 0;
 
-  <div class="analysis-side-stack">
-    <section class="panel analysis-quality-panel">
-      <div class="section-head">
-        <div>
-          <h2>采集质量入口 <button class="help-dot" type="button" data-tip="这是旧分析链路的质量闸门，按人工或规则评分把采集样本分为主分析、参考和跳过，不影响上方意向探针任务。">?</button></h2>
-          <p class="muted">旧分析链路仍保留：优质进入主分析，中等进入参考，劣质跳过。</p>
-        </div>
-        <span class="pill">可推进 {{ quality_pool.promotable }} 条</span>
-      </div>
-      <div class="relevance-flow analysis-quality-flow">
-        <span>优质主分析 {{ quality_pool.roles.primary }} 条</span>
-        <span>中等参考 {{ quality_pool.roles.reference }} 条</span>
-        <span>劣质跳过 {{ quality_pool.roles.discard }} 条</span>
-        <span>未评分 {{ quality_pool.roles.pending }} 条</span>
-      </div>
-      {% if last_run %}
-      <p class="notice">{{ last_run.message }}</p>
-      {% endif %}
-    </section>
+  const updateMetadata = () => {
+    const selected = checkboxes.filter((checkbox) => checkbox.checked);
+    const totals = selected.reduce((memo, checkbox) => {
+      memo.posts += toInt(checkbox.dataset.posts);
+      memo.comments += toInt(checkbox.dataset.comments);
+      memo.likes += toInt(checkbox.dataset.likes);
+      memo.collects += toInt(checkbox.dataset.collects);
+      memo.excellent += toInt(checkbox.dataset.qualityExcellent);
+      memo.medium += toInt(checkbox.dataset.qualityMedium);
+      memo.poor += toInt(checkbox.dataset.qualityPoor);
+      memo.unscored += toInt(checkbox.dataset.qualityUnscored);
+      return memo;
+    }, { posts: 0, comments: 0, likes: 0, collects: 0, excellent: 0, medium: 0, poor: 0, unscored: 0 });
 
-    <section class="panel">
-      <h2>选题洞察 <button class="help-dot" type="button" data-tip="展示旧分析链路已经沉淀出的可写选题和痛点，适合快速挑选后续要生成草稿或复核的方向。">?</button></h2>
-      {% for item in items[:3] %}
-      <article class="compact-insight">
-        <strong>{{ item.suggested_topic or item.title }}</strong>
-        <span>{{ item.pain_point or "等待分析结果" }}</span>
-      </article>
-      {% else %}
-      <p class="muted">暂无可写选题。</p>
-      {% endfor %}
-    </section>
-  </div>
-</section>
+    fields.runs.textContent = numberFormat.format(selected.length);
+    fields.posts.textContent = numberFormat.format(totals.posts);
+    fields.comments.textContent = numberFormat.format(totals.comments);
+    fields.likes.textContent = numberFormat.format(totals.likes);
+    fields.collects.textContent = numberFormat.format(totals.collects);
+    fields.quality.textContent = selected.length
+      ? `优${totals.excellent} 中${totals.medium} 劣${totals.poor} 未${totals.unscored}`
+      : "未选择";
+    selectedPill.textContent = `已选 ${selected.length} 个数据包`;
+    if (createButton) {
+      createButton.disabled = selected.length === 0;
+    }
+    if (submitError && selected.length > 0) {
+      submitError.hidden = true;
+    }
+  };
+
+  checkboxes.forEach((checkbox) => checkbox.addEventListener("change", updateMetadata));
+  updateMetadata();
+
+  if (form) {
+    form.addEventListener("submit", (event) => {
+      const selected = checkboxes.some((checkbox) => checkbox.checked);
+      if (!selected) {
+        event.preventDefault();
+        if (submitError) {
+          submitError.hidden = false;
+        }
+        return;
+      }
+      if (loading) {
+        loading.hidden = false;
+        loading.scrollIntoView({ block: "nearest" });
+      }
+      if (createButton) {
+        createButton.disabled = true;
+        createButton.textContent = "正在创建探针任务";
+      }
+    });
+  }
+})();
+</script>
 {% endblock %}

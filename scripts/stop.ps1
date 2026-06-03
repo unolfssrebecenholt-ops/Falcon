@@ -11,6 +11,7 @@ Set-Location $ProjectRoot
 if (-not $PidFile) {
     $PidFile = Join-Path $ProjectRoot "runtime\falcon-web.pid"
 }
+$UrlFile = Join-Path $ProjectRoot "runtime\falcon-web.url"
 
 function Stop-FalconPid {
     param([int]$ProcessId)
@@ -64,6 +65,7 @@ foreach ($connection in $connections) {
 }
 
 if ($Stopped) {
+    Remove-Item $UrlFile -Force -ErrorAction SilentlyContinue
     Write-Host "Falcon web stopped."
 }
 else {

@@ -69,7 +69,7 @@ chmod +x scripts/start.sh
 ./scripts/start.sh
 ```
 
-启动脚本会安装 Python editable package、安装 Node sidecar 依赖、安装 Playwright Chromium、创建本地运行目录、初始化 SQLite 数据库，并启动本地 Web 工作台。端口 `8765` 被占用时会自动尝试下一个可用端口。
+启动脚本会安装 Python editable package、安装 Node sidecar 依赖、安装 Playwright Chromium、创建本地运行目录、初始化 SQLite 数据库，并在后台启动本地 Web 工作台。端口 `8765` 被占用时会自动尝试下一个可用端口；最终地址会写入 `runtime/falcon-web.url`，进程号会写入 `runtime/falcon-web.pid`，日志会写入 `runtime/falcon-web.log`。
 
 依赖已安装后可以快速启动：
 
@@ -79,6 +79,26 @@ chmod +x scripts/start.sh
 
 ```bash
 ./scripts/start.sh --skip-install
+```
+
+如果需要让 Web 服务留在当前终端并直接查看实时日志：
+
+```powershell
+.\scripts\start.ps1 -Foreground
+```
+
+```bash
+./scripts/start.sh --foreground
+```
+
+查看 Web 工作台状态：
+
+```powershell
+.\scripts\status.ps1
+```
+
+```bash
+./scripts/status.sh
 ```
 
 停止 Web 工作台：

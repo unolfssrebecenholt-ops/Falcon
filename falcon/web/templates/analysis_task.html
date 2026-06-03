@@ -97,21 +97,44 @@
     </div>
     {% endfor %}
 
-    <article class="probe-card probe-new-card">
-      <div class="probe-card-top">
-        <div class="probe-index">+</div>
-        <label class="probe-title-field"><span>新增探针标题</span><input name="new_title"></label>
-      </div>
-      <label class="probe-description-field"><span>判断逻辑</span><textarea name="new_description" rows="3"></textarea></label>
-      <div class="probe-signal-grid">
-        <label class="probe-signal positive"><span>正向信号</span><textarea name="new_positive_signals" rows="4"></textarea></label>
-        <label class="probe-signal negative"><span>排除信号</span><textarea name="new_negative_signals" rows="4"></textarea></label>
-      </div>
-    </article>
+    <button class="probe-card probe-new-card probe-new-card-trigger" type="button" data-probe-modal-open>
+      <span class="probe-index">+</span>
+      <span class="probe-new-card-copy">
+        <strong>手动创建探针</strong>
+        <em id="probe-new-card-state">点击打开添加探针弹窗</em>
+      </span>
+    </button>
     <div class="action-row left-actions">
       <button class="button primary" type="submit" name="next_action" value="save">保存探针</button>
       <button class="button" type="submit" name="next_action" value="execute">保存并执行分析</button>
     </div>
+
+    <dialog id="probe-create-dialog" class="probe-create-dialog" aria-labelledby="probe-create-title">
+      <div class="probe-create-modal">
+        <button class="modal-close-button" type="button" data-probe-modal-close aria-label="关闭添加探针弹窗">×</button>
+        <div class="section-head">
+          <div>
+            <h2 id="probe-create-title">添加探针</h2>
+            <p class="muted">手动补充一个判断规则，保存后会进入当前任务的探针卡片列表。</p>
+          </div>
+        </div>
+        <div class="probe-card probe-new-dialog-card">
+          <div class="probe-card-top">
+            <div class="probe-index">+</div>
+            <label class="probe-title-field"><span>新增探针标题</span><input id="probe-new-title" name="new_title"></label>
+          </div>
+          <label class="probe-description-field"><span>判断逻辑</span><textarea name="new_description" rows="3"></textarea></label>
+          <div class="probe-signal-grid">
+            <label class="probe-signal positive"><span>正向信号</span><textarea name="new_positive_signals" rows="4"></textarea></label>
+            <label class="probe-signal negative"><span>排除信号</span><textarea name="new_negative_signals" rows="4"></textarea></label>
+          </div>
+        </div>
+        <div class="action-row left-actions">
+          <button class="button" type="button" data-probe-modal-close>加入草稿</button>
+          <button class="button primary" type="submit" name="next_action" value="save">保存探针</button>
+        </div>
+      </div>
+    </dialog>
   </form>
 </section>
 
@@ -270,6 +293,46 @@
       }
     }
   });
+})();
+</script>
+<script>
+(() => {
+  const dialog = document.getElementById("probe-create-dialog");
+  const openButton = document.querySelector("[data-probe-modal-open]");
+  const closeButtons = Array.from(document.querySelectorAll("[data-probe-modal-close]"));
+  const titleInput = document.getElementById("probe-new-title");
+  const state = document.getElementById("probe-new-card-state");
+  if (!dialog || !openButton) {
+    return;
+  }
+
+  const openDialog = () => {
+    if (typeof dialog.showModal === "function") {
+      dialog.showModal();
+    } else {
+      dialog.setAttribute("open", "");
+    }
+    if (titleInput) {
+      titleInput.focus();
+    }
+  };
+
+  const closeDialog = () => {
+    if (typeof dialog.close === "function") {
+      dialog.close();
+    } else {
+      dialog.removeAttribute("open");
+    }
+    if (titleInput && state) {
+      const title = titleInput.value.trim();
+      openButton.classList.toggle("has-draft", Boolean(title));
+      state.textContent = title ? `已填写：${title}` : "点击打开添加探针弹窗";
+    }
+  };
+
+  openButton.addEventListener("click", openDialog);
+  closeButtons.forEach((button) => button.addEventListener("click", closeDialog));
+  dialog.addEventListener("cancel", closeDialog);
 })();
 </script>
 {% endblock %}

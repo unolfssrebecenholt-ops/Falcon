@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Falcon 控制台{% endblock %}</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23192330'/%3E%3Cpath d='M9 23V8h14v4h-9v3h8v4h-8v4z' fill='white'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="{{ url_for('static', path='/app.css') }}?v=controlled-color-v3-desktop">
+  <link rel="stylesheet" href="{{ url_for('static', path='/app.css') }}?v=controlled-color-v3-analysis-single-screen-v2">
 </head>
-<body>
+<body data-page-view="{{ page_view|default(active|default('dashboard')) }}">
   {% set nav_labels = {
     'dashboard': '仪表盘',
     'collector': '采集首页',
@@ -22,6 +22,7 @@
     'review': '人工复核',
     'execution': '执行首页',
     'tasks': '触达任务',
+    'settings': '设置',
     'keywords': '关键词池',
     'report': '日报',
     'settings_gpt': '模型配置'
@@ -29,10 +30,10 @@
   {% set collector_group = ['collector', 'collector_runs', 'collector_run', 'collector_create', 'collector_accounts', 'collector_environment'] %}
   {% set analysis_group = ['analysis', 'analysis_samples', 'analysis_task', 'review'] %}
   {% set execution_group = ['execution', 'tasks'] %}
-  {% set foundation_group = ['keywords', 'report', 'settings_gpt'] %}
+  {% set settings_group = ['settings', 'keywords', 'report', 'settings_gpt'] %}
   {% if active in collector_group %}
     {% set active_group = '采集' %}
-    {% set active_count = '5 / 采集' %}
+    {% set active_count = '4 / 采集' %}
     {% set active_family = 'data' %}
   {% elif active in analysis_group %}
     {% set active_group = '分析' %}
@@ -42,9 +43,9 @@
     {% set active_group = '执行' %}
     {% set active_count = '2 / 执行' %}
     {% set active_family = 'inspector' %}
-  {% elif active in foundation_group %}
-    {% set active_group = '基础' %}
-    {% set active_count = '3 / 基础' %}
+  {% elif active in settings_group %}
+    {% set active_group = '设置' %}
+    {% set active_count = '3 / 设置' %}
     {% set active_family = 'document' %}
   {% else %}
     {% set active_group = '工作台' %}
@@ -74,7 +75,7 @@
       <aside class="sidebar" aria-label="Falcon navigation">
         <div class="rail-summary">
           <span>Mission map</span>
-          <strong>16 views</strong>
+          <strong>15 views</strong>
         </div>
         <nav class="nav-section-wrap">
           <section class="nav-group{% if active == 'dashboard' %} current{% endif %}">
@@ -85,7 +86,6 @@
             <div class="nav-title"><span>采集</span><span>LIVE</span></div>
             <a class="nav-link {{ 'active' if active == 'collector' else '' }}" href="/collector"><span>采集首页</span><span class="nav-count">TODAY</span></a>
             <a class="nav-link {{ 'active' if active in ['collector_runs', 'collector_run'] else '' }}" href="/collector/runs"><span>任务队列</span><span class="nav-count">RUNS</span></a>
-            <a class="nav-link {{ 'active' if active == 'collector_create' else '' }}" href="/collector/create"><span>任务创建</span><span class="nav-count">NEW</span></a>
             <a class="nav-link {{ 'active' if active == 'collector_accounts' else '' }}" href="/collector/accounts"><span>账号管理</span><span class="nav-count">PROFILE</span></a>
             <a class="nav-link {{ 'active' if active == 'collector_environment' else '' }}" href="/collector/environment"><span>环境自检</span><span class="nav-count">CHECK</span></a>
           </section>
@@ -100,16 +100,15 @@
             <a class="nav-link {{ 'active' if active == 'execution' else '' }}" href="/execution"><span>执行首页</span><span class="nav-count">DRAFT</span></a>
             <a class="nav-link {{ 'active' if active == 'tasks' else '' }}" href="/tasks"><span>触达任务</span><span class="nav-count">TASKS</span></a>
           </section>
-          <section class="nav-group{% if active in foundation_group %} current{% endif %}">
-            <div class="nav-title"><span>基础</span><span>LOCAL</span></div>
-            <a class="nav-link {{ 'active' if active == 'keywords' else '' }}" href="/keywords"><span>关键词池</span><span class="nav-count">PLAN</span></a>
-            <a class="nav-link {{ 'active' if active == 'report' else '' }}" href="/report"><span>日报</span><span class="nav-count">DOC</span></a>
-            <a class="nav-link {{ 'active' if active == 'settings_gpt' else '' }}" href="/settings/gpt"><span>模型配置</span><span class="nav-count">GPT</span></a>
-          </section>
         </nav>
-        <div class="rail-footer">
-          <span>{{ page_family|default(active_family) }}</span>
-          <strong>{{ active_count }}</strong>
+        <div class="rail-settings" aria-label="Falcon settings">
+          <a class="settings-nav-link {{ 'active' if active in settings_group else '' }}" href="/settings" aria-current="{{ 'page' if active in settings_group else 'false' }}">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 15.4a3.4 3.4 0 1 0 0-6.8 3.4 3.4 0 0 0 0 6.8z"></path>
+              <path d="M19.4 15a1.8 1.8 0 0 0 .36 1.98l.06.06a2.1 2.1 0 0 1-2.97 2.97l-.06-.06a1.8 1.8 0 0 0-1.98-.36 1.8 1.8 0 0 0-1.1 1.66V21.4a2.1 2.1 0 0 1-4.2 0v-.09a1.8 1.8 0 0 0-1.1-1.66 1.8 1.8 0 0 0-1.98.36l-.06.06a2.1 2.1 0 1 1-2.97-2.97l.06-.06A1.8 1.8 0 0 0 3.8 15a1.8 1.8 0 0 0-1.66-1.1H2.1a2.1 2.1 0 0 1 0-4.2h.09A1.8 1.8 0 0 0 3.85 8.6a1.8 1.8 0 0 0-.36-1.98l-.06-.06a2.1 2.1 0 1 1 2.97-2.97l.06.06a1.8 1.8 0 0 0 1.98.36 1.8 1.8 0 0 0 1.1-1.66V2.1a2.1 2.1 0 0 1 4.2 0v.09a1.8 1.8 0 0 0 1.1 1.66 1.8 1.8 0 0 0 1.98-.36l.06-.06a2.1 2.1 0 1 1 2.97 2.97l-.06.06a1.8 1.8 0 0 0-.36 1.98 1.8 1.8 0 0 0 1.66 1.1h.09a2.1 2.1 0 0 1 0 4.2h-.09A1.8 1.8 0 0 0 19.4 15z"></path>
+            </svg>
+            <span>设置</span>
+          </a>
         </div>
       </aside>
       <main class="main"><div class="page{% if page_width is defined and page_width %} {{ page_width }}{% endif %} family-{{ page_family|default(active_family) }}" data-view="{{ page_view|default(active|default('dashboard')) }}">{% block content %}{% endblock %}</div></main>

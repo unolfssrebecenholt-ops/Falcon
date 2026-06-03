@@ -9,11 +9,27 @@
   </div>
   <div class="action-row">
     <form class="inline-form" action="/collector/queue/start" method="post">
-      <button class="button" type="submit">批量启动</button>
+      <button class="button has-icon" type="submit">
+        <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5v14l12-7z"></path></svg>
+        批量启动
+      </button>
     </form>
-    <a class="button primary" href="/collector/create">创建任务</a>
+    <button class="button primary has-icon" type="button" id="queue-create-task-open" aria-haspopup="dialog" aria-controls="queue-create-task-dialog">
+      <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14"></path><path d="M5 12h14"></path></svg>
+      创建任务
+    </button>
   </div>
 </header>
+
+<dialog id="queue-create-task-dialog" class="create-task-dialog" aria-label="创建任务">
+  <div class="create-task-modal-shell">
+    <button class="modal-close-button" type="button" id="queue-create-task-close" aria-label="关闭创建任务弹窗">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
+    </button>
+    {% set create_form_mode = "modal" %}
+    {% include "collector_create_form.html" %}
+  </div>
+</dialog>
 
 <section class="panel queue-panel standalone-queue-panel">
   {% if queued_count %}
@@ -172,6 +188,9 @@
   const queueDateMeta = document.getElementById("queue-date-meta");
   const queueCalendarSelected = document.getElementById("queue-calendar-selected");
   const queueDefaultDate = "{{ calendar_state.selected_day }}";
+  const createTaskOpen = document.getElementById("queue-create-task-open");
+  const createTaskDialog = document.getElementById("queue-create-task-dialog");
+  const createTaskClose = document.getElementById("queue-create-task-close");
   let calendarAnchorDate = null;
 
   function queueRowsNow() {
@@ -314,6 +333,28 @@
       }
       console.error(error);
     }
+  });
+
+  function openCreateTaskDialog() {
+    if (createTaskDialog?.showModal) {
+      createTaskDialog.showModal();
+    } else {
+      createTaskDialog?.setAttribute("open", "");
+    }
+  }
+
+  function closeCreateTaskDialog() {
+    if (createTaskDialog?.close) {
+      createTaskDialog.close();
+    } else {
+      createTaskDialog?.removeAttribute("open");
+    }
+  }
+
+  createTaskOpen?.addEventListener("click", openCreateTaskDialog);
+  createTaskClose?.addEventListener("click", closeCreateTaskDialog);
+  createTaskDialog?.addEventListener("click", (event) => {
+    if (event.target === createTaskDialog) closeCreateTaskDialog();
   });
 
   wireSegments(platformFilters, "platformFilter");

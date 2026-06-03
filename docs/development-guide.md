@@ -29,7 +29,7 @@ cd Falcon
 
 ## 安装依赖
 
-Recommended one-command startup:
+推荐使用一条命令完成安装检查和后台启动：
 
 macOS:
 
@@ -44,7 +44,7 @@ Windows PowerShell:
 .\scripts\start.ps1
 ```
 
-The startup script runs these steps in order:
+启动脚本会按顺序执行：
 
 1. `python -m pip install --upgrade pip setuptools wheel`
 2. `python -m pip install -e .`
@@ -53,11 +53,15 @@ The startup script runs these steps in order:
 5. create local `data/`, `runtime/collector/`, and `browser-profiles/`
 6. initialize `data/falcon.sqlite3`
 7. run `falcon doctor`
-8. open and start the local Web workbench at `http://127.0.0.1:8765`
+8. 在后台启动本地 Web 工作台，并打开 `http://127.0.0.1:8765`
 
-If port `8765` is already in use, the script automatically tries the next available port and prints the final URL.
+如果端口 `8765` 已被占用，脚本会自动尝试下一个可用端口并打印最终 URL。默认后台模式会写入：
 
-For fast restarts after dependencies are already installed:
+- `runtime/falcon-web.pid`：Web 进程号
+- `runtime/falcon-web.url`：最终访问地址
+- `runtime/falcon-web.log`：Web 服务日志
+
+依赖已安装后的快速启动：
 
 macOS:
 
@@ -71,7 +75,35 @@ Windows PowerShell:
 .\scripts\start.ps1 --skip-install
 ```
 
-Stop the local Web workbench:
+如果需要让 Web 服务留在当前终端并直接查看实时日志：
+
+macOS:
+
+```bash
+./scripts/start.sh --foreground
+```
+
+Windows PowerShell:
+
+```powershell
+.\scripts\start.ps1 -Foreground
+```
+
+查看本地 Web 工作台状态：
+
+macOS:
+
+```bash
+./scripts/status.sh
+```
+
+Windows PowerShell:
+
+```powershell
+.\scripts\status.ps1
+```
+
+停止本地 Web 工作台：
 
 macOS:
 
@@ -85,7 +117,7 @@ Windows PowerShell:
 .\scripts\stop.ps1
 ```
 
-Restart the local Web workbench without reinstalling dependencies:
+不重新安装依赖，重启本地 Web 工作台：
 
 macOS:
 
@@ -99,7 +131,7 @@ Windows PowerShell:
 .\scripts\restart.ps1
 ```
 
-`start` writes the Web process id to `runtime/falcon-web.pid`. `stop` uses that file first, then falls back to the configured port.
+`start` 默认后台启动服务并在 HTTP 健康检查通过后退出。`stop` 会优先使用 `runtime/falcon-web.pid`，再按配置端口查找 Falcon Web 进程。
 
 Doctor-only checks:
 
