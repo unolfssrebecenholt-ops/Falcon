@@ -160,6 +160,159 @@ console.log(JSON.stringify({ result, screenshot: calls[0] }));
         self.assertEqual(payload["result"]["mode"], "viewport")
         self.assertEqual(payload["screenshot"]["path"], "detail.png")
         self.assertFalse(payload["screenshot"]["fullPage"])
+        self.assertEqual(payload["screenshot"]["timeout"], 8000)
+
+    def test_xiaohongshu_detail_screenshot_container_uses_short_timeout(self):
+        script = r"""
+import { captureDetailScreenshot } from "./sidecar/collector/xiaohongshu.mjs";
+
+const calls = [];
+const visibleElement = {
+  async isVisible() { return true; },
+  async boundingBox() { return { x: 10, y: 20, width: 640, height: 480 }; },
+};
+const page = {
+  locator() {
+    return {
+      first() { return visibleElement; },
+    };
+  },
+  viewportSize() {
+    return { width: 1366, height: 900 };
+  },
+  async screenshot(options) {
+    calls.push(options);
+  },
+};
+
+const result = await captureDetailScreenshot(page, "detail.png");
+console.log(JSON.stringify({ result, screenshot: calls[0] }));
+"""
+        result = subprocess.run(
+            ["node", "--input-type=module", "-e", script],
+            cwd=ROOT,
+            text=True,
+            encoding="utf-8",
+            capture_output=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["result"]["mode"], "container")
+        self.assertEqual(payload["result"]["path"], "detail.png")
+        self.assertEqual(payload["screenshot"]["timeout"], 10000)
+        self.assertFalse(payload["screenshot"]["fullPage"])
+        self.assertEqual(payload["screenshot"]["clip"]["width"], 640)
+
+    def test_xiaohongshu_detail_screenshot_total_failure_is_nonfatal(self):
+        script = r"""
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { captureDetailScreenshot } from "./sidecar/collector/xiaohongshu.mjs";
+
+const calls = [];
+const events = [];
+const assetsPath = mkdtempSync(join(tmpdir(), "falcon-detail-screenshot-failed-"));
+const screenshotPath = join(assetsPath, "detail.png");
+const visibleElement = {
+  async isVisible() { return true; },
+  async boundingBox() { return { x: 10, y: 20, width: 640, height: 480 }; },
+};
+const hiddenElement = {
+  async isVisible() { return false; },
+  async boundingBox() { return null; },
+};
+const page = {
+  locator(selector) {
+    return {
+      first() {
+        return selector === "#noteContainer" ? visibleElement : hiddenElement;
+      },
+    };
+  },
+  viewportSize() {
+    return { width: 1366, height: 900 };
+  },
+  async screenshot(options) {
+    calls.push(options);
+    throw new Error(calls.length === 1 ? "container timeout" : "viewport timeout");
+  },
+};
+
+const result = await captureDetailScreenshot(page, screenshotPath, {
+  request: { run_id: "detail-shot-run", platform: "xiaohongshu" },
+  events: {
+    write(level, scope, event, message, payload) {
+      events.push({ level, scope, event, message, payload });
+    },
+  },
+});
+console.log(JSON.stringify({ result, calls, events }));
+rmSync(assetsPath, { recursive: true, force: true });
+"""
+        result = subprocess.run(
+            ["node", "--input-type=module", "-e", script],
+            cwd=ROOT,
+            text=True,
+            encoding="utf-8",
+            capture_output=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["result"]["mode"], "failed")
+        self.assertEqual(payload["result"]["path"], "")
+        self.assertEqual(payload["calls"][0]["timeout"], 10000)
+        self.assertEqual(payload["calls"][1]["timeout"], 8000)
+        self.assertEqual(payload["events"][0]["event"], "detail_screenshot_failed")
+        self.assertIn("container timeout", payload["events"][0]["payload"]["container_error"])
+        self.assertIn("viewport timeout", payload["events"][0]["payload"]["viewport_error"])
+
+    def test_xiaohongshu_detail_screenshot_target_closed_stays_fatal(self):
+        script = r"""
+import { captureDetailScreenshot } from "./sidecar/collector/xiaohongshu.mjs";
+
+const visibleElement = {
+  async isVisible() { return true; },
+  async boundingBox() { return { x: 10, y: 20, width: 640, height: 480 }; },
+};
+const page = {
+  locator() {
+    return {
+      first() { return visibleElement; },
+    };
+  },
+  viewportSize() {
+    return { width: 1366, height: 900 };
+  },
+  async screenshot() {
+    throw new Error("Target page, context or browser has been closed");
+  },
+};
+
+try {
+  await captureDetailScreenshot(page, "detail.png");
+  console.log(JSON.stringify({ ok: true }));
+} catch (error) {
+  console.log(JSON.stringify({ ok: false, message: error.message }));
+}
+"""
+        result = subprocess.run(
+            ["node", "--input-type=module", "-e", script],
+            cwd=ROOT,
+            text=True,
+            encoding="utf-8",
+            capture_output=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertFalse(payload["ok"])
+        self.assertIn("Target page", payload["message"])
 
     def test_xiaohongshu_search_screenshot_extends_timeout_and_falls_back_to_viewport(self):
         script = r"""

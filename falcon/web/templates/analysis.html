@@ -2,10 +2,21 @@
 {% block title %}分析总览 - Falcon{% endblock %}
 {% block content %}
 <header class="page-header analysis-page-header">
-  <div>
-    <div class="eyebrow">analysis home</div>
-    <h1>分析总览</h1>
-    <p>按平台选择采集数据包，输入分析意图，用 GPT-5.5 生成可编辑探针并手动执行语义分析。</p>
+  <div class="analysis-header-main">
+    <div class="analysis-title-block">
+      <div class="analysis-title-row">
+        <div class="analysis-title-copy">
+          <h1>分析总览</h1>
+        </div>
+        <section class="analysis-header-overview" aria-label="分析概况">
+          <div><span>已评分</span><strong>{{ stats.scored_count }}</strong></div>
+          <div><span>高意图</span><strong>{{ stats.high_intent_count }}</strong></div>
+          <div><span>关键词</span><strong>{{ stats.keyword_count }}</strong></div>
+          <div><span>模型</span><strong>GPT-5.5</strong></div>
+        </section>
+      </div>
+      <p>按平台选择采集数据包，输入分析意图，用 GPT-5.5 生成可编辑探针并手动执行语义分析。</p>
+    </div>
   </div>
   <a class="button" href="/analysis/samples">分析样本</a>
 </header>
@@ -14,14 +25,10 @@
   <section class="panel analysis-workspace" aria-labelledby="analysis-workspace-title">
     <div class="section-head analysis-workspace-head">
       <div>
-        <h2 id="analysis-workspace-title">工作区 <button class="help-dot" type="button" data-tip="工作区承载探针生成状态、历史组合和旧分析质量入口；右侧选择数据包，底部工作台输入本次分析意图。">?</button></h2>
-        <p class="muted">生成探针时会先显示加载状态，任务创建后进入可编辑探针卡片。</p>
+        <h2 id="analysis-workspace-title">工作区 <button class="help-dot" type="button" data-tip="工作区承载探针生成状态和历史组合；右侧选择数据包，底部工作台输入本次分析意图。">?</button></h2>
       </div>
       <div class="analysis-workspace-actions">
         <span class="pill" id="analysis-selected-pill">已选 0 个数据包</span>
-        <form method="post" action="/analysis/promote" class="inline-form">
-          <button class="button" type="submit">送入旧分析队列 · {{ stats.promotable_count }}</button>
-        </form>
       </div>
     </div>
 
@@ -42,20 +49,7 @@
     </div>
 
     <div class="analysis-workspace-scroll">
-      <section class="analysis-overview-strip" aria-label="分析概况">
-        <div><span>已评分样本</span><strong>{{ stats.scored_count }}</strong></div>
-        <div><span>高意图</span><strong>{{ stats.high_intent_count }}</strong></div>
-        <div><span>关键词</span><strong>{{ stats.keyword_count }}</strong></div>
-        <div><span>模型层</span><strong>GPT-5.5</strong></div>
-      </section>
-
-      <section class="analysis-history-section" aria-labelledby="analysis-history-title">
-        <div class="section-head compact">
-          <div>
-            <h2 id="analysis-history-title">历史组合 <button class="help-dot" type="button" data-tip="这里保存过往意向分析任务。继续编辑会回到原任务和已保存探针；复用组合会只带回分析意图和采集任务，创建一个新任务。">?</button></h2>
-            <p class="muted">点击复用会创建一个新的分析任务，原历史记录不被修改。</p>
-          </div>
-        </div>
+      <section class="analysis-history-section" aria-label="历史组合">
         <div class="analysis-history-list">
           {% for history in intent_histories %}
           <article class="analysis-history-card intent-history-row">
@@ -94,43 +88,6 @@
         </div>
       </section>
 
-      <section class="analysis-support-grid" aria-label="辅助分析入口">
-        <div class="analysis-support-box analysis-quality-panel">
-          <div class="section-head compact">
-            <div>
-              <h2>采集质量入口 <button class="help-dot" type="button" data-tip="这是旧分析链路的质量闸门，按人工或规则评分把采集样本分为主分析、参考和跳过，不影响上方意向探针任务。">?</button></h2>
-              <p class="muted">旧分析链路仍保留：优质进入主分析，中等进入参考，劣质跳过。</p>
-            </div>
-            <span class="pill">可推进 {{ quality_pool.promotable }} 条</span>
-          </div>
-          <div class="relevance-flow analysis-quality-flow">
-            <span>优质主分析 {{ quality_pool.roles.primary }} 条</span>
-            <span>中等参考 {{ quality_pool.roles.reference }} 条</span>
-            <span>劣质跳过 {{ quality_pool.roles.discard }} 条</span>
-            <span>未评分 {{ quality_pool.roles.pending }} 条</span>
-          </div>
-          {% if last_run %}
-          <p class="notice">{{ last_run.message }}</p>
-          {% endif %}
-        </div>
-
-        <div class="analysis-support-box">
-          <div class="section-head compact">
-            <div>
-              <h2>选题洞察 <button class="help-dot" type="button" data-tip="展示旧分析链路已经沉淀出的可写选题和痛点，适合快速挑选后续要生成草稿或复核的方向。">?</button></h2>
-              <p class="muted">基于旧分析结果的可写方向。</p>
-            </div>
-          </div>
-          {% for item in items[:3] %}
-          <article class="compact-insight">
-            <strong>{{ item.suggested_topic or item.title }}</strong>
-            <span>{{ item.pain_point or "等待分析结果" }}</span>
-          </article>
-          {% else %}
-          <p class="muted">暂无可写选题。</p>
-          {% endfor %}
-        </div>
-      </section>
     </div>
   </section>
 
@@ -141,11 +98,37 @@
         <p class="muted">任务列表固定在右侧，超过 7 条后滚动查看。</p>
       </div>
     </div>
-    <div class="analysis-platform-tabs" aria-label="平台选择">
-      {% for platform in platforms %}
-      <a class="button small {{ 'primary' if platform.key == selected_platform else '' }}" href="/analysis?platform={{ platform.key }}">{{ platform.name }}</a>
-      {% endfor %}
+    <div class="analysis-sidebar-filter">
+      <div class="analysis-filter-label">
+        <span class="analysis-filter-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M4 6h16"></path><path d="M7 12h10"></path><path d="M10 18h4"></path></svg>
+        </span>
+        <span>平台筛选</span>
+      </div>
+      <div class="analysis-platform-tabs" aria-label="平台选择">
+        {% for platform in platforms %}
+        <a class="button small {{ 'primary' if platform.key == selected_platform else '' }}" href="/analysis?platform={{ platform.key }}">{{ platform.name }}</a>
+        {% endfor %}
+      </div>
     </div>
+    <section class="analysis-sidebar-quality" aria-labelledby="analysis-sidebar-quality-title">
+      <div class="analysis-quality-title">
+        <span class="analysis-filter-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><path d="m9 12 2 2 4-5"></path></svg>
+        </span>
+        <h2 id="analysis-sidebar-quality-title">采集质量 <button class="help-dot" type="button" data-tip="显示采集样本的质量分布，帮助判断当前平台的数据是否适合作为本次意向分析输入。">?</button></h2>
+      </div>
+      <div class="analysis-quality-flow" aria-label="采集质量分布">
+        <span><em>优</em>主分析 {{ quality_pool.roles.primary }} 条</span>
+        <span><em>中</em>参考 {{ quality_pool.roles.reference }} 条</span>
+        <span><em>劣</em>跳过 {{ quality_pool.roles.discard }} 条</span>
+        <span><em>未</em>未评分 {{ quality_pool.roles.pending }} 条</span>
+      </div>
+      <span class="analysis-quality-note">可推进 {{ quality_pool.promotable }} 条</span>
+      {% if last_run %}
+      <p class="notice">{{ last_run.message }}</p>
+      {% endif %}
+    </section>
     <div class="intent-run-head">
       <span>采集任务</span>
       <small>关键词 · 开始时间</small>
@@ -172,26 +155,34 @@
 
   <form id="analysis-workbench-form" method="post" action="/analysis/tasks" class="panel analysis-workbench">
     <input type="hidden" name="platform" value="{{ selected_platform }}">
-    <div class="analysis-workbench-intent">
-      <label>
+    <label class="analysis-workbench-intent">
+      <span class="analysis-workbench-label">
+        <span class="analysis-command-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M4 6h16"></path><path d="M6 12h12"></path><path d="M8 18h7"></path></svg>
+        </span>
         <span>分析意图</span>
-        <textarea name="user_intent" rows="3" placeholder="例如：我想分析生图软件的市场，或者我想知道哪些人需要生图软件" required>{{ prefill_user_intent }}</textarea>
-      </label>
-      <div class="analysis-workbench-actions">
-        <button id="analysis-create-button" class="button primary" type="submit">创建意向分析任务</button>
-        <span id="analysis-submit-error" class="analysis-submit-error" hidden>请先在右侧选择至少 1 个采集任务。</span>
+      </span>
+      <textarea name="user_intent" rows="1" placeholder="例如：我想分析生图软件的市场，或者我想知道哪些人需要生图软件" required>{{ prefill_user_intent }}</textarea>
+    </label>
+    <div class="analysis-workbench-meta" aria-live="polite">
+      <div class="analysis-meta-heading">
+        <span class="analysis-command-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M4 7h16"></path><path d="M4 12h16"></path><path d="M4 17h10"></path><path d="M18 15l2 2 3-4"></path></svg>
+        </span>
+        <span class="analysis-meta-kicker">选中数据包</span>
+      </div>
+      <div class="analysis-meta-grid">
+        <span><strong id="analysis-meta-runs">0</strong><em>数据包</em></span>
+        <span><strong id="analysis-meta-posts">0</strong><em>帖子</em></span>
+        <span><strong id="analysis-meta-comments">0</strong><em>评论</em></span>
+        <span><strong id="analysis-meta-likes">0</strong><em>点赞</em></span>
+        <span><strong id="analysis-meta-collects">0</strong><em>收藏</em></span>
+        <span class="analysis-meta-quality"><em>质量</em><strong id="analysis-meta-quality">未选择</strong></span>
       </div>
     </div>
-    <div class="analysis-workbench-meta" aria-live="polite">
-      <div class="analysis-meta-kicker">选中数据包</div>
-      <div class="analysis-meta-grid">
-        <div><span>数据包</span><strong id="analysis-meta-runs">0</strong></div>
-        <div><span>帖子</span><strong id="analysis-meta-posts">0</strong></div>
-        <div><span>评论</span><strong id="analysis-meta-comments">0</strong></div>
-        <div><span>点赞</span><strong id="analysis-meta-likes">0</strong></div>
-        <div><span>收藏</span><strong id="analysis-meta-collects">0</strong></div>
-        <div class="analysis-meta-quality"><span>质量评分</span><strong id="analysis-meta-quality">未选择</strong></div>
-      </div>
+    <div class="analysis-workbench-actions">
+      <button id="analysis-create-button" class="button primary" type="submit">创建意向分析任务</button>
+      <span id="analysis-submit-error" class="analysis-submit-error" hidden>请先在右侧选择至少 1 个采集任务。</span>
     </div>
   </form>
 </section>

@@ -102,6 +102,74 @@ class BootstrapScriptsTest(unittest.TestCase):
             self.assertEqual(bootstrap.log_file_path(root), root / "runtime" / "falcon-web.log")
             self.assertEqual(bootstrap.url_file_path(root), root / "runtime" / "falcon-web.url")
 
+    def test_main_does_not_open_existing_workbench_by_default(self):
+        bootstrap = load_bootstrap_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            runtime = root / "runtime"
+            runtime.mkdir()
+            (runtime / "falcon-web.pid").write_text("12345", encoding="utf-8")
+            (runtime / "falcon-web.url").write_text("http://127.0.0.1:8765", encoding="utf-8")
+            opened_urls = []
+            original_process_is_running = bootstrap._process_is_running
+            original_http_responds = bootstrap._http_responds
+            original_open = bootstrap.webbrowser.open
+            bootstrap._process_is_running = lambda _pid: True
+            bootstrap._http_responds = lambda _url: True
+            bootstrap.webbrowser.open = opened_urls.append
+            try:
+                result = bootstrap.main(["--project-root", str(root), "--skip-install"])
+            finally:
+                bootstrap._process_is_running = original_process_is_running
+                bootstrap._http_responds = original_http_responds
+                bootstrap.webbrowser.open = original_open
+
+            self.assertEqual(result, 0)
+            self.assertEqual(opened_urls, [])
+
+    def test_main_does_not_open_new_workbench_by_default(self):
+        bootstrap = load_bootstrap_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            opened_urls = []
+            original_run_steps = bootstrap.run_steps
+            original_open = bootstrap.webbrowser.open
+            bootstrap.run_steps = lambda *_args, **_kwargs: None
+            bootstrap.webbrowser.open = opened_urls.append
+            try:
+                result = bootstrap.main(["--project-root", str(root), "--skip-install"])
+            finally:
+                bootstrap.run_steps = original_run_steps
+                bootstrap.webbrowser.open = original_open
+
+            self.assertEqual(result, 0)
+            self.assertEqual(opened_urls, [])
+
+    def test_main_opens_existing_workbench_only_when_requested(self):
+        bootstrap = load_bootstrap_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            runtime = root / "runtime"
+            runtime.mkdir()
+            (runtime / "falcon-web.pid").write_text("12345", encoding="utf-8")
+            (runtime / "falcon-web.url").write_text("http://127.0.0.1:8765", encoding="utf-8")
+            opened_urls = []
+            original_process_is_running = bootstrap._process_is_running
+            original_http_responds = bootstrap._http_responds
+            original_open = bootstrap.webbrowser.open
+            bootstrap._process_is_running = lambda _pid: True
+            bootstrap._http_responds = lambda _url: True
+            bootstrap.webbrowser.open = opened_urls.append
+            try:
+                result = bootstrap.main(["--project-root", str(root), "--skip-install", "--open"])
+            finally:
+                bootstrap._process_is_running = original_process_is_running
+                bootstrap._http_responds = original_http_responds
+                bootstrap.webbrowser.open = original_open
+
+            self.assertEqual(result, 0)
+            self.assertEqual(opened_urls, ["http://127.0.0.1:8765"])
+
     def test_run_step_writes_and_removes_pid_file_for_blocking_process(self):
         bootstrap = load_bootstrap_module()
         with tempfile.TemporaryDirectory() as tmp:

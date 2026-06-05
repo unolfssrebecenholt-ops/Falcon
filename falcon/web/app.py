@@ -101,6 +101,13 @@ PLATFORM_LABELS = {
     "weibo": "微博",
     "xianyu": "闲鱼",
 }
+INTENT_TASK_STATUS_LABELS = {
+    "draft": "草稿",
+    "generating_probes": "生成探针中",
+    "probes_ready": "探针待执行",
+    "completed": "已完成",
+    "failed": "失败",
+}
 ASSET_TYPE_LABELS = {
     "image": "图片",
     "video": "视频",
@@ -160,6 +167,10 @@ def platform_label(value: str) -> str:
     return PLATFORM_LABELS.get(str(value or ""), str(value or "-"))
 
 
+def intent_task_status_label(value: str) -> str:
+    return INTENT_TASK_STATUS_LABELS.get(str(value or ""), str(value or "-"))
+
+
 def asset_type_label(value: str) -> str:
     return ASSET_TYPE_LABELS.get(str(value or ""), str(value or "-"))
 
@@ -179,6 +190,7 @@ templates.env.filters["collector_event"] = collector_event_label
 templates.env.filters["collector_message"] = collector_message_label
 templates.env.filters["collector_step"] = collector_step_label
 templates.env.filters["platform_label"] = platform_label
+templates.env.filters["intent_task_status"] = intent_task_status_label
 templates.env.filters["asset_type"] = asset_type_label
 templates.env.filters["evidence_scope"] = evidence_scope_label
 templates.env.filters["basename"] = basename_label
@@ -993,29 +1005,69 @@ def create_app(
             raise HTTPException(status_code=404, detail="Intent analysis task not found")
         sources = repository.list_intent_analysis_sources(task_id)
         probes = repository.list_intent_analysis_probes(task_id)
-        matches = repository.list_intent_analysis_matches(task_id)
-        matches_by_post: dict[int, list] = {}
-        for match in matches:
-            matches_by_post.setdefault(match.post_id, []).append(match)
-        result_posts = []
-        for post in repository.build_intent_analysis_package(task_id):
-            post_id = int(post["post_id"])
-            post_matches = matches_by_post.get(post_id, [])
-            comment_matches = [match for match in post_matches if match.level == "comment"]
-            if post_matches:
-                result_posts.append(
-                    {
-                        "post": post,
-                        "post_matches": [match for match in post_matches if match.level == "post"],
-                        "comment_matches": comment_matches,
-                    }
-                )
         return {
             "task": task,
             "sources": sources,
             "probes": probes,
-            "result_posts": result_posts,
-            "package": repository.build_intent_analysis_package(task_id),
+        }
+
+    def analysis_queue_context(repository: FalconRepository, platform: str = "", status: str = ""):
+        allowed_platforms = {item["key"] for item in _collector_platforms()}
+        selected_platform = platform if platform in allowed_platforms else ""
+        allowed_statuses = set(INTENT_TASK_STATUS_LABELS)
+        selected_status = status if status in allowed_statuses else ""
+        tasks = repository.list_intent_analysis_tasks(
+            platform=selected_platform or None,
+            status=selected_status or None,
+            limit=100,
+        )
+        queue_items = []
+        stats = {
+            "total": len(tasks),
+            "draft": 0,
+            "probes_ready": 0,
+            "completed": 0,
+            "failed": 0,
+            "source_count": 0,
+            "probe_count": 0,
+            "match_count": 0,
+        }
+        for task in tasks:
+            task_id = task.task_id or 0
+            sources = repository.list_intent_analysis_sources(task_id)
+            probes = repository.list_intent_analysis_probes(task_id)
+            matches = repository.list_intent_analysis_matches(task_id)
+            package = repository.build_intent_analysis_package(task_id)
+            source_keywords = list(dict.fromkeys([source.keyword for source in sources if source.keyword]))
+            if task.status in stats:
+                stats[task.status] += 1
+            stats["source_count"] += len(sources)
+            stats["probe_count"] += len(probes)
+            stats["match_count"] += len(matches)
+            queue_items.append(
+                {
+                    "task": task,
+                    "sources": sources,
+                    "probes": probes,
+                    "matches": matches,
+                    "source_keywords": source_keywords,
+                    "post_count": len(package),
+                    "comment_count": sum(len(item.get("comments", [])) for item in package),
+                    "enabled_probe_count": sum(1 for probe in probes if probe.enabled),
+                    "post_match_count": sum(1 for match in matches if match.level == "post"),
+                    "comment_match_count": sum(1 for match in matches if match.level == "comment"),
+                }
+            )
+        return {
+            "queue_items": queue_items,
+            "queue_stats": stats,
+            "selected_platform": selected_platform,
+            "selected_status": selected_status,
+            "platforms": _collector_platforms(),
+            "status_options": [
+                {"key": key, "label": label}
+                for key, label in INTENT_TASK_STATUS_LABELS.items()
+            ],
         }
 
     def save_intent_analysis_probes_from_form(repository: FalconRepository, task_id: int, form) -> None:
@@ -1832,6 +1884,19 @@ def create_app(
             },
         )
 
+    @app.get("/analysis/queue")
+    def analysis_queue_page(request: Request, platform: str = "", status: str = ""):
+        repository = repo()
+        return templates.TemplateResponse(
+            request,
+            "analysis_queue.html",
+            {
+                "active": "analysis_queue",
+                "page_view": "analysis_queue",
+                **analysis_queue_context(repository, platform=platform, status=status),
+            },
+        )
+
     @app.post("/analysis/tasks")
     async def create_intent_analysis_task(request: Request):
         form = await request.form()
@@ -1855,13 +1920,41 @@ def create_app(
         return RedirectResponse(f"/analysis/tasks/{task_id}", status_code=303)
 
     @app.post("/analysis/tasks/{task_id}/delete")
-    def delete_intent_analysis_task(task_id: int):
+    def delete_intent_analysis_task(task_id: int, return_to: str = ""):
         repository = repo()
         task = repository.get_intent_analysis_task(task_id)
         if task is None:
             raise HTTPException(status_code=404, detail="Intent analysis task not found")
         repository.delete_intent_analysis_task(task_id)
+        if return_to == "queue":
+            return RedirectResponse("/analysis/queue", status_code=303)
         return RedirectResponse(f"/analysis?platform={task.platform}", status_code=303)
+
+    @app.post("/analysis/tasks/{task_id}/meta")
+    async def update_intent_analysis_task_meta(request: Request, task_id: int):
+        form = await request.form()
+        repository = repo()
+        task = repository.get_intent_analysis_task(task_id)
+        if task is None:
+            raise HTTPException(status_code=404, detail="Intent analysis task not found")
+        user_intent = str(form.get("user_intent") or "").strip()
+        if not user_intent:
+            raise HTTPException(status_code=400, detail="Analysis intent is required")
+        status = str(form.get("status") or task.status).strip()
+        if status not in INTENT_TASK_STATUS_LABELS:
+            raise HTTPException(status_code=400, detail="Unsupported analysis status")
+        repository.update_intent_analysis_task_details(task_id, user_intent=user_intent, status=status)
+        return_platform = str(form.get("return_platform") or "").strip()
+        return_status = str(form.get("return_status") or "").strip()
+        query = {
+            key: value
+            for key, value in {"platform": return_platform, "status": return_status}.items()
+            if value
+        }
+        location = "/analysis/queue"
+        if query:
+            location = f"{location}?{urlencode(query)}"
+        return RedirectResponse(location, status_code=303)
 
     @app.get("/analysis/tasks/{task_id}")
     def intent_analysis_task_page(request: Request, task_id: int):
@@ -1871,6 +1964,7 @@ def create_app(
             "analysis_task.html",
             {
                 "active": "analysis",
+                "page_view": "analysis_task",
                 **intent_task_detail_context(repository, task_id),
             },
         )

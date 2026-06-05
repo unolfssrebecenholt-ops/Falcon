@@ -35,6 +35,9 @@ const DEFAULT_PACE = {
 };
 
 const COMMENT_ITEM_SELECTOR = ".comment-item, [class*='comment-item'], [class*='reply-item']";
+const DETAIL_SCREENSHOT_CONTAINER_TIMEOUT_MS = 10_000;
+const DETAIL_SCREENSHOT_VIEWPORT_TIMEOUT_MS = 8_000;
+const DETAIL_ERROR_SCREENSHOT_TIMEOUT_MS = 5_000;
 const SEARCH_SCREENSHOT_FULL_PAGE_TIMEOUT_MS = 90_000;
 const SEARCH_SCREENSHOT_VIEWPORT_TIMEOUT_MS = 15_000;
 
@@ -730,7 +733,7 @@ async function discoverMoreWaterfallPosts({ searchPage, request, maxPosts, enque
 export async function scrollSearchResultsHalfPage(page, request = {}) {
   const viewport = page.viewportSize?.() ?? { width: 1366, height: 900 };
   const deltaY = Math.max(180, Math.round((viewport.height || 900) * 0.5));
-  await page.mouse.wheel(0, deltaY);
+  await safeMouseWheel(page, 0, deltaY);
   await humanWait(page, secondsRangeToMs(request.pace?.scroll_delay_range_seconds || DEFAULT_PACE.scroll_delay_range_seconds));
   return deltaY;
 }
@@ -739,7 +742,7 @@ export async function scrollSearchResults(page, request = {}) {
   const viewport = page.viewportSize?.() ?? { width: 1366, height: 900 };
   const ratio = randomFloatFromRange(request.pace?.scroll_distance_viewport_range || DEFAULT_PACE.scroll_distance_viewport_range);
   const deltaY = Math.max(180, Math.round(Math.min(viewport.height, viewport.height * ratio)));
-  await page.mouse.wheel(0, deltaY);
+  await safeMouseWheel(page, 0, deltaY);
   await humanWait(page, secondsRangeToMs(request.pace?.scroll_delay_range_seconds || DEFAULT_PACE.scroll_delay_range_seconds));
   return deltaY;
 }
@@ -818,7 +821,10 @@ export async function collectDetailRecords({
       }
 
       const detailScreenshotPath = join(assetsPath, `${stem}-detail.png`);
-      await captureDetailScreenshot(detailPage, detailScreenshotPath);
+      const detailScreenshot = await captureDetailScreenshot(detailPage, detailScreenshotPath, {
+        request,
+        events,
+      });
       if (maxComments > 0) {
         const detailRoot = await detailRootLocator(detailPage);
         await prepareVisibleCommentsForExtraction(detailPage, detailRoot, request, maxComments);
@@ -842,15 +848,22 @@ export async function collectDetailRecords({
         url: postUrl,
         detail_fingerprint: postId,
       });
-      records.push(
-        evidenceRecord({
-          request,
-          evidenceId: `${request.run_id}-${stem}-detail-screenshot`,
-          scope: "detail_screenshot",
-          path: detailScreenshotPath,
-          payload: { post_id: postId, url: postUrl },
-        }),
-      );
+      if (detailScreenshot.path) {
+        records.push(
+          evidenceRecord({
+            request,
+            evidenceId: `${request.run_id}-${stem}-detail-screenshot`,
+            scope: "detail_screenshot",
+            path: detailScreenshot.path,
+            payload: {
+              post_id: postId,
+              url: postUrl,
+              mode: detailScreenshot.mode,
+              selector: detailScreenshot.selector || "",
+            },
+          }),
+        );
+      }
       records.push(
         evidenceRecord({
           request,
@@ -906,7 +919,7 @@ export async function collectDetailRecords({
       let errorScreenshotSaved = false;
       try {
         const detailPage = detailHandle?.page || searchPage;
-        await detailPage.screenshot({ path: errorPath, fullPage: false });
+        await detailPage.screenshot({ path: errorPath, fullPage: false, timeout: DETAIL_ERROR_SCREENSHOT_TIMEOUT_MS });
         errorScreenshotSaved = true;
       } catch {
         // Ignore screenshot errors while preserving the original failure.
@@ -1274,7 +1287,7 @@ async function findSafeClickPoint(page, locator, { allowReposition = false } = {
     } else {
       return null;
     }
-    await page.mouse.wheel(0, deltaY + randomInt(-40, 40));
+    await safeMouseWheel(page, 0, deltaY + randomInt(-40, 40));
     await humanWait(page, [450, 900]);
   }
   return null;
@@ -1377,8 +1390,18 @@ export async function expandVisibleCommentReplies(page, maxExpansions = 4, pace 
   return clicked;
 }
 
-export async function captureDetailScreenshot(page, path) {
+export async function captureDetailScreenshot(page, path, options = {}) {
+  const request = options.request || {};
+  const events = options.events;
   const viewport = page.viewportSize?.() ?? { width: 1366, height: 900 };
+  const containerTimeoutMs = positiveTimeoutMs(
+    request.detail_screenshot_timeout_ms,
+    DETAIL_SCREENSHOT_CONTAINER_TIMEOUT_MS,
+  );
+  const viewportTimeoutMs = positiveTimeoutMs(
+    request.detail_screenshot_viewport_timeout_ms,
+    DETAIL_SCREENSHOT_VIEWPORT_TIMEOUT_MS,
+  );
   const selectors = [
     "#noteContainer",
     ".note-detail-mask .note-container",
@@ -1386,9 +1409,11 @@ export async function captureDetailScreenshot(page, path) {
     ".note-content",
     "main",
   ];
+  let firstContainerError = "";
 
   for (const selector of selectors) {
     const element = page.locator(selector).first();
+    let attemptedContainerScreenshot = false;
     try {
       if (!(await element.isVisible({ timeout: 1000 }))) {
         continue;
@@ -1404,9 +1429,11 @@ export async function captureDetailScreenshot(page, path) {
       if (clipWidth < 120 || clipHeight < 120) {
         continue;
       }
+      attemptedContainerScreenshot = true;
       await page.screenshot({
         path,
         fullPage: false,
+        timeout: containerTimeoutMs,
         clip: {
           x: clipX,
           y: clipY,
@@ -1414,14 +1441,79 @@ export async function captureDetailScreenshot(page, path) {
           height: clipHeight,
         },
       });
-      return { mode: "container", selector };
-    } catch {
+      return { path, mode: "container", selector, timeoutMs: containerTimeoutMs, containerError: "", viewportError: "" };
+    } catch (error) {
+      if (isPlaywrightTargetClosedError(error)) {
+        throw error;
+      }
+      if (!firstContainerError) {
+        firstContainerError = errorMessage(error);
+      }
+      if (attemptedContainerScreenshot) {
+        break;
+      }
       // Try the next selector, then fall back to the visible viewport.
     }
   }
 
-  await page.screenshot({ path, fullPage: false });
-  return { mode: "viewport" };
+  try {
+    await page.screenshot({ path, fullPage: false, timeout: viewportTimeoutMs });
+    if (firstContainerError) {
+      writeBestEffortEvent(
+        events,
+        "warning",
+        "xiaohongshu",
+        "detail_screenshot_fallback",
+        "详情页容器截图失败，已降级保存当前屏幕截图。",
+        {
+          run_id: request.run_id,
+          platform: request.platform,
+          path,
+          mode: "viewport",
+          container_timeout_ms: containerTimeoutMs,
+          viewport_timeout_ms: viewportTimeoutMs,
+          container_error: firstContainerError,
+        },
+      );
+    }
+    return {
+      path,
+      mode: "viewport",
+      timeoutMs: viewportTimeoutMs,
+      containerError: firstContainerError,
+      viewportError: "",
+    };
+  } catch (viewportError) {
+    if (isPlaywrightTargetClosedError(viewportError)) {
+      throw viewportError;
+    }
+    const viewportErrorMessage = errorMessage(viewportError);
+    writeBestEffortEvent(
+      events,
+      "warning",
+      "xiaohongshu",
+      "detail_screenshot_failed",
+      "详情页截图失败，已继续采集字段和评论。",
+      {
+        run_id: request.run_id,
+        platform: request.platform,
+        requested_path: path,
+        mode: "failed",
+        container_timeout_ms: containerTimeoutMs,
+        viewport_timeout_ms: viewportTimeoutMs,
+        container_error: firstContainerError,
+        viewport_error: viewportErrorMessage,
+      },
+    );
+    return {
+      path: "",
+      requestedPath: path,
+      mode: "failed",
+      timeoutMs: viewportTimeoutMs,
+      containerError: firstContainerError,
+      viewportError: viewportErrorMessage,
+    };
+  }
 }
 
 export async function captureSearchResultsScreenshot(page, path, options = {}) {
@@ -1510,6 +1602,14 @@ function positiveTimeoutMs(value, fallback) {
 
 function errorMessage(error) {
   return String(error?.message || error || "");
+}
+
+async function safeMouseWheel(page, x, y) {
+  if (!page?.mouse?.wheel) {
+    return false;
+  }
+  await page.mouse.wheel(x, y);
+  return true;
 }
 
 function writeBestEffortEvent(events, level, scope, event, message, payload) {
@@ -2106,7 +2206,7 @@ async function scrollCommentArea(page, root, request = {}) {
       }
     }
   }
-  await page.mouse.wheel(0, deltaY);
+  await safeMouseWheel(page, 0, deltaY);
   return deltaY;
 }
 
@@ -2116,7 +2216,7 @@ async function scrollDetailPage(page, request = {}) {
     request.pace?.detail_scroll_distance_viewport_range || DEFAULT_PACE.detail_scroll_distance_viewport_range,
   );
   const deltaY = Math.max(120, Math.round(viewport.height * ratio));
-  await page.mouse.wheel(0, deltaY);
+  await safeMouseWheel(page, 0, deltaY);
   await humanWait(page, [900, 1800]);
 }
 

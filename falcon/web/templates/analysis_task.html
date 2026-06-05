@@ -26,19 +26,17 @@
 </section>
 {% endif %}
 
-<section class="panel">
-  <div class="section-head">
-    <div>
-      <h2>数据包 <button class="help-dot" type="button" data-tip="本任务选中的采集任务集合。探针执行时会读取这些任务里的帖子正文和评论，不会修改原始采集数据。">?</button></h2>
-      <p class="muted">数据包包含所选采集任务内的标题、正文和评论。</p>
-    </div>
-  </div>
-  <div class="relevance-flow">
-    {% for source in sources %}
-    <span>{{ source.run_id }} · {{ source.keyword }}</span>
-    {% else %}
-    <span>暂无数据源</span>
-    {% endfor %}
+<section class="panel analysis-task-source-panel">
+  <div class="analysis-task-source-head">
+    <h2>数据包 <button class="help-dot" type="button" data-tip="本任务选中的采集任务集合。探针执行时会读取这些任务里的帖子正文和评论，不会修改原始采集数据。">?</button></h2>
+    <p class="muted">
+      {% for source in sources %}
+      <span class="analysis-source-token">{{ source.run_id }} · {{ source.keyword }}</span>
+      {% else %}
+      <span class="analysis-source-token">暂无数据源</span>
+      {% endfor %}
+      <span>包含标题、正文和评论，作为本次探针判断上下文。</span>
+    </p>
   </div>
 </section>
 
@@ -48,9 +46,12 @@
       <h2>意向探针 <button class="help-dot" type="button" data-tip="探针是一组可编辑的语义判断规则。GPT-5.5 会按启用探针去匹配帖子和评论，找出符合分析意图的证据。">?</button></h2>
       <p class="muted">GPT-5.5 默认生成 5 个探针；执行前可增、删、改，启用数量需为 1-12 个。</p>
     </div>
-    <form id="probe-generate-form" method="post" action="/analysis/tasks/{{ task.task_id }}/probes/generate" data-stream-url="/analysis/tasks/{{ task.task_id }}/probes/generate/stream">
-      <button id="probe-generate-button" class="button" type="submit">生成 5 个探针</button>
-    </form>
+    <div class="probe-head-actions">
+      <span class="probe-count-chip">{{ probes|selectattr("enabled")|list|length }} 启用</span>
+      <form id="probe-generate-form" method="post" action="/analysis/tasks/{{ task.task_id }}/probes/generate" data-stream-url="/analysis/tasks/{{ task.task_id }}/probes/generate/stream">
+        <button id="probe-generate-button" class="button" type="submit">生成 5 个探针</button>
+      </form>
+    </div>
   </div>
 
   <div id="probe-stream-panel" class="probe-stream-panel" hidden>
@@ -70,105 +71,87 @@
     <p id="probe-stream-error" class="probe-stream-error" hidden></p>
   </div>
 
-  <form id="probe-editor-form" method="post" action="/analysis/tasks/{{ task.task_id }}/probes" class="probe-editor">
-    {% for probe in probes %}
-    <article class="probe-card">
-      <input type="hidden" name="probe_ids" value="{{ probe.probe_id }}">
-      <input type="hidden" name="probe_key_{{ probe.probe_id }}" value="{{ probe.probe_key }}">
-      <div class="probe-card-top">
-        <div class="probe-index">#{{ loop.index }}</div>
-        <label class="probe-title-field"><span>探针标题</span><input name="title_{{ probe.probe_id }}" value="{{ probe.title }}"></label>
-        <label class="probe-switch"><input type="checkbox" name="enabled_{{ probe.probe_id }}" {% if probe.enabled %}checked{% endif %}><span>启用</span></label>
-      </div>
-      <label class="probe-description-field"><span>判断逻辑</span><textarea name="description_{{ probe.probe_id }}" rows="3">{{ probe.description }}</textarea></label>
-      <div class="probe-signal-grid">
-        <label class="probe-signal positive"><span>正向信号</span><textarea name="positive_signals_{{ probe.probe_id }}" rows="4">{{ probe.positive_signals }}</textarea></label>
-        <label class="probe-signal negative"><span>排除信号</span><textarea name="negative_signals_{{ probe.probe_id }}" rows="4">{{ probe.negative_signals }}</textarea></label>
-      </div>
-      <div class="probe-card-foot">
-        <label class="probe-sort"><span>排序</span><input name="sort_order_{{ probe.probe_id }}" value="{{ probe.sort_order }}" inputmode="numeric"></label>
-        <label class="probe-delete-check"><input type="checkbox" name="delete_probe_ids" value="{{ probe.probe_id }}"><span>删除</span></label>
-      </div>
-    </article>
-    {% else %}
-    <div class="probe-empty-state">
-      <strong>暂无探针</strong>
-      <span>可以生成一组 GPT-5.5 探针，也可以在下方手动新增。</span>
-    </div>
-    {% endfor %}
-
-    <button class="probe-card probe-new-card probe-new-card-trigger" type="button" data-probe-modal-open>
-      <span class="probe-index">+</span>
-      <span class="probe-new-card-copy">
-        <strong>手动创建探针</strong>
-        <em id="probe-new-card-state">点击打开添加探针弹窗</em>
-      </span>
-    </button>
-    <div class="action-row left-actions">
-      <button class="button primary" type="submit" name="next_action" value="save">保存探针</button>
-      <button class="button" type="submit" name="next_action" value="execute">保存并执行分析</button>
-    </div>
-
-    <dialog id="probe-create-dialog" class="probe-create-dialog" aria-labelledby="probe-create-title">
-      <div class="probe-create-modal">
-        <button class="modal-close-button" type="button" data-probe-modal-close aria-label="关闭添加探针弹窗">×</button>
-        <div class="section-head">
-          <div>
-            <h2 id="probe-create-title">添加探针</h2>
-            <p class="muted">手动补充一个判断规则，保存后会进入当前任务的探针卡片列表。</p>
+  <form id="probe-editor-form" method="post" action="/analysis/tasks/{{ task.task_id }}/probes" class="probe-workbench-form">
+    <div class="probe-workbench-shell">
+      <div class="probe-summary-grid" aria-label="意向探针摘要">
+        {% for probe in probes %}
+        <article class="probe-summary-card {{ 'is-selected' if loop.first else '' }}" data-probe-card data-probe-id="{{ probe.probe_id }}">
+          <input type="hidden" name="probe_ids" value="{{ probe.probe_id }}">
+          <input type="hidden" name="probe_key_{{ probe.probe_id }}" value="{{ probe.probe_key }}">
+          <input type="hidden" name="title_{{ probe.probe_id }}" value="{{ probe.title }}" data-probe-title-hidden="{{ probe.probe_id }}">
+          <input type="hidden" name="description_{{ probe.probe_id }}" value="{{ probe.description }}" data-probe-description-hidden="{{ probe.probe_id }}">
+          <input type="hidden" name="positive_signals_{{ probe.probe_id }}" value="{{ probe.positive_signals }}" data-probe-positive-hidden="{{ probe.probe_id }}">
+          <input type="hidden" name="negative_signals_{{ probe.probe_id }}" value="{{ probe.negative_signals }}" data-probe-negative-hidden="{{ probe.probe_id }}">
+          <input type="hidden" name="sort_order_{{ probe.probe_id }}" value="{{ probe.sort_order }}" data-probe-sort-hidden="{{ probe.probe_id }}">
+          <div class="probe-summary-top">
+            <button class="probe-summary-select" type="button" data-probe-select="{{ probe.probe_id }}" aria-pressed="{{ 'true' if loop.first else 'false' }}">
+              <span class="probe-index">#{{ loop.index }}</span>
+              <span class="visually-hidden">编辑 {{ probe.title }}</span>
+            </button>
+            <label class="probe-switch"><input type="checkbox" name="enabled_{{ probe.probe_id }}" data-probe-enabled="{{ probe.probe_id }}" {% if probe.enabled %}checked{% endif %}><span>启用</span></label>
           </div>
+          <button class="probe-summary-main" type="button" data-probe-select="{{ probe.probe_id }}">
+            <strong data-probe-title-display="{{ probe.probe_id }}">{{ probe.title }}</strong>
+            <span data-probe-description-display="{{ probe.probe_id }}">{{ probe.description }}</span>
+          </button>
+          <div class="probe-summary-signals">
+            <div class="probe-summary-signal positive">
+              <span>正向信号</span>
+              <p data-probe-positive-display="{{ probe.probe_id }}">{{ probe.positive_signals }}</p>
+            </div>
+            <div class="probe-summary-signal negative">
+              <span>排除信号</span>
+              <p data-probe-negative-display="{{ probe.probe_id }}">{{ probe.negative_signals }}</p>
+            </div>
+          </div>
+          <div class="probe-summary-foot">
+            <span data-probe-sort-display="{{ probe.probe_id }}">排序 {{ probe.sort_order }}</span>
+            <label class="probe-delete-check"><input type="checkbox" name="delete_probe_ids" value="{{ probe.probe_id }}" data-probe-delete="{{ probe.probe_id }}"><span>删除</span></label>
+          </div>
+        </article>
+        {% else %}
+        <div class="probe-empty-state">
+          <strong>暂无探针</strong>
+          <span>可以生成一组 GPT-5.5 探针，也可以手动新增。</span>
         </div>
-        <div class="probe-card probe-new-dialog-card">
-          <div class="probe-card-top">
-            <div class="probe-index">+</div>
-            <label class="probe-title-field"><span>新增探针标题</span><input id="probe-new-title" name="new_title"></label>
-          </div>
-          <label class="probe-description-field"><span>判断逻辑</span><textarea name="new_description" rows="3"></textarea></label>
+        {% endfor %}
+
+        <button class="probe-summary-card probe-new-card-trigger" type="button" data-probe-create>
+          <span class="probe-new-card-inner">
+            <span class="probe-index">+</span>
+            <strong>手动创建探针</strong>
+            <em id="probe-new-card-state">新增规则进入右侧编辑器。</em>
+          </span>
+        </button>
+      </div>
+
+      <aside class="probe-inspector" aria-label="选中探针编辑器">
+        <div class="probe-inspector-head">
+          <span id="probe-inspector-kicker">selected probe</span>
+          <h3 id="probe-inspector-title">{{ probes[0].title if probes else "手动创建探针" }}</h3>
+          <p>{{ "编辑集中在一个面板中，卡片区保持可扫读。" if probes else "新增规则进入右侧编辑器。" }}</p>
+        </div>
+        <div class="probe-inspector-form">
+          <label class="probe-title-field"><span>探针标题</span><input id="probe-editor-title" value="{{ probes[0].title if probes else '' }}"></label>
+          <label class="probe-description-field"><span>判断逻辑</span><textarea id="probe-editor-description" rows="4">{{ probes[0].description if probes else "" }}</textarea></label>
           <div class="probe-signal-grid">
-            <label class="probe-signal positive"><span>正向信号</span><textarea name="new_positive_signals" rows="4"></textarea></label>
-            <label class="probe-signal negative"><span>排除信号</span><textarea name="new_negative_signals" rows="4"></textarea></label>
+            <label class="probe-signal positive"><span>正向信号</span><textarea id="probe-editor-positive" rows="4">{{ probes[0].positive_signals if probes else "" }}</textarea></label>
+            <label class="probe-signal negative"><span>排除信号</span><textarea id="probe-editor-negative" rows="4">{{ probes[0].negative_signals if probes else "" }}</textarea></label>
+          </div>
+          <div class="probe-inspector-row">
+            <label class="probe-sort"><span>排序</span><input id="probe-editor-sort" value="{{ probes[0].sort_order if probes else probes|length + 1 }}" inputmode="numeric"></label>
+            <label class="probe-switch"><input id="probe-editor-enabled" type="checkbox" {% if not probes or probes[0].enabled %}checked{% endif %}><span>启用这个探针</span></label>
           </div>
         </div>
-        <div class="action-row left-actions">
-          <button class="button" type="button" data-probe-modal-close>加入草稿</button>
-          <button class="button primary" type="submit" name="next_action" value="save">保存探针</button>
+        <div class="probe-inspector-actions">
+          <span id="probe-inspector-state">{{ "正在编辑第 1 个探针" if probes else "正在创建新探针" }}</span>
+          <button class="button primary" type="submit" name="next_action" value="execute">保存并执行分析</button>
         </div>
-      </div>
-    </dialog>
+      </aside>
+    </div>
   </form>
 </section>
 
-<section class="panel">
-  <div class="section-head">
-    <div>
-      <h2>双层证据 <button class="help-dot" type="button" data-tip="展示探针执行后的命中结果。帖子级证据说明整篇内容为何相关，评论级证据捕捉用户需求、追问和痛点。">?</button></h2>
-      <p class="muted">先看帖子级聚合，再展开评论级命中证据。</p>
-    </div>
-  </div>
-  {% for item in result_posts %}
-  <article class="intent-result-post">
-    <h3>{{ item.post.title }}</h3>
-    <p>{{ item.post.content }}</p>
-    {% for match in item.post_matches %}
-    <div class="intent-match post-match">
-      <strong>{{ match.probe_title or match.probe_key }} · 帖子级 · {{ match.score }}</strong>
-      {% if match.summary %}<span>{{ match.summary }}</span>{% endif %}
-      <span>{{ match.excerpt }}</span>
-      <small>{{ match.reason }}</small>
-    </div>
-    {% endfor %}
-    {% for match in item.comment_matches %}
-    <div class="intent-match comment-match">
-      <strong>{{ match.probe_title or match.probe_key }} · 评论级 · {{ match.score }}</strong>
-      <span>{{ match.excerpt }}</span>
-      <small>{{ match.reason }}</small>
-    </div>
-    {% endfor %}
-  </article>
-  {% else %}
-  <p class="muted">暂无命中结果。保存探针后点击“执行分析”。</p>
-  {% endfor %}
-</section>
 <script>
 (() => {
   const form = document.getElementById("probe-generate-form");
@@ -297,42 +280,169 @@
 </script>
 <script>
 (() => {
-  const dialog = document.getElementById("probe-create-dialog");
-  const openButton = document.querySelector("[data-probe-modal-open]");
-  const closeButtons = Array.from(document.querySelectorAll("[data-probe-modal-close]"));
-  const titleInput = document.getElementById("probe-new-title");
-  const state = document.getElementById("probe-new-card-state");
-  if (!dialog || !openButton) {
+  const form = document.getElementById("probe-editor-form");
+  const cards = Array.from(document.querySelectorAll("[data-probe-card]"));
+  const createButton = document.querySelector("[data-probe-create]");
+  const createState = document.getElementById("probe-new-card-state");
+  const titleInput = document.getElementById("probe-editor-title");
+  const descriptionInput = document.getElementById("probe-editor-description");
+  const positiveInput = document.getElementById("probe-editor-positive");
+  const negativeInput = document.getElementById("probe-editor-negative");
+  const sortInput = document.getElementById("probe-editor-sort");
+  const enabledInput = document.getElementById("probe-editor-enabled");
+  const inspectorTitle = document.getElementById("probe-inspector-title");
+  const inspectorKicker = document.getElementById("probe-inspector-kicker");
+  const inspectorState = document.getElementById("probe-inspector-state");
+  if (!form || !titleInput || !descriptionInput || !positiveInput || !negativeInput || !sortInput || !enabledInput) {
     return;
   }
 
-  const openDialog = () => {
-    if (typeof dialog.showModal === "function") {
-      dialog.showModal();
-    } else {
-      dialog.setAttribute("open", "");
-    }
-    if (titleInput) {
-      titleInput.focus();
-    }
+  let activeId = cards[0]?.dataset.probeId || "new";
+  let creating = cards.length === 0;
+  const newDraft = {
+    title: "",
+    description: "",
+    positive: "",
+    negative: "",
+    sort: String(cards.length + 1),
+    enabled: true,
   };
 
-  const closeDialog = () => {
-    if (typeof dialog.close === "function") {
-      dialog.close();
-    } else {
-      dialog.removeAttribute("open");
-    }
-    if (titleInput && state) {
-      const title = titleInput.value.trim();
-      openButton.classList.toggle("has-draft", Boolean(title));
-      state.textContent = title ? `已填写：${title}` : "点击打开添加探针弹窗";
-    }
+  const field = (id, name) => document.querySelector(`[data-probe-${name}-hidden="${id}"]`);
+  const display = (id, name) => document.querySelector(`[data-probe-${name}-display="${id}"]`);
+
+  const readExisting = (id) => ({
+    title: field(id, "title")?.value || "",
+    description: field(id, "description")?.value || "",
+    positive: field(id, "positive")?.value || "",
+    negative: field(id, "negative")?.value || "",
+    sort: field(id, "sort")?.value || "",
+    enabled: document.querySelector(`[data-probe-enabled="${id}"]`)?.checked ?? true,
+  });
+
+  const writeExisting = (id, values) => {
+    const title = values.title.trim();
+    const description = values.description.trim();
+    const positive = values.positive.trim();
+    const negative = values.negative.trim();
+    const sort = values.sort.trim();
+    if (field(id, "title")) field(id, "title").value = title;
+    if (field(id, "description")) field(id, "description").value = description;
+    if (field(id, "positive")) field(id, "positive").value = positive;
+    if (field(id, "negative")) field(id, "negative").value = negative;
+    if (field(id, "sort")) field(id, "sort").value = sort;
+    if (display(id, "title")) display(id, "title").textContent = title || "未命名探针";
+    if (display(id, "description")) display(id, "description").textContent = description || "暂无判断逻辑";
+    if (display(id, "positive")) display(id, "positive").textContent = positive || "暂无正向信号";
+    if (display(id, "negative")) display(id, "negative").textContent = negative || "暂无排除信号";
+    if (display(id, "sort")) display(id, "sort").textContent = `排序 ${sort || "-"}`;
+    const enabled = document.querySelector(`[data-probe-enabled="${id}"]`);
+    if (enabled) enabled.checked = values.enabled;
   };
 
-  openButton.addEventListener("click", openDialog);
-  closeButtons.forEach((button) => button.addEventListener("click", closeDialog));
-  dialog.addEventListener("cancel", closeDialog);
+  const readEditor = () => ({
+    title: titleInput.value,
+    description: descriptionInput.value,
+    positive: positiveInput.value,
+    negative: negativeInput.value,
+    sort: sortInput.value,
+    enabled: enabledInput.checked,
+  });
+
+  const writeEditor = (values) => {
+    titleInput.value = values.title || "";
+    descriptionInput.value = values.description || "";
+    positiveInput.value = values.positive || "";
+    negativeInput.value = values.negative || "";
+    sortInput.value = values.sort || "";
+    enabledInput.checked = values.enabled !== false;
+  };
+
+  const persistEditor = () => {
+    const values = readEditor();
+    if (creating || activeId === "new") {
+      Object.assign(newDraft, values);
+      createButton?.classList.toggle("has-draft", Boolean(values.title.trim()));
+      if (createState) {
+        createState.textContent = values.title.trim() ? `草稿：${values.title.trim()}` : "新增规则进入右侧编辑器。";
+      }
+      return;
+    }
+    writeExisting(activeId, values);
+  };
+
+  const selectCard = (id) => {
+    persistEditor();
+    creating = false;
+    activeId = id;
+    cards.forEach((card) => {
+      const selected = card.dataset.probeId === id;
+      card.classList.toggle("is-selected", selected);
+      card.querySelectorAll(`[data-probe-select]`).forEach((button) => button.setAttribute("aria-pressed", selected ? "true" : "false"));
+    });
+    createButton?.classList.remove("is-selected");
+    const values = readExisting(id);
+    writeEditor(values);
+    inspectorKicker.textContent = "selected probe";
+    inspectorTitle.textContent = values.title || "未命名探针";
+    const index = cards.findIndex((card) => card.dataset.probeId === id) + 1;
+    inspectorState.textContent = `正在编辑第 ${index || "-"} 个探针`;
+  };
+
+  const selectCreate = () => {
+    persistEditor();
+    creating = true;
+    activeId = "new";
+    cards.forEach((card) => {
+      card.classList.remove("is-selected");
+      card.querySelectorAll(`[data-probe-select]`).forEach((button) => button.setAttribute("aria-pressed", "false"));
+    });
+    createButton?.classList.add("is-selected");
+    writeEditor(newDraft);
+    inspectorKicker.textContent = "new probe";
+    inspectorTitle.textContent = newDraft.title || "手动创建探针";
+    inspectorState.textContent = "正在创建新探针";
+    titleInput.focus();
+  };
+
+  cards.forEach((card) => {
+    card.querySelectorAll(`[data-probe-select]`).forEach((button) => {
+      button.addEventListener("click", () => selectCard(card.dataset.probeId));
+    });
+    card.querySelector(`[data-probe-enabled]`)?.addEventListener("change", (event) => {
+      if (card.dataset.probeId === activeId && !creating) {
+        enabledInput.checked = event.currentTarget.checked;
+      }
+    });
+  });
+
+  [titleInput, descriptionInput, positiveInput, negativeInput, sortInput, enabledInput].forEach((input) => {
+    input.addEventListener("input", () => {
+      const values = readEditor();
+      inspectorTitle.textContent = values.title.trim() || (creating ? "手动创建探针" : "未命名探针");
+      persistEditor();
+    });
+    input.addEventListener("change", persistEditor);
+  });
+
+  createButton?.addEventListener("click", selectCreate);
+  form.addEventListener("submit", () => {
+    persistEditor();
+    if (newDraft.title.trim()) {
+      [
+        ["new_title", newDraft.title],
+        ["new_description", newDraft.description],
+        ["new_positive_signals", newDraft.positive],
+        ["new_negative_signals", newDraft.negative],
+      ].forEach(([name, value]) => {
+        const input = document.createElement("input");
+        input.type = "hidden";
+        input.name = name;
+        input.value = value.trim();
+        form.append(input);
+      });
+    }
+  });
 })();
 </script>
 {% endblock %}

@@ -733,6 +733,27 @@ class FalconRepository:
                 params,
             )
 
+    def update_intent_analysis_task_details(
+        self,
+        task_id: int,
+        user_intent: Optional[str] = None,
+        status: Optional[str] = None,
+    ) -> None:
+        updates: List[str] = ["updated_at = ?"]
+        params: List[object] = [utc_now_iso()]
+        if user_intent is not None:
+            updates.append("user_intent = ?")
+            params.append(user_intent)
+        if status is not None:
+            updates.append("status = ?")
+            params.append(status)
+        params.append(task_id)
+        with self._connect() as conn:
+            conn.execute(
+                f"UPDATE intent_analysis_tasks SET {', '.join(updates)} WHERE id = ?",
+                params,
+            )
+
     def delete_intent_analysis_task(self, task_id: int) -> None:
         with self._connect() as conn:
             conn.execute("DELETE FROM intent_analysis_matches WHERE task_id = ?", (task_id,))

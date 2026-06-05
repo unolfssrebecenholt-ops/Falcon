@@ -294,13 +294,16 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--skip-install", action="store_true", help="Skip pip/npm/Playwright install steps")
     parser.add_argument("--doctor-only", action="store_true", help="Run dependency checks without starting the web app")
     parser.add_argument("--dry-run", action="store_true", help="Print commands without executing them")
-    parser.add_argument("--no-open", action="store_true", help="Do not open the browser automatically")
+    parser.add_argument("--open", dest="open_browser", action="store_true", help="Open the workbench in the system browser")
+    parser.add_argument("--no-open", dest="open_browser", action="store_false", help="Do not open the browser automatically")
     parser.add_argument("--foreground", action="store_true", help="Run the web app in the current terminal")
     parser.add_argument("-SkipInstall", dest="skip_install", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("-DoctorOnly", dest="doctor_only", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("-DryRun", dest="dry_run", action="store_true", help=argparse.SUPPRESS)
-    parser.add_argument("-NoOpen", dest="no_open", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("-Open", dest="open_browser", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("-NoOpen", dest="open_browser", action="store_false", help=argparse.SUPPRESS)
     parser.add_argument("-Foreground", dest="foreground", action="store_true", help=argparse.SUPPRESS)
+    parser.set_defaults(open_browser=False)
     args = parser.parse_args(argv)
 
     project_root = Path(args.project_root).resolve()
@@ -325,7 +328,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             print(f"PID: {existing_pid}")
             print(f"URL: {existing_url}")
             print(f"Log: {log_file_path(project_root)}")
-            if not args.no_open:
+            if args.open_browser:
                 webbrowser.open(existing_url)
             return 0
         if existing_pid and not _process_is_running(existing_pid):
@@ -354,13 +357,13 @@ def main(argv: Optional[list[str]] = None) -> int:
         )
 
     url = f"http://{args.host}:{selected_port}"
-    if not args.no_open and not args.dry_run and not args.doctor_only:
+    if args.open_browser and not args.dry_run and not args.doctor_only:
         print(f"\nFalcon workbench will open at {url}")
         if args.foreground:
             threading.Timer(2.0, lambda: webbrowser.open(url)).start()
 
     run_steps(steps, dry_run=args.dry_run, foreground=args.foreground, project_root=project_root, url=url)
-    if not args.no_open and not args.dry_run and not args.doctor_only and not args.foreground:
+    if args.open_browser and not args.dry_run and not args.doctor_only and not args.foreground:
         webbrowser.open(url)
     return 0
 

@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% block title %}分析队列 - Falcon{% endblock %}
+{% block content %}
+<header class="page-header analysis-queue-header">
+  <div>
+    <div class="eyebrow">analysis queue</div>
+    <h1>分析队列</h1>
+    <p>独立管理意向分析任务，不影响采集任务队列和采集数据。</p>
+  </div>
+  <div class="action-row">
+    <a class="button" href="/analysis">新建分析任务</a>
+  </div>
+</header>
+
+<section class="analysis-queue-metrics" aria-label="分析队列概况">
+  <div><span>任务</span><strong>{{ queue_stats.total }}</strong></div>
+  <div><span>待执行</span><strong>{{ queue_stats.probes_ready }}</strong></div>
+  <div><span>已完成</span><strong>{{ queue_stats.completed }}</strong></div>
+  <div><span>命中</span><strong>{{ queue_stats.match_count }}</strong></div>
+</section>
+
+<section class="analysis-queue-toolbar" aria-label="分析队列筛选">
+  <form method="get" action="/analysis/queue" class="analysis-queue-filter">
+    <label>
+      <span>平台</span>
+      <select name="platform">
+        <option value="">全部平台</option>
+        {% for platform in platforms %}
+        <option value="{{ platform.key }}" {% if platform.key == selected_platform %}selected{% endif %}>{{ platform.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>
+      <span>状态</span>
+      <select name="status">
+        <option value="">全部状态</option>
+        {% for option in status_options %}
+        <option value="{{ option.key }}" {% if option.key == selected_status %}selected{% endif %}>{{ option.label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <button class="button" type="submit">筛选队列</button>
+  </form>
+  {% if selected_platform or selected_status %}
+  <a class="button ghost" href="/analysis/queue">清除筛选</a>
+  {% endif %}
+</section>
+
+<section class="analysis-queue-list" aria-label="分析任务">
+  {% for item in queue_items %}
+  {% set task = item.task %}
+  <article class="analysis-queue-item status-{{ task.status }}">
+    <div class="analysis-queue-main">
+      <div class="analysis-queue-topline">
+        <span class="analysis-task-id">#{{ task.task_id }}</span>
+        <span class="status status-{{ task.status }}">{{ task.status|intent_task_status }}</span>
+        <span class="analysis-platform">{{ task.platform|platform_label }}</span>
+      </div>
+      <h2>{{ task.user_intent }}</h2>
+      <div class="analysis-queue-chips" aria-label="数据包关键词">
+        {% for keyword in item.source_keywords[:4] %}
+        <span>{{ keyword }}</span>
+        {% else %}
+        <span>暂无数据包</span>
+        {% endfor %}
+        {% if item.source_keywords|length > 4 %}
+        <span>+{{ item.source_keywords|length - 4 }}</span>
+        {% endif %}
+      </div>
+    </div>
+
+    <dl class="analysis-queue-facts">
+      <div><dt>数据包</dt><dd>{{ item.sources|length }}</dd></div>
+      <div><dt>帖子</dt><dd>{{ item.post_count }}</dd></div>
+      <div><dt>评论</dt><dd>{{ item.comment_count }}</dd></div>
+      <div><dt>探针</dt><dd>{{ item.enabled_probe_count }}/{{ item.probes|length }}</dd></div>
+      <div><dt>命中</dt><dd>{{ item.post_match_count }} / {{ item.comment_match_count }}</dd></div>
+      <div><dt>更新</dt><dd>{{ task.updated_at|readable_time }}</dd></div>
+    </dl>
+
+    <div class="analysis-queue-actions">
+      <a class="button primary" href="/analysis/tasks/{{ task.task_id }}">查看详情</a>
+      <details class="analysis-queue-edit">
+        <summary class="button">编辑</summary>
+        <form method="post" action="/analysis/tasks/{{ task.task_id }}/meta">
+          <input type="hidden" name="return_platform" value="{{ selected_platform }}">
+          <input type="hidden" name="return_status" value="{{ selected_status }}">
+          <label>
+            <span>分析意图</span>
+            <textarea name="user_intent" rows="3" required>{{ task.user_intent }}</textarea>
+          </label>
+          <label>
+            <span>状态</span>
+            <select name="status">
+              {% for option in status_options %}
+              <option value="{{ option.key }}" {% if option.key == task.status %}selected{% endif %}>{{ option.label }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <div class="action-row left-actions">
+            <button class="button primary" type="submit">保存修改</button>
+          </div>
+        </form>
+      </details>
+      <form method="post" action="/analysis/tasks/{{ task.task_id }}/delete?return_to=queue" onsubmit="return confirm('删除这个分析任务？采集任务和采集数据不会被删除。');">
+        <button class="button danger" type="submit">删除</button>
+      </form>
+    </div>
+  </article>
+  {% else %}
+  <div class="analysis-queue-empty">
+    <strong>暂无分析任务</strong>
+    <span>从分析首页选择数据包并创建任务后，会进入这个独立队列。</span>
+    <a class="button primary" href="/analysis">创建分析任务</a>
+  </div>
+  {% endfor %}
+</section>
+{% endblock %}

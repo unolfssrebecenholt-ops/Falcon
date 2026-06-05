@@ -315,7 +315,7 @@ class WebAppTest(unittest.TestCase):
         self.assertNotIn("slate-command-reference-pages-20260524", base_template)
         self.assertNotIn("slate-command-soft-sage-pages-20260524", base_template)
         self.assertNotIn("slate-command-stone-moss-pages-", base_template)
-        self.assertIn("controlled-color-v3-analysis-single-screen-v2", base_template)
+        self.assertIn("controlled-color-v3-analysis-workbench-v11", base_template)
 
     def test_help_tooltips_are_not_clipped_by_panels(self):
         css = (Path(__file__).resolve().parents[1] / "falcon" / "web" / "static" / "app.css").read_text(
@@ -3591,8 +3591,8 @@ class WebAppTest(unittest.TestCase):
 
             self.assertEqual(response.status_code, 200)
             self.assertIn("分析总览", response.text)
-            self.assertIn('action="/analysis/promote"', response.text)
-            self.assertIn("Content performance checklist", response.text)
+            self.assertIn("采集质量", response.text)
+            self.assertIn('href="/analysis/queue"', response.text)
             self.assertIn('href="/analysis/samples"', response.text)
             assert_no_legacy_collection_markers(self, response.text)
 
@@ -3673,7 +3673,8 @@ class WebAppTest(unittest.TestCase):
             self.assertIn('data-collects="5"', home.text)
             self.assertIn("质 未评", home.text)
             self.assertNotIn('value="douyin-market-1"', home.text)
-            self.assertIn('action="/analysis/promote"', home.text)
+            self.assertIn("采集质量", home.text)
+            self.assertIn('href="/analysis/queue"', home.text)
             self.assertEqual(response.status_code, 303)
             task_id = int(response.headers["location"].rsplit("/", 1)[-1])
             task = repo.get_intent_analysis_task(task_id)
@@ -3836,10 +3837,10 @@ class WebAppTest(unittest.TestCase):
             self.assertIn('action="/analysis/tasks/%d/probes/generate"' % task_id, detail.text)
             self.assertIn('data-stream-url="/analysis/tasks/%d/probes/generate/stream"' % task_id, detail.text)
             self.assertIn('id="probe-stream-panel"', detail.text)
-            self.assertIn('class="probe-card-top"', detail.text)
-            self.assertIn('class="probe-signal positive"', detail.text)
-            self.assertIn('id="probe-create-dialog"', detail.text)
-            self.assertIn("data-probe-modal-open", detail.text)
+            self.assertIn('class="probe-workbench-shell"', detail.text)
+            self.assertIn('class="probe-summary-grid"', detail.text)
+            self.assertIn('class="probe-inspector"', detail.text)
+            self.assertIn("data-probe-create", detail.text)
             self.assertIn('form="probe-editor-form"', detail.text)
             self.assertEqual(streamed.status_code, 200)
             self.assertIn("text/event-stream", streamed.headers["content-type"])
@@ -3850,10 +3851,93 @@ class WebAppTest(unittest.TestCase):
             self.assertEqual(edited.status_code, 303)
             self.assertEqual(repo.list_intent_analysis_probes(task_id)[0].title, "避雷生图工具")
             self.assertEqual(repo.get_intent_analysis_task(task_id).status, "completed")
-            self.assertIn("双层证据", final_detail.text)
-            self.assertIn("生图软件对比", final_detail.text)
-            self.assertIn("跪求好用的 image2 生图软件", final_detail.text)
-            self.assertIn("评论直接求推荐", final_detail.text)
+            self.assertNotIn("双层证据", final_detail.text)
+            self.assertNotIn("评论直接求推荐", final_detail.text)
+
+    def test_analysis_queue_lists_edits_details_and_deletes_without_collection_queue(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "falcon.sqlite3"
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="xhs-analysis-queue",
+                    platform="xiaohongshu",
+                    keyword="归纳 app",
+                    profile="default",
+                    status="completed",
+                )
+            )
+            post_id = repo.save_collected_post(
+                CollectedPost(
+                    run_id="xhs-analysis-queue",
+                    platform="xiaohongshu",
+                    keyword="归纳 app",
+                    title="收纳痛点",
+                    content="找不到东西。",
+                    url="local://analysis-queue/post",
+                    detail_fingerprint="analysis-queue-post",
+                )
+            )
+            repo.save_collected_comment(
+                CollectedComment(
+                    post_id=post_id,
+                    run_id="xhs-analysis-queue",
+                    commenter="reader",
+                    content="想要一个小程序记录家里物品。",
+                )
+            )
+            task_id = repo.create_intent_analysis_task(
+                IntentAnalysisTask(
+                    platform="xiaohongshu",
+                    user_intent="我想知道有没有用户需要收纳小程序",
+                    status="probes_ready",
+                )
+            )
+            repo.add_intent_analysis_sources(task_id, ["xhs-analysis-queue"])
+            repo.save_intent_analysis_probe(
+                IntentAnalysisProbe(
+                    task_id=task_id,
+                    probe_key="probe-1",
+                    title="数字化收纳",
+                    description="识别数字化收纳需求",
+                    positive_signals="小程序\n记录",
+                    negative_signals="装修",
+                    sort_order=1,
+                )
+            )
+            client = TestClient(create_app(db_path))
+
+            queue = client.get("/analysis/queue")
+            edited = client.post(
+                f"/analysis/tasks/{task_id}/meta",
+                data={
+                    "user_intent": "我要分析家庭收纳工具需求",
+                    "status": "draft",
+                },
+                follow_redirects=False,
+            )
+            detail = client.get(f"/analysis/tasks/{task_id}")
+
+            self.assertEqual(queue.status_code, 200)
+            self.assertIn("分析队列", queue.text)
+            self.assertIn("独立管理意向分析任务", queue.text)
+            self.assertIn('href="/analysis/tasks/%d"' % task_id, queue.text)
+            self.assertIn('action="/analysis/tasks/%d/meta"' % task_id, queue.text)
+            self.assertIn('action="/analysis/tasks/%d/delete?return_to=queue"' % task_id, queue.text)
+            self.assertIn("采集任务和采集数据不会被删除", queue.text)
+            self.assertIn("归纳 app", queue.text)
+            self.assertEqual(edited.status_code, 303)
+            self.assertEqual(edited.headers["location"], "/analysis/queue")
+            self.assertEqual(repo.get_intent_analysis_task(task_id).user_intent, "我要分析家庭收纳工具需求")
+            self.assertEqual(repo.get_intent_analysis_task(task_id).status, "draft")
+            self.assertEqual(detail.status_code, 200)
+            self.assertIn("我要分析家庭收纳工具需求", detail.text)
+            deleted = client.post(f"/analysis/tasks/{task_id}/delete?return_to=queue", follow_redirects=False)
+            self.assertEqual(deleted.status_code, 303)
+            self.assertEqual(deleted.headers["location"], "/analysis/queue")
+            self.assertIsNone(repo.get_intent_analysis_task(task_id))
+            self.assertEqual(repo.get_collection_run("xhs-analysis-queue").status, "completed")
 
     def test_analysis_task_probe_edit_cannot_mutate_other_task_probe(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -4135,8 +4219,8 @@ class WebAppTest(unittest.TestCase):
             promote_response = client.post("/analysis/promote", follow_redirects=False)
 
             self.assertEqual(analysis_response.status_code, 200)
-            self.assertIn("采集质量入口", analysis_response.text)
-            self.assertIn("优质主分析", analysis_response.text)
+            self.assertIn("采集质量", analysis_response.text)
+            self.assertIn("主分析", analysis_response.text)
             self.assertEqual(promote_response.status_code, 303)
             self.assertEqual([item.relevance_role for item in repo.list_raw_items()], ["primary", "primary", "primary"])
 

@@ -53,9 +53,9 @@ Windows PowerShell:
 5. create local `data/`, `runtime/collector/`, and `browser-profiles/`
 6. initialize `data/falcon.sqlite3`
 7. run `falcon doctor`
-8. 在后台启动本地 Web 工作台，并打开 `http://127.0.0.1:8765`
+8. 在后台启动本地 Web 工作台，并把最终 URL 写入 `runtime/falcon-web.url`
 
-如果端口 `8765` 已被占用，脚本会自动尝试下一个可用端口并打印最终 URL。默认后台模式会写入：
+如果端口 `8765` 已被占用，脚本会自动尝试下一个可用端口并打印最终 URL。启动脚本默认不打开系统浏览器；如果需要自动打开工作台，显式传入 `--open` 或 PowerShell 的 `-Open`。默认后台模式会写入：
 
 - `runtime/falcon-web.pid`：Web 进程号
 - `runtime/falcon-web.url`：最终访问地址
