@@ -315,7 +315,7 @@ class WebAppTest(unittest.TestCase):
         self.assertNotIn("slate-command-reference-pages-20260524", base_template)
         self.assertNotIn("slate-command-soft-sage-pages-20260524", base_template)
         self.assertNotIn("slate-command-stone-moss-pages-", base_template)
-        self.assertIn("controlled-color-v3-analysis-workbench-v11", base_template)
+        self.assertIn("collector-run-console-v1", base_template)
 
     def test_help_tooltips_are_not_clipped_by_panels(self):
         css = (Path(__file__).resolve().parents[1] / "falcon" / "web" / "static" / "app.css").read_text(
@@ -1820,7 +1820,13 @@ class WebAppTest(unittest.TestCase):
             self.assertEqual(response.status_code, 200)
             self.assertIn('class="panel run-overview-card status-completed"', response.text)
             self.assertIn("任务运行概览", response.text)
-            self.assertIn('class="run-overview-metrics"', response.text)
+            self.assertIn('class="run-progress-track"', response.text)
+            self.assertIn('role="progressbar"', response.text)
+            self.assertIn('aria-valuenow="100"', response.text)
+            self.assertIn('style="--run-progress: 100%;"', response.text)
+            self.assertIn("已采集 1 条", response.text)
+            self.assertIn("目标 20 条，还差 19 条", response.text)
+            self.assertIn('class="run-metric-strip"', response.text)
             self.assertIn('class="sample-title-link"', response.text)
             self.assertIn(f'href="/collector/runs/xhs-compact-detail/posts/{post_id}"', response.text)
             self.assertNotIn("<th>操作</th>", response.text)
@@ -4121,6 +4127,8 @@ class WebAppTest(unittest.TestCase):
             self.assertIn("默认优质", response.text)
             self.assertIn("主分析", response.text)
             self.assertIn('class="relevance-gate-overview"', response.text)
+            self.assertIn('class="relevance-decision-card"', response.text)
+            self.assertIn("当前结论", response.text)
             self.assertIn("可推进", response.text)
             self.assertIn('class="sample-filter-toolbar"', response.text)
             self.assertLess(response.text.index("采集样本"), response.text.index('class="sample-filter-toolbar"'))

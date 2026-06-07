@@ -29,48 +29,76 @@
 </div>
 {% endif %}
 
+{% set collected_count = posts|length %}
+{% set remaining_count = run.max_posts - collected_count %}
 <section class="panel run-overview-card status-{{ run.status }}">
-  <div class="run-overview-main">
-    <div class="run-overview-title">
-      <span class="status-dot"></span>
-      <div>
+  <div class="run-overview-command">
+    <div class="run-overview-primary">
+      <div class="run-status-line">
+        <span class="status-badge status-{{ run.status }}"><i></i>{{ run.status|collector_status }}</span>
+        <span class="run-profile-chip">{{ run.platform|platform_label }} / {{ run.profile }}</span>
         <span class="subtext">任务运行概览</span>
-        <h2>{{ run|run_state_title }}</h2>
-        {% if manual_action_reason == "profile_window_busy" %}
-        <p>关闭已打开的 {{ run.platform }}/{{ run.profile }} 浏览器窗口后，再点击“继续采集”。</p>
-        {% else %}
-        <p>{{ run|run_state_detail }}</p>
-        {% endif %}
+      </div>
+      <h2>{{ run|run_state_title }}</h2>
+      {% if manual_action_reason == "profile_window_busy" %}
+      <p>关闭已打开的 {{ run.platform }}/{{ run.profile }} 浏览器窗口后，再点击“继续采集”。</p>
+      {% else %}
+      <p>{{ run|run_state_detail }}</p>
+      {% endif %}
+      {% if run.failed_reason %}
+      <p class="alert">{{ run.failed_reason }}</p>
+      {% endif %}
+      <div class="run-progress-block">
+        <div class="run-progress-meta">
+          <span>采集进度</span>
+          <strong>{{ run|run_progress_stage }}</strong>
+        </div>
+        <div
+          class="run-progress-track"
+          role="progressbar"
+          aria-label="采集进度"
+          aria-valuemin="0"
+          aria-valuemax="100"
+          aria-valuenow="{{ run.progress }}"
+          aria-valuetext="{{ run|run_progress_stage }}"
+          style="--run-progress: {{ run.progress }}%;"
+        >
+          <span></span>
+        </div>
+        <div class="run-progress-caption">
+          <span>已采集 {{ collected_count }} 条</span>
+          <span>目标 {{ run.max_posts }} 条，还差 {{ remaining_count if remaining_count > 0 else 0 }} 条</span>
+        </div>
       </div>
     </div>
-    <div class="run-overview-context">
+    <div class="run-signal-grid" aria-label="任务运行信号">
       <div>
         <span>当前阻塞点</span>
         <strong>{{ run.current_step|collector_step }}</strong>
       </div>
       <div>
-        <span>任务来源</span>
-        <strong>{{ run.platform|platform_label }} / {{ run.keyword }}</strong>
+        <span>运行时长</span>
+        <strong>{{ run|run_duration }}</strong>
       </div>
-      {% if run.failed_reason %}
-      <p class="alert">{{ run.failed_reason }}</p>
-      {% endif %}
+      <div>
+        <span>资源占用</span>
+        <strong class="fit-text">{{ run|run_resource }}</strong>
+      </div>
+      <div>
+        <span>自动刷新</span>
+        <strong>{{ "3 秒同步" if run.status in ["queued", "running", "manual_action_required"] else "已停止" }}</strong>
+      </div>
     </div>
   </div>
-  <div class="run-overview-side">
-    <div class="run-overview-state">
-      <span class="status-badge status-{{ run.status }}"><i></i>{{ run.status|collector_status }}</span>
-      <strong>{{ run|run_progress_stage }}</strong>
-    </div>
-    <div class="run-overview-metrics">
-      <div><span>开启时间</span><strong class="fit-text">{{ run.created_at|readable_time }}</strong></div>
-      <div><span>运行时长</span><strong>{{ run|run_duration }}</strong></div>
-      <div><span>资源占用</span><strong class="fit-text">{{ run|run_resource }}</strong></div>
-      <div><span>采样范围</span><strong>{{ run.max_posts }} / {{ run.max_comments_per_post }}</strong></div>
-      <div><span>跳过卡片数</span><strong>{{ waterfall_report.skipped_cards }}</strong></div>
-      <div><span>触发阈值数</span><strong>{{ waterfall_report.threshold_triggers }} / {{ waterfall_report.recovery_threshold }}</strong></div>
-    </div>
-    <div class="run-actions">
+  <div class="run-metric-strip" aria-label="采集运行指标">
+    <div><span>采样范围</span><strong>{{ run.max_posts }} / {{ run.max_comments_per_post }}</strong></div>
+    <div><span>跳过卡片数</span><strong>{{ waterfall_report.skipped_cards }}</strong></div>
+    <div><span>触发阈值数</span><strong>{{ waterfall_report.threshold_triggers }} / {{ waterfall_report.recovery_threshold }}</strong></div>
+    <div><span>可推进</span><strong>{{ relevance_summary.roles.primary }}</strong></div>
+    <div><span>待评分</span><strong>{{ relevance_summary.roles.pending }}</strong></div>
+    <div><span>证据项</span><strong>{{ assets|length + evidences|length }}</strong></div>
+  </div>
+  <div class="run-actions">
     {% if run|run_can_start %}
     <form class="inline-form" action="/collector/runs/{{ run.run_id }}/start" method="post">
       <button class="button primary" type="submit">启动采集</button>
@@ -106,7 +134,6 @@
       <button class="button" type="submit">归档</button>
     </form>
     {% endif %}
-    </div>
   </div>
 </section>
 
@@ -157,26 +184,44 @@
     </form>
   </div>
   <div class="relevance-gate-overview" aria-label="相关性分流成果">
-    <article class="relevance-outcome-card outcome-primary">
-      <span>可推进</span>
-      <strong>{{ relevance_summary.roles.primary }}</strong>
-      <p>优质样本，进入主分析</p>
-    </article>
-    <article class="relevance-outcome-card outcome-reference">
-      <span>可参考</span>
-      <strong>{{ relevance_summary.roles.reference }}</strong>
-      <p>中等样本，补充判断</p>
-    </article>
-    <article class="relevance-outcome-card outcome-discard">
-      <span>需跳过</span>
-      <strong>{{ relevance_summary.roles.discard }}</strong>
-      <p>保留证据，不进分析</p>
-    </article>
-    <article class="relevance-outcome-card outcome-pending">
-      <span>待评分</span>
-      <strong>{{ relevance_summary.roles.pending }}</strong>
-      <p>尚未写入默认优质</p>
-    </article>
+    <div class="relevance-flow-bars">
+      <div class="relevance-bar-row level-excellent">
+        <span>优质</span>
+        <i style="--bar-value: {{ relevance_summary.counts.excellent }};"></i>
+        <strong>{{ relevance_summary.counts.excellent }}</strong>
+      </div>
+      <div class="relevance-bar-row level-medium">
+        <span>中等</span>
+        <i style="--bar-value: {{ relevance_summary.counts.medium }};"></i>
+        <strong>{{ relevance_summary.counts.medium }}</strong>
+      </div>
+      <div class="relevance-bar-row level-poor">
+        <span>劣质</span>
+        <i style="--bar-value: {{ relevance_summary.counts.poor }};"></i>
+        <strong>{{ relevance_summary.counts.poor }}</strong>
+      </div>
+      <div class="relevance-bar-row level-unscored">
+        <span>未评分</span>
+        <i style="--bar-value: {{ relevance_summary.counts.unscored }};"></i>
+        <strong>{{ relevance_summary.counts.unscored }}</strong>
+      </div>
+    </div>
+    <aside class="relevance-decision-card">
+      <span>当前结论</span>
+      {% if relevance_summary.roles.primary > 0 %}
+      <strong>{{ relevance_summary.roles.primary }} 条样本进入主分析</strong>
+      <p>可先推进分析；如需收紧质量，再对单条样本降级或跳过。</p>
+      {% elif relevance_summary.roles.pending > 0 %}
+      <strong>等待样本评分</strong>
+      <p>有样本尚未写入质量判断，建议先重新评分或人工确认。</p>
+      {% elif posts|length == 0 %}
+      <strong>等待样本写入</strong>
+      <p>采集写入样本后，这里会显示推进建议。</p>
+      {% else %}
+      <strong>需要人工校准</strong>
+      <p>当前没有可推进样本，请复核参考和跳过项。</p>
+      {% endif %}
+    </aside>
   </div>
   <div class="relevance-level-strip" aria-label="相关性等级统计">
     <span class="relevance-level-chip relevance-excellent">优质 <strong>{{ relevance_summary.counts.excellent }}</strong></span>
