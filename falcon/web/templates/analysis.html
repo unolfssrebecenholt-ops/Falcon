@@ -4,22 +4,23 @@
 <header class="page-header analysis-page-header">
   <div class="analysis-header-main">
     <div class="analysis-title-block">
-      <div class="analysis-title-row">
-        <div class="analysis-title-copy">
-          <h1>分析总览</h1>
-        </div>
-        <section class="analysis-header-overview" aria-label="分析概况">
-          <div><span>已评分</span><strong>{{ stats.scored_count }}</strong></div>
-          <div><span>高意图</span><strong>{{ stats.high_intent_count }}</strong></div>
-          <div><span>关键词</span><strong>{{ stats.keyword_count }}</strong></div>
-          <div><span>模型</span><strong>GPT-5.5</strong></div>
-        </section>
-      </div>
+      <div class="eyebrow">analysis overview</div>
+      <h1>分析总览</h1>
       <p>按平台选择采集数据包，输入分析意图，用 GPT-5.5 生成可编辑探针并手动执行语义分析。</p>
     </div>
   </div>
-  <a class="button" href="/analysis/samples">分析样本</a>
+  <div class="action-row">
+    <a class="button primary" href="/analysis/queue">分析队列</a>
+    <a class="button" href="/analysis/samples">分析样本</a>
+  </div>
 </header>
+
+<section class="analysis-header-overview" aria-label="分析概况">
+  <div><span>已评分</span><strong>{{ stats.scored_count }}</strong></div>
+  <div><span>高意图</span><strong>{{ stats.high_intent_count }}</strong></div>
+  <div><span>关键词</span><strong>{{ stats.keyword_count }}</strong></div>
+  <div><span>模型</span><strong>GPT-5.5</strong></div>
+</section>
 
 <section class="analysis-command-shell" aria-label="分析工作台">
   <section class="panel analysis-workspace" aria-labelledby="analysis-workspace-title">
@@ -35,13 +36,13 @@
     <div id="analysis-probe-loading" class="analysis-probe-loading" hidden>
       <div class="analysis-loading-copy">
         <span>GPT-5.5 stream</span>
-        <strong>正在准备探针工作区</strong>
-        <p>Falcon 正在读取选中的数据包、分析意图和评论上下文。</p>
+        <strong id="analysis-loading-title">正在准备探针工作区</strong>
+        <p id="analysis-loading-message">Falcon 正在读取选中的数据包、分析意图和评论上下文。</p>
       </div>
       <div class="analysis-loading-steps" aria-label="探针生成进度">
-        <span class="is-active">接入数据包</span>
-        <span>生成探针</span>
-        <span>进入编辑</span>
+        <span data-create-step="sources" class="is-active">接入数据包</span>
+        <span data-create-step="probes">生成探针</span>
+        <span data-create-step="editor">进入编辑</span>
       </div>
       <div class="analysis-skeleton-grid" aria-hidden="true">
         <i></i><i></i><i></i>
@@ -61,9 +62,9 @@
               <span>{{ history.sources|length }} 个任务</span>
               <span>{{ history.post_count|default(0) }} 篇帖子</span>
               <span>{{ history.comment_count|default(0) }} 条评论</span>
-              <span>{{ history.enabled_probe_count|default(0) }}/{{ history.probes|length }} 个探针</span>
+              <span>{{ history.probe_count|default(history.probes|length) }} 个探针</span>
             </div>
-            <strong class="analysis-history-summary">{{ history.sources|length }} 个任务 · {{ history.post_count|default(0) }} 篇帖子 · {{ history.comment_count|default(0) }} 条评论 · {{ history.enabled_probe_count|default(0) }}/{{ history.probes|length }} 个探针</strong>
+            <strong class="analysis-history-summary">{{ history.sources|length }} 个任务 · {{ history.post_count|default(0) }} 篇帖子 · {{ history.comment_count|default(0) }} 条评论 · {{ history.probe_count|default(history.probes|length) }} 个探针</strong>
             <div class="analysis-probe-chip-row" aria-label="历史探针">
               {% for probe in history.probes[:4] %}
               <span>{{ probe.title }}</span>
@@ -192,6 +193,9 @@
   const checkboxes = Array.from(document.querySelectorAll("[data-analysis-run]"));
   const form = document.getElementById("analysis-workbench-form");
   const loading = document.getElementById("analysis-probe-loading");
+  const loadingTitle = document.getElementById("analysis-loading-title");
+  const loadingMessage = document.getElementById("analysis-loading-message");
+  const loadingSteps = Array.from(document.querySelectorAll("[data-create-step]"));
   const createButton = document.getElementById("analysis-create-button");
   const submitError = document.getElementById("analysis-submit-error");
   const selectedPill = document.getElementById("analysis-selected-pill");
@@ -205,6 +209,36 @@
   };
   const numberFormat = new Intl.NumberFormat("zh-CN");
   const toInt = (value) => Number.parseInt(value || "0", 10) || 0;
+  const createStepOrder = ["sources", "probes", "editor"];
+
+  const setSubmitError = (message) => {
+    if (!submitError) {
+      return;
+    }
+    submitError.textContent = message;
+    submitError.hidden = false;
+  };
+
+  const activateCreateStep = (name) => {
+    const activeIndex = createStepOrder.indexOf(name);
+    loadingSteps.forEach((step) => {
+      const stepIndex = createStepOrder.indexOf(step.dataset.createStep);
+      step.classList.toggle("is-active", step.dataset.createStep === name);
+      step.classList.toggle("is-complete", activeIndex > stepIndex);
+    });
+  };
+
+  const setLoadingState = (title, message, step) => {
+    if (loadingTitle) {
+      loadingTitle.textContent = title;
+    }
+    if (loadingMessage) {
+      loadingMessage.textContent = message;
+    }
+    if (step) {
+      activateCreateStep(step);
+    }
+  };
 
   const updateMetadata = () => {
     const selected = checkboxes.filter((checkbox) => checkbox.checked);
@@ -240,23 +274,148 @@
   checkboxes.forEach((checkbox) => checkbox.addEventListener("change", updateMetadata));
   updateMetadata();
 
+  const resetCreateFormState = () => {
+    if (loading) {
+      loading.hidden = true;
+    }
+    setLoadingState("正在准备探针工作区", "Falcon 正在读取选中的数据包、分析意图和评论上下文。", "sources");
+    if (submitError) {
+      submitError.hidden = true;
+    }
+    if (createButton) {
+      createButton.textContent = "创建意向分析任务";
+    }
+    updateMetadata();
+  };
+
+  window.addEventListener("pageshow", (event) => {
+    const navigation = window.performance?.getEntriesByType?.("navigation")?.[0];
+    if (event.persisted || navigation?.type === "back_forward") {
+      resetCreateFormState();
+    }
+  });
+
+  const handleStreamBlock = (block, taskUrl) => {
+    let eventName = "message";
+    const dataLines = [];
+    block.split(/\r?\n/).forEach((line) => {
+      if (line.startsWith("event:")) {
+        eventName = line.slice(6).trim();
+      } else if (line.startsWith("data:")) {
+        dataLines.push(line.slice(5).trim());
+      }
+    });
+    if (!dataLines.length) {
+      return "";
+    }
+    const payload = JSON.parse(dataLines.join("\n"));
+    if (eventName === "delta") {
+      setLoadingState("正在生成 5 个语义探针", "GPT-5.5 正在输出可编辑的判断规则。", "probes");
+      return "";
+    }
+    if (eventName === "done") {
+      setLoadingState("探针已生成", "正在进入编辑页。", "editor");
+      window.setTimeout(() => {
+        window.location.href = payload.redirect_url || taskUrl;
+      }, 350);
+      return "done";
+    }
+    if (eventName === "error") {
+      setLoadingState("探针生成失败", "正在进入任务详情查看失败原因。", "editor");
+      window.setTimeout(() => {
+        window.location.href = taskUrl;
+      }, 900);
+      return "error";
+    }
+    const status = String(payload.status || "");
+    const message = String(payload.message || "正在处理。");
+    if (status === "generating_probes") {
+      setLoadingState("正在生成 5 个语义探针", message, "probes");
+    } else if (message.includes("校验") || message.includes("写入")) {
+      setLoadingState("正在校验并写入本地数据库", message, "editor");
+    } else {
+      setLoadingState("正在准备探针工作区", message, "sources");
+    }
+    return "";
+  };
+
+  const streamGeneratedProbes = async (streamUrl, taskUrl) => {
+    const response = await fetch(streamUrl, {
+      method: "POST",
+      headers: { Accept: "text/event-stream" },
+    });
+    if (!response.ok || !response.body) {
+      return false;
+    }
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    while (true) {
+      const result = await reader.read();
+      if (result.done) {
+        break;
+      }
+      buffer += decoder.decode(result.value, { stream: true });
+      const blocks = buffer.split("\n\n");
+      buffer = blocks.pop() || "";
+      for (const block of blocks) {
+        if (block.trim() && handleStreamBlock(block, taskUrl)) {
+          return true;
+        }
+      }
+    }
+    if (buffer.trim() && handleStreamBlock(buffer, taskUrl)) {
+      return true;
+    }
+    return false;
+  };
+
   if (form) {
-    form.addEventListener("submit", (event) => {
+    form.addEventListener("submit", async (event) => {
       const selected = checkboxes.some((checkbox) => checkbox.checked);
       if (!selected) {
         event.preventDefault();
-        if (submitError) {
-          submitError.hidden = false;
-        }
+        setSubmitError("请先在右侧选择至少 1 个采集任务。");
         return;
       }
       if (loading) {
         loading.hidden = false;
         loading.scrollIntoView({ block: "nearest" });
       }
+      setLoadingState("正在准备探针工作区", "Falcon 正在读取选中的数据包、分析意图和评论上下文。", "sources");
       if (createButton) {
         createButton.disabled = true;
         createButton.textContent = "正在创建探针任务";
+      }
+      if (!window.fetch || !window.ReadableStream) {
+        return;
+      }
+      event.preventDefault();
+      try {
+        const response = await fetch(form.action, {
+          method: "POST",
+          body: new FormData(form),
+          headers: { Accept: "application/json", "X-Requested-With": "fetch" },
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(payload.error || payload.detail || "创建探针任务失败");
+        }
+        if (!payload.task_url || !payload.stream_url) {
+          window.location.href = payload.task_url || "/analysis";
+          return;
+        }
+        const completed = await streamGeneratedProbes(payload.stream_url, payload.task_url);
+        if (!completed) {
+          window.location.href = payload.task_url;
+        }
+      } catch (error) {
+        setSubmitError(error.message || "创建探针任务失败，请稍后重试。");
+        setLoadingState("创建探针任务失败", "请检查右侧数据包和 GPT-5.5 配置后重试。", "sources");
+        if (createButton) {
+          createButton.disabled = false;
+          createButton.textContent = "重新创建探针任务";
+        }
       }
     });
   }

@@ -9,7 +9,8 @@
   </div>
   <div class="action-row">
     <a class="button" href="/analysis?platform={{ task.platform }}">返回分析首页</a>
-    <button class="button primary" type="submit" form="probe-editor-form" name="next_action" value="execute">保存并执行分析</button>
+    <button class="button" type="submit" form="probe-editor-form" name="next_action" value="save">保存</button>
+    <button class="button primary" type="submit" form="probe-editor-form" name="next_action" value="queue">加入到分析队列</button>
   </div>
 </header>
 
@@ -43,11 +44,11 @@
 <section class="panel intent-probe-workbench">
   <div class="section-head intent-probe-head">
     <div>
-      <h2>意向探针 <button class="help-dot" type="button" data-tip="探针是一组可编辑的语义判断规则。GPT-5.5 会按启用探针去匹配帖子和评论，找出符合分析意图的证据。">?</button></h2>
-      <p class="muted">GPT-5.5 默认生成 5 个探针；执行前可增、删、改，启用数量需为 1-12 个。</p>
+      <h2>意向探针 <button class="help-dot" type="button" data-tip="探针是一组可编辑的语义判断规则。GPT-5.5 会按当前保留的探针去匹配帖子和评论，找出符合分析意图的证据。">?</button></h2>
+      <p class="muted">GPT-5.5 默认生成 5 个探针；执行前可增、删、改，当前保留数量需为 1-12 个。</p>
     </div>
     <div class="probe-head-actions">
-      <span class="probe-count-chip">{{ probes|selectattr("enabled")|list|length }} 启用</span>
+      <span class="probe-count-chip">{{ probes|length }} 个探针</span>
       <form id="probe-generate-form" method="post" action="/analysis/tasks/{{ task.task_id }}/probes/generate" data-stream-url="/analysis/tasks/{{ task.task_id }}/probes/generate/stream">
         <button id="probe-generate-button" class="button" type="submit">生成 5 个探针</button>
       </form>
@@ -82,13 +83,11 @@
           <input type="hidden" name="description_{{ probe.probe_id }}" value="{{ probe.description }}" data-probe-description-hidden="{{ probe.probe_id }}">
           <input type="hidden" name="positive_signals_{{ probe.probe_id }}" value="{{ probe.positive_signals }}" data-probe-positive-hidden="{{ probe.probe_id }}">
           <input type="hidden" name="negative_signals_{{ probe.probe_id }}" value="{{ probe.negative_signals }}" data-probe-negative-hidden="{{ probe.probe_id }}">
-          <input type="hidden" name="sort_order_{{ probe.probe_id }}" value="{{ probe.sort_order }}" data-probe-sort-hidden="{{ probe.probe_id }}">
           <div class="probe-summary-top">
             <button class="probe-summary-select" type="button" data-probe-select="{{ probe.probe_id }}" aria-pressed="{{ 'true' if loop.first else 'false' }}">
               <span class="probe-index">#{{ loop.index }}</span>
               <span class="visually-hidden">编辑 {{ probe.title }}</span>
             </button>
-            <label class="probe-switch"><input type="checkbox" name="enabled_{{ probe.probe_id }}" data-probe-enabled="{{ probe.probe_id }}" {% if probe.enabled %}checked{% endif %}><span>启用</span></label>
           </div>
           <button class="probe-summary-main" type="button" data-probe-select="{{ probe.probe_id }}">
             <strong data-probe-title-display="{{ probe.probe_id }}">{{ probe.title }}</strong>
@@ -105,8 +104,9 @@
             </div>
           </div>
           <div class="probe-summary-foot">
-            <span data-probe-sort-display="{{ probe.probe_id }}">排序 {{ probe.sort_order }}</span>
-            <label class="probe-delete-check"><input type="checkbox" name="delete_probe_ids" value="{{ probe.probe_id }}" data-probe-delete="{{ probe.probe_id }}"><span>删除</span></label>
+            <span>保留后参与分析</span>
+            <button class="probe-delete-button" type="button" data-probe-delete-button="{{ probe.probe_id }}">删除</button>
+            <input class="visually-hidden" type="checkbox" name="delete_probe_ids" value="{{ probe.probe_id }}" data-probe-delete="{{ probe.probe_id }}" tabindex="-1" aria-hidden="true">
           </div>
         </article>
         {% else %}
@@ -138,14 +138,13 @@
             <label class="probe-signal positive"><span>正向信号</span><textarea id="probe-editor-positive" rows="4">{{ probes[0].positive_signals if probes else "" }}</textarea></label>
             <label class="probe-signal negative"><span>排除信号</span><textarea id="probe-editor-negative" rows="4">{{ probes[0].negative_signals if probes else "" }}</textarea></label>
           </div>
-          <div class="probe-inspector-row">
-            <label class="probe-sort"><span>排序</span><input id="probe-editor-sort" value="{{ probes[0].sort_order if probes else probes|length + 1 }}" inputmode="numeric"></label>
-            <label class="probe-switch"><input id="probe-editor-enabled" type="checkbox" {% if not probes or probes[0].enabled %}checked{% endif %}><span>启用这个探针</span></label>
-          </div>
         </div>
         <div class="probe-inspector-actions">
           <span id="probe-inspector-state">{{ "正在编辑第 1 个探针" if probes else "正在创建新探针" }}</span>
-          <button class="button primary" type="submit" name="next_action" value="execute">保存并执行分析</button>
+          <div class="probe-action-buttons">
+            <button class="button" type="submit" name="next_action" value="save">保存</button>
+            <button class="button primary" type="submit" name="next_action" value="queue">加入到分析队列</button>
+          </div>
         </div>
       </aside>
     </div>
@@ -288,12 +287,10 @@
   const descriptionInput = document.getElementById("probe-editor-description");
   const positiveInput = document.getElementById("probe-editor-positive");
   const negativeInput = document.getElementById("probe-editor-negative");
-  const sortInput = document.getElementById("probe-editor-sort");
-  const enabledInput = document.getElementById("probe-editor-enabled");
   const inspectorTitle = document.getElementById("probe-inspector-title");
   const inspectorKicker = document.getElementById("probe-inspector-kicker");
   const inspectorState = document.getElementById("probe-inspector-state");
-  if (!form || !titleInput || !descriptionInput || !positiveInput || !negativeInput || !sortInput || !enabledInput) {
+  if (!form || !titleInput || !descriptionInput || !positiveInput || !negativeInput) {
     return;
   }
 
@@ -304,8 +301,6 @@
     description: "",
     positive: "",
     negative: "",
-    sort: String(cards.length + 1),
-    enabled: true,
   };
 
   const field = (id, name) => document.querySelector(`[data-probe-${name}-hidden="${id}"]`);
@@ -316,8 +311,6 @@
     description: field(id, "description")?.value || "",
     positive: field(id, "positive")?.value || "",
     negative: field(id, "negative")?.value || "",
-    sort: field(id, "sort")?.value || "",
-    enabled: document.querySelector(`[data-probe-enabled="${id}"]`)?.checked ?? true,
   });
 
   const writeExisting = (id, values) => {
@@ -325,19 +318,14 @@
     const description = values.description.trim();
     const positive = values.positive.trim();
     const negative = values.negative.trim();
-    const sort = values.sort.trim();
     if (field(id, "title")) field(id, "title").value = title;
     if (field(id, "description")) field(id, "description").value = description;
     if (field(id, "positive")) field(id, "positive").value = positive;
     if (field(id, "negative")) field(id, "negative").value = negative;
-    if (field(id, "sort")) field(id, "sort").value = sort;
     if (display(id, "title")) display(id, "title").textContent = title || "未命名探针";
     if (display(id, "description")) display(id, "description").textContent = description || "暂无判断逻辑";
     if (display(id, "positive")) display(id, "positive").textContent = positive || "暂无正向信号";
     if (display(id, "negative")) display(id, "negative").textContent = negative || "暂无排除信号";
-    if (display(id, "sort")) display(id, "sort").textContent = `排序 ${sort || "-"}`;
-    const enabled = document.querySelector(`[data-probe-enabled="${id}"]`);
-    if (enabled) enabled.checked = values.enabled;
   };
 
   const readEditor = () => ({
@@ -345,8 +333,6 @@
     description: descriptionInput.value,
     positive: positiveInput.value,
     negative: negativeInput.value,
-    sort: sortInput.value,
-    enabled: enabledInput.checked,
   });
 
   const writeEditor = (values) => {
@@ -354,8 +340,6 @@
     descriptionInput.value = values.description || "";
     positiveInput.value = values.positive || "";
     negativeInput.value = values.negative || "";
-    sortInput.value = values.sort || "";
-    enabledInput.checked = values.enabled !== false;
   };
 
   const persistEditor = () => {
@@ -409,14 +393,25 @@
     card.querySelectorAll(`[data-probe-select]`).forEach((button) => {
       button.addEventListener("click", () => selectCard(card.dataset.probeId));
     });
-    card.querySelector(`[data-probe-enabled]`)?.addEventListener("change", (event) => {
-      if (card.dataset.probeId === activeId && !creating) {
-        enabledInput.checked = event.currentTarget.checked;
+    const deleteInput = card.querySelector(`[data-probe-delete]`);
+    const deleteButton = card.querySelector(`[data-probe-delete-button]`);
+    deleteButton?.addEventListener("click", () => {
+      if (!deleteInput) {
+        return;
+      }
+      deleteInput.checked = !deleteInput.checked;
+      const deleting = deleteInput.checked;
+      card.classList.toggle("is-deleting", deleting);
+      deleteButton.classList.toggle("is-selected", deleting);
+      deleteButton.textContent = deleting ? "撤销删除" : "删除";
+      deleteButton.setAttribute("aria-pressed", deleting ? "true" : "false");
+      if (deleting && card.dataset.probeId === activeId) {
+        inspectorState.textContent = "当前探针已标记删除，保存后移除";
       }
     });
   });
 
-  [titleInput, descriptionInput, positiveInput, negativeInput, sortInput, enabledInput].forEach((input) => {
+  [titleInput, descriptionInput, positiveInput, negativeInput].forEach((input) => {
     input.addEventListener("input", () => {
       const values = readEditor();
       inspectorTitle.textContent = values.title.trim() || (creating ? "手动创建探针" : "未命名探针");

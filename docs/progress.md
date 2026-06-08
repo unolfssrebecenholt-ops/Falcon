@@ -47,7 +47,7 @@
   - `./scripts/restart.sh --no-open`：已重启当前本机 Web 工作台到 `http://127.0.0.1:8765`。
   - Playwright desktop `1280x900` 检查 `/analysis/tasks/1`：流式面板初始隐藏、探针信号双列、无横向溢出；模拟 SSE 点击后面板展开、按钮禁用、模型输出写入。
 
-## 2026-05-28 Falcon layout redesign v3 production application
+## 2026-05-28 Falcon layout redesign production UI application
 
 - 已把用户确认的 v3 no-purple 视觉方向应用到生产 Web 工作台：
   - `falcon/web/templates/base.html` 改为 v3 shell：sticky topbar、深青左侧导航、分组层级、`prototype-shell` / `workspace-frame` / `page family-*` 内容框架。
@@ -138,7 +138,7 @@
   - `curl http://127.0.0.1:8766/collector`：200。
   - `curl 'http://127.0.0.1:8766/analysis?platform=xiaohongshu'`：200。
   - `curl http://127.0.0.1:8766/collector/environment`：200。
-- 2026-05-28 Windows production v3 application:
+- 2026-05-28 Windows production UI application:
   - `py -3 -m unittest tests.test_web_app`：91 tests passed。
   - `py -3 -m unittest discover -s tests`：209 tests passed。
   - `py -3 -m compileall falcon`：passed。

@@ -93,6 +93,24 @@ class ModelCaptureClient(FakeIntentClient):
         self.model = "not-gpt-5.5"
 
 
+class DisabledProbeMatchClient(FakeIntentClient):
+    def complete_json(self, system_prompt, user_prompt):
+        self.calls.append((system_prompt, user_prompt))
+        return {
+            "matches": [
+                {
+                    "probe_key": "probe-disabled",
+                    "post_id": 1,
+                    "level": "post",
+                    "score": 81,
+                    "reason": "历史关闭探针仍是当前保留探针",
+                    "excerpt": "正在寻找归纳 App",
+                    "summary": "帖子表达了归纳 App 需求",
+                }
+            ]
+        }
+
+
 class IntentAnalysisRepositoryTest(unittest.TestCase):
     def test_saves_task_sources_probes_matches_and_builds_post_comment_package(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -294,7 +312,7 @@ class IntentAnalysisServiceTest(unittest.TestCase):
 
             self.assertEqual(fake_client.model, "gpt-5.5")
 
-    def test_executes_enabled_probes_with_title_content_and_comments(self):
+    def test_executes_task_probes_with_title_content_and_comments(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = FalconRepository(Path(tmp) / "falcon.sqlite3")
             repo.init_schema()
@@ -349,7 +367,7 @@ class IntentAnalysisServiceTest(unittest.TestCase):
             self.assertIn("生图软件市场观察", fake_client.calls[-1][1])
             self.assertIn("跪求好用的生图软件", fake_client.calls[-1][1])
 
-    def test_execute_rejects_zero_enabled_probes_before_gpt_config_check(self):
+    def test_execute_rejects_zero_probes_before_gpt_config_check(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = FalconRepository(Path(tmp) / "falcon.sqlite3")
             repo.init_schema()
@@ -361,6 +379,48 @@ class IntentAnalysisServiceTest(unittest.TestCase):
                 IntentAnalysisService(repo, client=UnconfiguredIntentClient()).execute_task(task_id)
 
             self.assertEqual(repo.get_intent_analysis_task(task_id).status, "failed")
+
+    def test_executes_all_remaining_probes_even_if_legacy_disabled(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = FalconRepository(Path(tmp) / "falcon.sqlite3")
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun("xhs-disabled-probe", "xiaohongshu", "归纳 App", "default", status="completed")
+            )
+            repo.save_collected_post(
+                CollectedPost(
+                    run_id="xhs-disabled-probe",
+                    platform="xiaohongshu",
+                    keyword="归纳 App",
+                    title="正在寻找归纳 App",
+                    content="希望有工具能整理讨论。",
+                    url="local://disabled-probe/post-1",
+                    detail_fingerprint="disabled-probe-1",
+                )
+            )
+            task_id = repo.create_intent_analysis_task(
+                IntentAnalysisTask(platform="xiaohongshu", user_intent="我想知道有没有归纳 App 需求")
+            )
+            repo.add_intent_analysis_sources(task_id, ["xhs-disabled-probe"])
+            repo.save_intent_analysis_probe(
+                IntentAnalysisProbe(
+                    task_id=task_id,
+                    probe_key="probe-disabled",
+                    title="归纳需求",
+                    description="识别归纳整理需求",
+                    positive_signals="归纳\n整理",
+                    negative_signals="广告",
+                    sort_order=1,
+                    enabled=False,
+                )
+            )
+            fake_client = DisabledProbeMatchClient()
+
+            matches = IntentAnalysisService(repo, client=fake_client).execute_task(task_id)
+
+            self.assertEqual(len(matches), 1)
+            self.assertIn('"probe_key": "probe-disabled"', fake_client.calls[-1][1])
+            self.assertEqual(matches[0].probe_key, "probe-disabled")
 
     def test_execute_rejects_empty_data_package_without_calling_gpt(self):
         class NoCallClient(FakeIntentClient):

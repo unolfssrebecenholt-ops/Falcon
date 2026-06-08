@@ -974,7 +974,7 @@ def create_app(
                     "task": task,
                     "sources": sources,
                     "probes": probes,
-                    "enabled_probe_count": sum(1 for probe in probes if probe.enabled),
+                    "probe_count": len(probes),
                     "post_count": len(package),
                     "comment_count": sum(len(item.get("comments", [])) for item in package),
                 }
@@ -1053,7 +1053,7 @@ def create_app(
                     "source_keywords": source_keywords,
                     "post_count": len(package),
                     "comment_count": sum(len(item.get("comments", [])) for item in package),
-                    "enabled_probe_count": sum(1 for probe in probes if probe.enabled),
+                    "probe_count": len(probes),
                     "post_match_count": sum(1 for match in matches if match.level == "post"),
                     "comment_match_count": sum(1 for match in matches if match.level == "comment"),
                 }
@@ -1070,14 +1070,14 @@ def create_app(
             ],
         }
 
-    def save_intent_analysis_probes_from_form(repository: FalconRepository, task_id: int, form) -> None:
-        def parse_sort_order(value: object, fallback: int) -> int:
-            try:
-                return int(str(value or "").strip() or fallback)
-            except ValueError:
-                return fallback
-
+    def save_intent_analysis_probes_from_form(
+        repository: FalconRepository,
+        task_id: int,
+        form,
+        status: str = "draft",
+    ) -> None:
         seen_ids = set()
+        retained_sort_orders: list[int] = []
         delete_ids = {int(str(item)) for item in form.getlist("delete_probe_ids") if str(item).isdigit()}
         for raw_probe_id in form.getlist("probe_ids"):
             probe_id_text = str(raw_probe_id or "").strip()
@@ -1091,6 +1091,7 @@ def create_app(
             if existing is None or existing.task_id != task_id:
                 continue
             seen_ids.add(probe_id)
+            retained_sort_orders.append(existing.sort_order)
             repository.save_intent_analysis_probe(
                 IntentAnalysisProbe(
                     probe_id=probe_id,
@@ -1100,13 +1101,14 @@ def create_app(
                     description=str(form.get(f"description_{probe_id}") or "").strip(),
                     positive_signals=str(form.get(f"positive_signals_{probe_id}") or "").strip(),
                     negative_signals=str(form.get(f"negative_signals_{probe_id}") or "").strip(),
-                    sort_order=parse_sort_order(form.get(f"sort_order_{probe_id}"), existing.sort_order),
-                    enabled=form.get(f"enabled_{probe_id}") == "on",
+                    sort_order=existing.sort_order,
+                    enabled=True,
                 )
             )
         new_titles = [str(item).strip() for item in form.getlist("new_title") if str(item).strip()]
+        next_sort_order = max(retained_sort_orders, default=0)
         for index, title in enumerate(new_titles, start=1):
-            sort_order = len(seen_ids) + index
+            sort_order = next_sort_order + index
             repository.save_intent_analysis_probe(
                 IntentAnalysisProbe(
                     task_id=task_id,
@@ -1118,7 +1120,7 @@ def create_app(
                     sort_order=sort_order,
                 )
             )
-        repository.update_intent_analysis_task(task_id, status="probes_ready", failed_reason="")
+        repository.update_intent_analysis_task(task_id, status=status, failed_reason="")
 
     def sse_payload(event: str, data: dict) -> str:
         return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
@@ -1885,7 +1887,7 @@ def create_app(
         )
 
     @app.get("/analysis/queue")
-    def analysis_queue_page(request: Request, platform: str = "", status: str = ""):
+    def analysis_queue_page(request: Request, platform: str = "", status: str = "", executed: int = 0, failed: int = 0):
         repository = repo()
         return templates.TemplateResponse(
             request,
@@ -1893,13 +1895,62 @@ def create_app(
             {
                 "active": "analysis_queue",
                 "page_view": "analysis_queue",
+                "queue_notice": {
+                    "executed": max(0, executed),
+                    "failed": max(0, failed),
+                    "total": max(0, executed) + max(0, failed),
+                },
                 **analysis_queue_context(repository, platform=platform, status=status),
             },
         )
 
+    @app.post("/analysis/queue/execute")
+    def execute_intent_analysis_queue(platform: str = Form(""), status: str = Form("")):
+        repository = repo()
+        allowed_platforms = {item["key"] for item in _collector_platforms()}
+        selected_platform = platform if platform in allowed_platforms else ""
+        allowed_statuses = set(INTENT_TASK_STATUS_LABELS)
+        selected_status = status if status in allowed_statuses else ""
+        ready_tasks = []
+        if selected_status in {"", "probes_ready"}:
+            ready_tasks = repository.list_intent_analysis_tasks(
+                platform=selected_platform or None,
+                status="probes_ready",
+                limit=100,
+            )
+        executed = 0
+        failed = 0
+        service = intent_analysis_service(repository)
+        for task in ready_tasks:
+            task_id = task.task_id or 0
+            try:
+                service.execute_task(task_id)
+                executed += 1
+            except Exception as exc:
+                repository.update_intent_analysis_task(task_id, status="failed", failed_reason=str(exc))
+                failed += 1
+        query = {
+            key: value
+            for key, value in {
+                "platform": selected_platform,
+                "status": selected_status,
+            }.items()
+            if value
+        }
+        if executed:
+            query["executed"] = str(executed)
+        if failed:
+            query["failed"] = str(failed)
+        suffix = f"?{urlencode(query)}" if query else ""
+        return RedirectResponse(f"/analysis/queue{suffix}", status_code=303)
+
     @app.post("/analysis/tasks")
     async def create_intent_analysis_task(request: Request):
         form = await request.form()
+        wants_json = (
+            "application/json" in request.headers.get("accept", "")
+            or request.headers.get("x-requested-with") == "fetch"
+        )
         platform = str(form.get("platform") or "xiaohongshu").strip()
         allowed = {item["key"] for item in _collector_platforms()}
         if platform not in allowed:
@@ -1916,7 +1967,20 @@ def create_app(
             repository.add_intent_analysis_sources(task_id, run_ids)
         except ValueError as exc:
             repository.update_intent_analysis_task(task_id, status="failed", failed_reason=str(exc))
+            if wants_json:
+                return JSONResponse(
+                    {"error": str(exc), "task_id": task_id, "task_url": f"/analysis/tasks/{task_id}"},
+                    status_code=400,
+                )
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if wants_json:
+            return JSONResponse(
+                {
+                    "task_id": task_id,
+                    "task_url": f"/analysis/tasks/{task_id}",
+                    "stream_url": f"/analysis/tasks/{task_id}/probes/generate/stream",
+                }
+            )
         return RedirectResponse(f"/analysis/tasks/{task_id}", status_code=303)
 
     @app.post("/analysis/tasks/{task_id}/delete")
@@ -2033,21 +2097,52 @@ def create_app(
     async def save_intent_analysis_probes(request: Request, task_id: int):
         form = await request.form()
         repository = repo()
-        save_intent_analysis_probes_from_form(repository, task_id, form)
-        if form.get("next_action") == "execute":
-            try:
-                intent_analysis_service(repository).execute_task(task_id)
-            except Exception as exc:
-                repository.update_intent_analysis_task(task_id, status="failed", failed_reason=str(exc))
-        return RedirectResponse(f"/analysis/tasks/{task_id}", status_code=303)
+        task = repository.get_intent_analysis_task(task_id)
+        if task is None:
+            raise HTTPException(status_code=404, detail="Intent analysis task not found")
+        next_action = str(form.get("next_action") or "save").strip()
+        status = "probes_ready" if next_action == "queue" else "draft"
+        save_intent_analysis_probes_from_form(repository, task_id, form, status=status)
+        if next_action == "queue":
+            query = urlencode({"platform": task.platform, "status": "probes_ready"})
+            return RedirectResponse(f"/analysis/queue?{query}", status_code=303)
+        query = urlencode({"platform": task.platform})
+        return RedirectResponse(f"/analysis?{query}", status_code=303)
 
     @app.post("/analysis/tasks/{task_id}/execute")
-    def execute_intent_analysis_task(task_id: int):
+    def execute_intent_analysis_task(
+        task_id: int,
+        return_to: str = "",
+        return_platform: str = "",
+        return_status: str = "",
+    ):
         repository = repo()
+        executed = 0
+        failed = 0
         try:
             intent_analysis_service(repository).execute_task(task_id)
+            executed = 1
         except Exception as exc:
             repository.update_intent_analysis_task(task_id, status="failed", failed_reason=str(exc))
+            failed = 1
+        if return_to == "queue":
+            allowed_platforms = {item["key"] for item in _collector_platforms()}
+            selected_platform = return_platform if return_platform in allowed_platforms else ""
+            selected_status = return_status if return_status in INTENT_TASK_STATUS_LABELS else ""
+            query = {
+                key: value
+                for key, value in {
+                    "platform": selected_platform,
+                    "status": selected_status,
+                }.items()
+                if value
+            }
+            if executed:
+                query["executed"] = str(executed)
+            if failed:
+                query["failed"] = str(failed)
+            suffix = f"?{urlencode(query)}" if query else ""
+            return RedirectResponse(f"/analysis/queue{suffix}", status_code=303)
         return RedirectResponse(f"/analysis/tasks/{task_id}", status_code=303)
 
     @app.get("/analysis/samples")

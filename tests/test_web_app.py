@@ -3716,7 +3716,7 @@ class WebAppTest(unittest.TestCase):
             self.assertIn('value="xhs-market-1" checked', history.text)
             self.assertIn('value="xhs-market-2" checked', history.text)
             self.assertIn("我想分析生图软件的市场", history.text)
-            self.assertIn("2 个任务 · 2 篇帖子 · 2 条评论 · 1/2 个探针", history.text)
+            self.assertIn("2 个任务 · 2 篇帖子 · 2 条评论 · 2 个探针", history.text)
             self.assertIn(f'href="/analysis/tasks/{task_id}"', history.text)
             self.assertIn("继续编辑", history.text)
             self.assertIn("复用组合", history.text)
@@ -3734,7 +3734,85 @@ class WebAppTest(unittest.TestCase):
             self.assertEqual(repo.list_intent_analysis_probes(task_id), [])
             self.assertEqual(repo.get_collection_run("xhs-market-1").status, "completed")
 
-    def test_analysis_task_detail_generates_edits_and_executes_probes(self):
+    def test_analysis_create_json_flow_streams_probes_before_opening_detail(self):
+        class FakeIntentService:
+            def __init__(self, repository):
+                self.repository = repository
+
+            def generate_probes_stream(self, task_id):
+                yield {"type": "status", "message": "正在生成", "status": "generating_probes"}
+                yield {"type": "delta", "text": '{"probes": ['}
+                probe_id = self.repository.save_intent_analysis_probe(
+                    IntentAnalysisProbe(
+                        task_id=task_id,
+                        probe_key="probe-1",
+                        title="求推荐归纳小程序",
+                        description="识别正在寻找归纳类小程序的人",
+                        positive_signals="求推荐\n找工具",
+                        negative_signals="纯分享",
+                        sort_order=1,
+                    )
+                )
+                probe = self.repository.get_intent_analysis_probe(probe_id)
+                self.repository.update_intent_analysis_task(task_id, status="probes_ready", failed_reason="")
+                yield {"type": "done", "message": "探针已生成", "count": 1, "probes": [probe]}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "falcon.sqlite3"
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="xhs-create-stream",
+                    platform="xiaohongshu",
+                    keyword="归纳APP",
+                    profile="default",
+                    status="completed",
+                )
+            )
+            repo.save_collected_post(
+                CollectedPost(
+                    run_id="xhs-create-stream",
+                    platform="xiaohongshu",
+                    keyword="归纳APP",
+                    title="归纳资料的小程序",
+                    content="想找一个拍照后自动归纳的 app。",
+                    url="local://create-stream/post",
+                    detail_fingerprint="xhs-create-stream-post",
+                )
+            )
+            client = TestClient(create_app(db_path, intent_analysis_service_factory=FakeIntentService))
+
+            home = client.get("/analysis?platform=xiaohongshu")
+            created = client.post(
+                "/analysis/tasks",
+                data={
+                    "platform": "xiaohongshu",
+                    "run_ids": ["xhs-create-stream"],
+                    "user_intent": "分析哪些帖子需要我的归纳app小程序",
+                },
+                headers={"Accept": "application/json", "X-Requested-With": "fetch"},
+                follow_redirects=False,
+            )
+            payload = created.json()
+            streamed = client.post(payload["stream_url"])
+            detail = client.get(payload["task_url"])
+
+            self.assertEqual(created.status_code, 200)
+            self.assertIn('data-create-step="probes"', home.text)
+            self.assertIn('headers: { Accept: "application/json", "X-Requested-With": "fetch" }', home.text)
+            self.assertIn('window.addEventListener("pageshow"', home.text)
+            self.assertEqual(payload["task_url"], f"/analysis/tasks/{payload['task_id']}")
+            self.assertEqual(payload["stream_url"], f"/analysis/tasks/{payload['task_id']}/probes/generate/stream")
+            self.assertEqual(streamed.status_code, 200)
+            self.assertIn("event: delta", streamed.text)
+            self.assertIn("event: done", streamed.text)
+            self.assertEqual(repo.list_intent_analysis_probes(payload["task_id"])[0].title, "求推荐归纳小程序")
+            self.assertEqual(repo.get_intent_analysis_task(payload["task_id"]).status, "probes_ready")
+            self.assertIn("求推荐归纳小程序", detail.text)
+            self.assertNotIn("暂无探针", detail.text)
+
+    def test_analysis_task_detail_generates_edits_and_queues_probes(self):
         class FakeIntentService:
             def __init__(self, repository):
                 self.repository = repository
@@ -3760,24 +3838,7 @@ class WebAppTest(unittest.TestCase):
                 yield {"type": "done", "message": "探针已生成", "count": len(probes), "probes": probes}
 
             def execute_task(self, task_id):
-                package = self.repository.build_intent_analysis_package(task_id)
-                probe = self.repository.list_intent_analysis_probes(task_id)[0]
-                post_id = int(package[0]["post_id"])
-                comment_id = int(package[0]["comments"][0]["comment_id"])
-                match = IntentAnalysisMatch(
-                    task_id=task_id,
-                    probe_id=probe.probe_id or 0,
-                    probe_key=probe.probe_key,
-                    post_id=post_id,
-                    comment_id=comment_id,
-                    level="comment",
-                    score=94,
-                    reason="评论直接求推荐",
-                    excerpt="跪求好用的 image2 生图软件",
-                )
-                self.repository.save_intent_analysis_match(match)
-                self.repository.update_intent_analysis_task(task_id, status="completed", completed_at="2026-05-25T00:00:00Z")
-                return [match]
+                raise AssertionError("Saving probes should not execute GPT analysis")
 
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "falcon.sqlite3"
@@ -3819,6 +3880,7 @@ class WebAppTest(unittest.TestCase):
 
             detail = client.get(f"/analysis/tasks/{task_id}")
             streamed = client.post(f"/analysis/tasks/{task_id}/probes/generate/stream")
+            generated_detail = client.get(f"/analysis/tasks/{task_id}")
             generated = client.post(f"/analysis/tasks/{task_id}/probes/generate", follow_redirects=False)
             edited = client.post(
                 f"/analysis/tasks/{task_id}/probes",
@@ -3829,9 +3891,21 @@ class WebAppTest(unittest.TestCase):
                     "description_1": "识别正在吐槽或避雷生图软件的人",
                     "positive_signals_1": "避雷\n踩坑",
                     "negative_signals_1": "求推荐",
-                    "enabled_1": "on",
-                    "sort_order_1": "1",
-                    "next_action": "execute",
+                    "next_action": "save",
+                },
+                follow_redirects=False,
+            )
+            saved_status = repo.get_intent_analysis_task(task_id).status
+            queued = client.post(
+                f"/analysis/tasks/{task_id}/probes",
+                data={
+                    "probe_ids": "1",
+                    "probe_key_1": "probe-1",
+                    "title_1": "避雷生图工具",
+                    "description_1": "识别正在吐槽或避雷生图软件的人",
+                    "positive_signals_1": "避雷\n踩坑",
+                    "negative_signals_1": "求推荐",
+                    "next_action": "queue",
                 },
                 follow_redirects=False,
             )
@@ -3848,6 +3922,15 @@ class WebAppTest(unittest.TestCase):
             self.assertIn('class="probe-inspector"', detail.text)
             self.assertIn("data-probe-create", detail.text)
             self.assertIn('form="probe-editor-form"', detail.text)
+            self.assertIn('value="save">保存</button>', detail.text)
+            self.assertIn('value="queue">加入到分析队列</button>', detail.text)
+            self.assertNotIn("保存并执行分析", detail.text)
+            self.assertIn("保留后参与分析", generated_detail.text)
+            self.assertIn('class="probe-delete-button"', generated_detail.text)
+            self.assertNotIn("启用这个探针", generated_detail.text)
+            self.assertNotIn("data-probe-enabled", generated_detail.text)
+            self.assertNotIn("probe-editor-sort", generated_detail.text)
+            self.assertNotIn("排序", generated_detail.text)
             self.assertEqual(streamed.status_code, 200)
             self.assertIn("text/event-stream", streamed.headers["content-type"])
             self.assertIn("event: delta", streamed.text)
@@ -3855,8 +3938,12 @@ class WebAppTest(unittest.TestCase):
             self.assertIn("redirect_url", streamed.text)
             self.assertEqual(generated.status_code, 303)
             self.assertEqual(edited.status_code, 303)
+            self.assertEqual(edited.headers["location"], "/analysis?platform=xiaohongshu")
+            self.assertEqual(saved_status, "draft")
+            self.assertEqual(queued.status_code, 303)
+            self.assertEqual(queued.headers["location"], "/analysis/queue?platform=xiaohongshu&status=probes_ready")
             self.assertEqual(repo.list_intent_analysis_probes(task_id)[0].title, "避雷生图工具")
-            self.assertEqual(repo.get_intent_analysis_task(task_id).status, "completed")
+            self.assertEqual(repo.get_intent_analysis_task(task_id).status, "probes_ready")
             self.assertNotIn("双层证据", final_detail.text)
             self.assertNotIn("评论直接求推荐", final_detail.text)
 
@@ -3930,6 +4017,9 @@ class WebAppTest(unittest.TestCase):
             self.assertIn("独立管理意向分析任务", queue.text)
             self.assertIn('href="/analysis/tasks/%d"' % task_id, queue.text)
             self.assertIn('action="/analysis/tasks/%d/meta"' % task_id, queue.text)
+            self.assertIn('action="/analysis/queue/execute"', queue.text)
+            self.assertIn('>执行队列</button>', queue.text)
+            self.assertIn('>执行特定任务</button>', queue.text)
             self.assertIn('action="/analysis/tasks/%d/delete?return_to=queue"' % task_id, queue.text)
             self.assertIn("采集任务和采集数据不会被删除", queue.text)
             self.assertIn("归纳 app", queue.text)
@@ -3944,6 +4034,162 @@ class WebAppTest(unittest.TestCase):
             self.assertEqual(deleted.headers["location"], "/analysis/queue")
             self.assertIsNone(repo.get_intent_analysis_task(task_id))
             self.assertEqual(repo.get_collection_run("xhs-analysis-queue").status, "completed")
+
+    def test_analysis_queue_executes_ready_tasks_in_current_filter(self):
+        executed_task_ids = []
+
+        class FakeIntentService:
+            def __init__(self, repository):
+                self.repository = repository
+
+            def execute_task(self, task_id):
+                executed_task_ids.append(task_id)
+                self.repository.update_intent_analysis_task(task_id, status="completed")
+                return []
+
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "falcon.sqlite3"
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            for run_id, platform in [
+                ("xhs-analysis-ready", "xiaohongshu"),
+                ("xhs-analysis-draft", "xiaohongshu"),
+                ("douyin-analysis-ready", "douyin"),
+            ]:
+                repo.create_collection_run(
+                    CollectionRun(
+                        run_id=run_id,
+                        platform=platform,
+                        keyword="分析样本",
+                        profile="default",
+                        status="completed",
+                    )
+                )
+                repo.save_collected_post(
+                    CollectedPost(
+                        run_id=run_id,
+                        platform=platform,
+                        keyword="分析样本",
+                        title=f"{run_id} 帖子",
+                        content="需要分析的内容。",
+                        url=f"local://{run_id}",
+                        detail_fingerprint=f"{run_id}-post",
+                    )
+                )
+
+            ready_task_id = repo.create_intent_analysis_task(
+                IntentAnalysisTask(platform="xiaohongshu", user_intent="执行小红书就绪任务", status="probes_ready")
+            )
+            draft_task_id = repo.create_intent_analysis_task(
+                IntentAnalysisTask(platform="xiaohongshu", user_intent="不要执行草稿任务", status="draft")
+            )
+            other_platform_task_id = repo.create_intent_analysis_task(
+                IntentAnalysisTask(platform="douyin", user_intent="不要执行其他平台任务", status="probes_ready")
+            )
+            for task_id, run_id in [
+                (ready_task_id, "xhs-analysis-ready"),
+                (draft_task_id, "xhs-analysis-draft"),
+                (other_platform_task_id, "douyin-analysis-ready"),
+            ]:
+                repo.add_intent_analysis_sources(task_id, [run_id])
+                repo.save_intent_analysis_probe(
+                    IntentAnalysisProbe(
+                        task_id=task_id,
+                        probe_key="probe-1",
+                        title="执行探针",
+                        description="执行当前任务",
+                        positive_signals="需要",
+                        negative_signals="无关",
+                        sort_order=1,
+                    )
+                )
+            client = TestClient(create_app(db_path, intent_analysis_service_factory=FakeIntentService))
+
+            response = client.post(
+                "/analysis/queue/execute",
+                data={"platform": "xiaohongshu", "status": ""},
+                follow_redirects=False,
+            )
+            queue = client.get(response.headers["location"])
+
+            self.assertEqual(response.status_code, 303)
+            self.assertEqual(response.headers["location"], "/analysis/queue?platform=xiaohongshu&executed=1")
+            self.assertEqual(executed_task_ids, [ready_task_id])
+            self.assertEqual(repo.get_intent_analysis_task(ready_task_id).status, "completed")
+            self.assertEqual(repo.get_intent_analysis_task(draft_task_id).status, "draft")
+            self.assertEqual(repo.get_intent_analysis_task(other_platform_task_id).status, "probes_ready")
+            self.assertIn("队列执行结果", queue.text)
+            self.assertIn("完成 1 个，失败 0 个。", queue.text)
+
+    def test_analysis_queue_executes_specific_task_and_returns_to_queue(self):
+        executed_task_ids = []
+
+        class FakeIntentService:
+            def __init__(self, repository):
+                self.repository = repository
+
+            def execute_task(self, task_id):
+                executed_task_ids.append(task_id)
+                self.repository.update_intent_analysis_task(task_id, status="completed")
+                return []
+
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "falcon.sqlite3"
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="xhs-analysis-specific",
+                    platform="xiaohongshu",
+                    keyword="归纳 app",
+                    profile="default",
+                    status="completed",
+                )
+            )
+            repo.save_collected_post(
+                CollectedPost(
+                    run_id="xhs-analysis-specific",
+                    platform="xiaohongshu",
+                    keyword="归纳 app",
+                    title="归纳资料",
+                    content="想找归纳工具。",
+                    url="local://analysis-specific/post",
+                    detail_fingerprint="analysis-specific-post",
+                )
+            )
+            task_id = repo.create_intent_analysis_task(
+                IntentAnalysisTask(
+                    platform="xiaohongshu",
+                    user_intent="执行单个分析任务",
+                    status="probes_ready",
+                )
+            )
+            repo.add_intent_analysis_sources(task_id, ["xhs-analysis-specific"])
+            repo.save_intent_analysis_probe(
+                IntentAnalysisProbe(
+                    task_id=task_id,
+                    probe_key="probe-1",
+                    title="归纳工具",
+                    description="识别归纳工具需求",
+                    positive_signals="归纳",
+                    negative_signals="无关",
+                    sort_order=1,
+                )
+            )
+            client = TestClient(create_app(db_path, intent_analysis_service_factory=FakeIntentService))
+
+            response = client.post(
+                f"/analysis/tasks/{task_id}/execute?return_to=queue&return_platform=xiaohongshu&return_status=probes_ready",
+                follow_redirects=False,
+            )
+
+            self.assertEqual(response.status_code, 303)
+            self.assertEqual(
+                response.headers["location"],
+                "/analysis/queue?platform=xiaohongshu&status=probes_ready&executed=1",
+            )
+            self.assertEqual(executed_task_ids, [task_id])
+            self.assertEqual(repo.get_intent_analysis_task(task_id).status, "completed")
 
     def test_analysis_task_probe_edit_cannot_mutate_other_task_probe(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -3978,8 +4224,6 @@ class WebAppTest(unittest.TestCase):
                     f"description_{other_probe_id}": "跨任务修改",
                     f"positive_signals_{other_probe_id}": "篡改",
                     f"negative_signals_{other_probe_id}": "篡改",
-                    f"enabled_{other_probe_id}": "on",
-                    f"sort_order_{other_probe_id}": "1",
                 },
                 follow_redirects=False,
             )
@@ -3987,7 +4231,7 @@ class WebAppTest(unittest.TestCase):
             self.assertEqual(response.status_code, 303)
             self.assertEqual(repo.get_intent_analysis_probe(other_probe_id).title, "原始探针")
 
-    def test_analysis_task_probe_edit_ignores_malformed_sort_order(self):
+    def test_analysis_task_probe_edit_keeps_internal_order_and_defaults_to_enabled(self):
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "falcon.sqlite3"
             repo = FalconRepository(db_path)
@@ -4004,6 +4248,7 @@ class WebAppTest(unittest.TestCase):
                     positive_signals="原始",
                     negative_signals="排除",
                     sort_order=3,
+                    enabled=False,
                 )
             )
             client = TestClient(create_app(db_path))
@@ -4017,8 +4262,6 @@ class WebAppTest(unittest.TestCase):
                     f"description_{probe_id}": "更新描述",
                     f"positive_signals_{probe_id}": "更新",
                     f"negative_signals_{probe_id}": "排除",
-                    f"enabled_{probe_id}": "on",
-                    f"sort_order_{probe_id}": "abc",
                 },
                 follow_redirects=False,
             )
@@ -4027,6 +4270,50 @@ class WebAppTest(unittest.TestCase):
             probe = repo.get_intent_analysis_probe(probe_id)
             self.assertEqual(probe.title, "更新探针")
             self.assertEqual(probe.sort_order, 3)
+            self.assertTrue(probe.enabled)
+
+    def test_analysis_task_new_probe_appends_after_existing_internal_order(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "falcon.sqlite3"
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            task_id = repo.create_intent_analysis_task(
+                IntentAnalysisTask(platform="xiaohongshu", user_intent="任务")
+            )
+            probe_id = repo.save_intent_analysis_probe(
+                IntentAnalysisProbe(
+                    task_id=task_id,
+                    probe_key="probe-1",
+                    title="原始探针",
+                    description="原始描述",
+                    positive_signals="原始",
+                    negative_signals="排除",
+                    sort_order=7,
+                )
+            )
+            client = TestClient(create_app(db_path))
+
+            response = client.post(
+                f"/analysis/tasks/{task_id}/probes",
+                data={
+                    "probe_ids": str(probe_id),
+                    f"probe_key_{probe_id}": "probe-1",
+                    f"title_{probe_id}": "原始探针",
+                    f"description_{probe_id}": "原始描述",
+                    f"positive_signals_{probe_id}": "原始",
+                    f"negative_signals_{probe_id}": "排除",
+                    "new_title": "新增探针",
+                    "new_description": "新增描述",
+                    "new_positive_signals": "新增",
+                    "new_negative_signals": "排除",
+                },
+                follow_redirects=False,
+            )
+
+            self.assertEqual(response.status_code, 303)
+            probes = repo.list_intent_analysis_probes(task_id)
+            self.assertEqual([probe.title for probe in probes], ["原始探针", "新增探针"])
+            self.assertEqual([probe.sort_order for probe in probes], [7, 8])
 
     def test_analysis_promote_collected_posts_creates_raw_items(self):
         with tempfile.TemporaryDirectory() as tmp:

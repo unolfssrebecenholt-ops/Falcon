@@ -2,22 +2,40 @@
 {% block title %}分析队列 - Falcon{% endblock %}
 {% block content %}
 <header class="page-header analysis-queue-header">
-  <div>
+  <div class="analysis-queue-heading">
     <div class="eyebrow">analysis queue</div>
     <h1>分析队列</h1>
     <p>独立管理意向分析任务，不影响采集任务队列和采集数据。</p>
   </div>
-  <div class="action-row">
+  <div class="analysis-queue-header-actions">
+    <form method="post" action="/analysis/queue/execute">
+      <input type="hidden" name="platform" value="{{ selected_platform }}">
+      <input type="hidden" name="status" value="{{ selected_status }}">
+      <button class="button primary" type="submit" {% if not queue_stats.probes_ready %}disabled{% endif %}>执行队列</button>
+    </form>
     <a class="button" href="/analysis">新建分析任务</a>
   </div>
 </header>
 
 <section class="analysis-queue-metrics" aria-label="分析队列概况">
-  <div><span>任务</span><strong>{{ queue_stats.total }}</strong></div>
-  <div><span>待执行</span><strong>{{ queue_stats.probes_ready }}</strong></div>
-  <div><span>已完成</span><strong>{{ queue_stats.completed }}</strong></div>
-  <div><span>命中</span><strong>{{ queue_stats.match_count }}</strong></div>
+  <div><span>任务</span><strong>{{ queue_stats.total }}</strong><em>当前列表</em></div>
+  <div><span>待执行</span><strong>{{ queue_stats.probes_ready }}</strong><em>探针已就绪</em></div>
+  <div><span>已完成</span><strong>{{ queue_stats.completed }}</strong><em>完成分析</em></div>
+  <div><span>命中</span><strong>{{ queue_stats.match_count }}</strong><em>证据记录</em></div>
 </section>
+
+<section class="analysis-queue-scope" aria-label="当前分析队列范围">
+  <span>{{ selected_platform|platform_label if selected_platform else "全部平台" }}</span>
+  <span>{{ selected_status|intent_task_status if selected_status else "全部状态" }}</span>
+  <span>{{ queue_stats.probes_ready }} 个待执行</span>
+</section>
+
+{% if queue_notice and queue_notice.total %}
+<section class="analysis-queue-notice {{ 'has-error' if queue_notice.failed else 'is-success' }}" aria-label="分析队列执行结果">
+  <strong>队列执行结果</strong>
+  <span>完成 {{ queue_notice.executed }} 个，失败 {{ queue_notice.failed }} 个。</span>
+</section>
+{% endif %}
 
 <section class="analysis-queue-toolbar" aria-label="分析队列筛选">
   <form method="get" action="/analysis/queue" class="analysis-queue-filter">
@@ -40,10 +58,14 @@
       </select>
     </label>
     <button class="button" type="submit">筛选队列</button>
+    {% if selected_platform or selected_status %}
+    <a class="button ghost" href="/analysis/queue">清除筛选</a>
+    {% endif %}
   </form>
-  {% if selected_platform or selected_status %}
-  <a class="button ghost" href="/analysis/queue">清除筛选</a>
-  {% endif %}
+  <div class="analysis-queue-readiness">
+    <span>可执行</span>
+    <strong>{{ queue_stats.probes_ready }} / {{ queue_stats.total }}</strong>
+  </div>
 </section>
 
 <section class="analysis-queue-list" aria-label="分析任务">
@@ -56,7 +78,7 @@
         <span class="status status-{{ task.status }}">{{ task.status|intent_task_status }}</span>
         <span class="analysis-platform">{{ task.platform|platform_label }}</span>
       </div>
-      <h2>{{ task.user_intent }}</h2>
+      <h2 title="{{ task.user_intent }}">{{ task.user_intent }}</h2>
       <div class="analysis-queue-chips" aria-label="数据包关键词">
         {% for keyword in item.source_keywords[:4] %}
         <span>{{ keyword }}</span>
@@ -67,19 +89,25 @@
         <span>+{{ item.source_keywords|length - 4 }}</span>
         {% endif %}
       </div>
+      {% if task.failed_reason %}
+      <p class="analysis-queue-error">{{ task.failed_reason }}</p>
+      {% endif %}
     </div>
 
     <dl class="analysis-queue-facts">
       <div><dt>数据包</dt><dd>{{ item.sources|length }}</dd></div>
       <div><dt>帖子</dt><dd>{{ item.post_count }}</dd></div>
       <div><dt>评论</dt><dd>{{ item.comment_count }}</dd></div>
-      <div><dt>探针</dt><dd>{{ item.enabled_probe_count }}/{{ item.probes|length }}</dd></div>
+      <div><dt>探针</dt><dd>{{ item.probe_count }}</dd></div>
       <div><dt>命中</dt><dd>{{ item.post_match_count }} / {{ item.comment_match_count }}</dd></div>
       <div><dt>更新</dt><dd>{{ task.updated_at|readable_time }}</dd></div>
     </dl>
 
     <div class="analysis-queue-actions">
-      <a class="button primary" href="/analysis/tasks/{{ task.task_id }}">查看详情</a>
+      <form method="post" action="/analysis/tasks/{{ task.task_id }}/execute?return_to=queue{% if selected_platform %}&return_platform={{ selected_platform }}{% endif %}{% if selected_status %}&return_status={{ selected_status }}{% endif %}">
+        <button class="button primary" type="submit" {% if task.status != "probes_ready" or not item.probe_count %}disabled{% endif %}>执行特定任务</button>
+      </form>
+      <a class="button" href="/analysis/tasks/{{ task.task_id }}">查看详情</a>
       <details class="analysis-queue-edit">
         <summary class="button">编辑</summary>
         <form method="post" action="/analysis/tasks/{{ task.task_id }}/meta">

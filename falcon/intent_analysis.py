@@ -121,9 +121,9 @@ class IntentAnalysisService:
         if task is None:
             raise ValueError("Intent analysis task not found")
         try:
-            probes = self.repo.list_intent_analysis_probes(task_id, enabled_only=True)
+            probes = self.repo.list_intent_analysis_probes(task_id)
             if not 1 <= len(probes) <= 12:
-                raise ValueError("Intent analysis requires 1 to 12 enabled probes")
+                raise ValueError("Intent analysis requires 1 to 12 probes")
             package = self.repo.build_intent_analysis_package(task_id)
             if not package:
                 raise ValueError("Intent analysis data package has no collected posts")
@@ -319,7 +319,7 @@ class IntentAnalysisService:
         title = str(item.get("probe_title") or "").strip()
         probe = probes_by_key.get(key) or probes_by_title.get(title)
         if probe is None:
-            raise ValueError("Match probe does not reference an enabled probe")
+            raise ValueError("Match probe does not reference a task probe")
         return probe
 
     def _truncate(self, value: object) -> str:
