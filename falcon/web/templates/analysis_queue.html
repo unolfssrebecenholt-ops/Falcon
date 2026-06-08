@@ -8,10 +8,10 @@
     <p>独立管理意向分析任务，不影响采集任务队列和采集数据。</p>
   </div>
   <div class="analysis-queue-header-actions">
-    <form method="post" action="/analysis/queue/execute">
+    <form method="post" action="/analysis/queue/execute" data-analysis-execute-form data-submitting-label="正在执行队列">
       <input type="hidden" name="platform" value="{{ selected_platform }}">
       <input type="hidden" name="status" value="{{ selected_status }}">
-      <button class="button primary" type="submit" {% if not queue_stats.probes_ready %}disabled{% endif %}>执行队列</button>
+      <button class="button primary analysis-queue-execute-button" type="submit" {% if not queue_stats.probes_ready %}disabled{% endif %}>执行队列</button>
     </form>
     <a class="button" href="/analysis">新建分析任务</a>
   </div>
@@ -104,9 +104,10 @@
     </dl>
 
     <div class="analysis-queue-actions">
-      <form method="post" action="/analysis/tasks/{{ task.task_id }}/execute?return_to=queue{% if selected_platform %}&return_platform={{ selected_platform }}{% endif %}{% if selected_status %}&return_status={{ selected_status }}{% endif %}">
-        <button class="button primary" type="submit" {% if task.status != "probes_ready" or not item.probe_count %}disabled{% endif %}>执行特定任务</button>
+      <form method="post" action="/analysis/tasks/{{ task.task_id }}/execute?return_to=queue{% if selected_platform %}&return_platform={{ selected_platform }}{% endif %}{% if selected_status %}&return_status={{ selected_status }}{% endif %}" data-analysis-execute-form data-submitting-label="正在执行任务" data-pending-target="analysis-task-feedback-{{ task.task_id }}">
+        <button class="button primary analysis-queue-execute-button" type="submit" {% if task.status != "probes_ready" or not item.probe_count %}disabled{% endif %}>执行特定任务</button>
       </form>
+      <p id="analysis-task-feedback-{{ task.task_id }}" class="analysis-queue-pending-feedback" aria-live="polite" hidden>已接收执行请求，Falcon 正在匹配帖子和评论。</p>
       <a class="button" href="/analysis/tasks/{{ task.task_id }}">查看详情</a>
       <details class="analysis-queue-edit">
         <summary class="button">编辑</summary>
@@ -143,4 +144,71 @@
   </div>
   {% endfor %}
 </section>
+<script>
+(() => {
+  const forms = Array.from(document.querySelectorAll("[data-analysis-execute-form]"));
+  const setExecutingState = (form) => {
+    const button = form.querySelector('button[type="submit"]');
+    const pending = form.dataset.pendingTarget ? document.getElementById(form.dataset.pendingTarget) : null;
+    const item = form.closest(".analysis-queue-item");
+    form.setAttribute("aria-busy", "true");
+    if (button) {
+      button.dataset.originalLabel = button.textContent.trim();
+      button.textContent = form.dataset.submittingLabel || "正在执行";
+      button.disabled = true;
+      button.classList.add("is-submitting");
+      button.setAttribute("aria-busy", "true");
+    }
+    if (pending) {
+      pending.hidden = false;
+      pending.textContent = "已接收执行请求，Falcon 正在匹配帖子和评论。";
+      pending.classList.remove("has-error");
+    }
+    if (item) {
+      item.classList.add("is-executing");
+      item.setAttribute("aria-busy", "true");
+    }
+    return { button, pending, item };
+  };
+
+  const clearExecutingState = (form, state) => {
+    form.removeAttribute("aria-busy");
+    if (state.button) {
+      state.button.disabled = false;
+      state.button.classList.remove("is-submitting");
+      state.button.setAttribute("aria-busy", "false");
+      state.button.textContent = state.button.dataset.originalLabel || "执行特定任务";
+    }
+    if (state.item) {
+      state.item.classList.remove("is-executing");
+      state.item.removeAttribute("aria-busy");
+    }
+  };
+
+  forms.forEach((form) => {
+    form.addEventListener("submit", async (event) => {
+      const state = setExecutingState(form);
+      if (!window.fetch) {
+        return;
+      }
+      event.preventDefault();
+      try {
+        const response = await fetch(form.action, {
+          method: "POST",
+          body: new FormData(form),
+          redirect: "follow",
+        });
+        window.location.href = response.url || form.action;
+      } catch (error) {
+        clearExecutingState(form, state);
+        if (state.pending) {
+          state.pending.hidden = false;
+          state.pending.classList.add("has-error");
+          state.pending.textContent = "执行请求没有送达，请检查本地服务后重试。";
+        }
+      }
+    });
+  });
+})();
+</script>
 {% endblock %}
