@@ -71,6 +71,7 @@
 <section class="analysis-queue-list" aria-label="分析任务">
   {% for item in queue_items %}
   {% set task = item.task %}
+  {% set can_open_results = task.status == "completed" %}
   <article class="analysis-queue-item status-{{ task.status }}">
     <div class="analysis-queue-main">
       <div class="analysis-queue-topline">
@@ -78,7 +79,13 @@
         <span class="status status-{{ task.status }}">{{ task.status|intent_task_status }}</span>
         <span class="analysis-platform">{{ task.platform|platform_label }}</span>
       </div>
-      <h2 title="{{ task.user_intent }}">{{ task.user_intent }}</h2>
+      <h2 title="{{ task.user_intent }}">
+        {% if can_open_results %}
+        <a class="analysis-result-title-link" href="/analysis/tasks/{{ task.task_id }}/results" aria-label="查看 {{ task.user_intent }} 的执行结果明细">{{ task.user_intent }}</a>
+        {% else %}
+        <span class="analysis-result-title-text" aria-label="{{ task.user_intent }}，尚未执行，结果明细不可用">{{ task.user_intent }}</span>
+        {% endif %}
+      </h2>
       <div class="analysis-queue-chips" aria-label="数据包关键词">
         {% for keyword in item.source_keywords[:4] %}
         <span>{{ keyword }}</span>
@@ -94,46 +101,76 @@
       {% endif %}
     </div>
 
-    <dl class="analysis-queue-facts">
+    <div id="analysis-task-progress-{{ task.task_id }}" class="analysis-queue-progress" aria-live="polite">
+      <div class="analysis-queue-progress-head">
+        <span>执行中</span>
+        <strong data-analysis-progress-percent>处理中</strong>
+      </div>
+      <div class="analysis-queue-progress-track" role="progressbar" aria-label="分析任务执行进度" aria-valuemin="0" aria-valuemax="100">
+        <span data-analysis-progress-bar></span>
+      </div>
+      <p>Falcon 正在匹配帖子和评论。</p>
+    </div>
+
+    <dl class="analysis-queue-facts" aria-label="分析任务数据概况">
       <div><dt>数据包</dt><dd>{{ item.sources|length }}</dd></div>
       <div><dt>帖子</dt><dd>{{ item.post_count }}</dd></div>
       <div><dt>评论</dt><dd>{{ item.comment_count }}</dd></div>
       <div><dt>探针</dt><dd>{{ item.probe_count }}</dd></div>
-      <div><dt>命中</dt><dd>{{ item.post_match_count }} / {{ item.comment_match_count }}</dd></div>
-      <div><dt>更新</dt><dd>{{ task.updated_at|readable_time }}</dd></div>
+      <div>
+        <dt>命中</dt>
+        <dd class="analysis-queue-match-value" aria-label="帖子 {{ item.post_match_count }}，图片 {{ item.image_match_count }}，评论 {{ item.comment_match_count }}">
+          <span>帖 {{ item.post_match_count }}</span>
+          <span>图 {{ item.image_match_count }}</span>
+          <span>评 {{ item.comment_match_count }}</span>
+        </dd>
+      </div>
+      <div>
+        <dt>更新</dt>
+        <dd>
+          <time class="analysis-queue-time" datetime="{{ task.updated_at }}" title="{{ task.updated_at|readable_time }}">
+            <span>{{ task.updated_at|readable_day }}</span>
+            <span>{{ task.updated_at|readable_clock }}</span>
+          </time>
+        </dd>
+      </div>
     </dl>
 
     <div class="analysis-queue-actions">
-      <form method="post" action="/analysis/tasks/{{ task.task_id }}/execute?return_to=queue{% if selected_platform %}&return_platform={{ selected_platform }}{% endif %}{% if selected_status %}&return_status={{ selected_status }}{% endif %}" data-analysis-execute-form data-submitting-label="正在执行任务" data-pending-target="analysis-task-feedback-{{ task.task_id }}">
-        <button class="button primary analysis-queue-execute-button" type="submit" {% if task.status != "probes_ready" or not item.probe_count %}disabled{% endif %}>执行特定任务</button>
-      </form>
-      <p id="analysis-task-feedback-{{ task.task_id }}" class="analysis-queue-pending-feedback" aria-live="polite" hidden>已接收执行请求，Falcon 正在匹配帖子和评论。</p>
-      <a class="button" href="/analysis/tasks/{{ task.task_id }}">查看详情</a>
-      <details class="analysis-queue-edit">
-        <summary class="button">编辑</summary>
-        <form method="post" action="/analysis/tasks/{{ task.task_id }}/meta">
-          <input type="hidden" name="return_platform" value="{{ selected_platform }}">
-          <input type="hidden" name="return_status" value="{{ selected_status }}">
-          <label>
-            <span>分析意图</span>
-            <textarea name="user_intent" rows="3" required>{{ task.user_intent }}</textarea>
-          </label>
-          <label>
-            <span>状态</span>
-            <select name="status">
-              {% for option in status_options %}
-              <option value="{{ option.key }}" {% if option.key == task.status %}selected{% endif %}>{{ option.label }}</option>
-              {% endfor %}
-            </select>
-          </label>
-          <div class="action-row left-actions">
-            <button class="button primary" type="submit">保存修改</button>
-          </div>
+      <div class="analysis-queue-run-control">
+        <form method="post" action="/analysis/tasks/{{ task.task_id }}/execute?return_to=queue{% if selected_platform %}&return_platform={{ selected_platform }}{% endif %}{% if selected_status %}&return_status={{ selected_status }}{% endif %}" data-analysis-execute-form data-submitting-label="正在执行任务" data-pending-target="analysis-task-feedback-{{ task.task_id }}" data-progress-target="analysis-task-progress-{{ task.task_id }}">
+          <button class="button primary analysis-queue-execute-button" type="submit" {% if task.status != "probes_ready" or not item.probe_count %}disabled{% endif %}>执行任务</button>
         </form>
-      </details>
-      <form method="post" action="/analysis/tasks/{{ task.task_id }}/delete?return_to=queue" onsubmit="return confirm('删除这个分析任务？采集任务和采集数据不会被删除。');">
-        <button class="button danger" type="submit">删除</button>
-      </form>
+        <p id="analysis-task-feedback-{{ task.task_id }}" class="analysis-queue-pending-feedback" aria-live="polite" hidden>已接收执行请求，Falcon 正在匹配帖子和评论。</p>
+      </div>
+      <div class="analysis-queue-secondary-actions">
+        <a class="button" href="/analysis/tasks/{{ task.task_id }}">查看详情</a>
+        <details class="analysis-queue-edit">
+          <summary class="button">编辑</summary>
+          <form method="post" action="/analysis/tasks/{{ task.task_id }}/meta">
+            <input type="hidden" name="return_platform" value="{{ selected_platform }}">
+            <input type="hidden" name="return_status" value="{{ selected_status }}">
+            <label>
+              <span>分析意图</span>
+              <textarea name="user_intent" rows="3" required>{{ task.user_intent }}</textarea>
+            </label>
+            <label>
+              <span>状态</span>
+              <select name="status">
+                {% for option in status_options %}
+                <option value="{{ option.key }}" {% if option.key == task.status %}selected{% endif %}>{{ option.label }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <div class="action-row left-actions">
+              <button class="button primary" type="submit">保存修改</button>
+            </div>
+          </form>
+        </details>
+        <form method="post" action="/analysis/tasks/{{ task.task_id }}/delete?return_to=queue" onsubmit="return confirm('删除这个分析任务？采集任务和采集数据不会被删除。');">
+          <button class="button danger" type="submit">删除</button>
+        </form>
+      </div>
     </div>
   </article>
   {% else %}
@@ -149,15 +186,30 @@
   const forms = Array.from(document.querySelectorAll("[data-analysis-execute-form]"));
   const setExecutingState = (form) => {
     const button = form.querySelector('button[type="submit"]');
+    const control = form.closest(".analysis-queue-run-control");
     const pending = form.dataset.pendingTarget ? document.getElementById(form.dataset.pendingTarget) : null;
+    const progress = form.dataset.progressTarget ? document.getElementById(form.dataset.progressTarget) : null;
     const item = form.closest(".analysis-queue-item");
     form.setAttribute("aria-busy", "true");
+    if (control) {
+      control.classList.add("is-running");
+    }
     if (button) {
       button.dataset.originalLabel = button.textContent.trim();
       button.textContent = form.dataset.submittingLabel || "正在执行";
       button.disabled = true;
       button.classList.add("is-submitting");
       button.setAttribute("aria-busy", "true");
+    }
+    if (progress) {
+      const track = progress.querySelector(".analysis-queue-progress-track");
+      const label = progress.querySelector("[data-analysis-progress-percent]");
+      if (track) {
+        track.removeAttribute("aria-valuenow");
+      }
+      if (label) {
+        label.textContent = "处理中";
+      }
     }
     if (pending) {
       pending.hidden = false;
@@ -168,7 +220,7 @@
       item.classList.add("is-executing");
       item.setAttribute("aria-busy", "true");
     }
-    return { button, pending, item };
+    return { button, control, progress, pending, item };
   };
 
   const clearExecutingState = (form, state) => {
@@ -177,7 +229,16 @@
       state.button.disabled = false;
       state.button.classList.remove("is-submitting");
       state.button.setAttribute("aria-busy", "false");
-      state.button.textContent = state.button.dataset.originalLabel || "执行特定任务";
+      state.button.textContent = state.button.dataset.originalLabel || "执行";
+    }
+    if (state.control) {
+      state.control.classList.remove("is-running");
+    }
+    if (state.progress) {
+      const label = state.progress.querySelector("[data-analysis-progress-percent]");
+      if (label) {
+        label.textContent = "处理中";
+      }
     }
     if (state.item) {
       state.item.classList.remove("is-executing");

@@ -1,3 +1,4 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -11,6 +12,7 @@ from falcon.models import (
     IntentAnalysisMatch,
     IntentAnalysisProbe,
     IntentAnalysisTask,
+    MediaAsset,
 )
 
 
@@ -111,6 +113,60 @@ class DisabledProbeMatchClient(FakeIntentClient):
         }
 
 
+class MultimodalIntentClient(FakeIntentClient):
+    def __init__(self, asset_id: int):
+        super().__init__()
+        self.asset_id = asset_id
+        self.multimodal_calls = []
+
+    def complete_json_multimodal(self, system_prompt, user_prompt, images):
+        self.multimodal_calls.append((system_prompt, user_prompt, images))
+        return {
+            "matches": [
+                {
+                    "probe_key": "probe-1",
+                    "post_id": 1,
+                    "asset_id": self.asset_id,
+                    "level": "image",
+                    "score": 93,
+                    "reason": "图片里出现了收纳清单界面。",
+                    "excerpt": "图片展示按房间整理物品的清单",
+                }
+            ]
+        }
+
+
+class BatchCaptureIntentClient(FakeIntentClient):
+    def complete_json(self, system_prompt, user_prompt):
+        payload = json.loads(user_prompt)
+        self.calls.append((system_prompt, user_prompt, payload))
+        return {
+            "matches": [
+                {
+                    "probe_key": "probe-1",
+                    "post_id": post["post_id"],
+                    "level": "post",
+                    "score": 81,
+                    "reason": "批次内帖子符合需求",
+                    "excerpt": post["content"],
+                    "summary": "批次内帖子命中",
+                }
+                for post in payload["posts"]
+            ]
+        }
+
+
+class EmptyMultimodalBatchClient(FakeIntentClient):
+    def __init__(self):
+        super().__init__()
+        self.multimodal_calls = []
+
+    def complete_json_multimodal(self, system_prompt, user_prompt, images):
+        payload = json.loads(user_prompt)
+        self.multimodal_calls.append((system_prompt, user_prompt, images, payload))
+        return {"matches": []}
+
+
 class IntentAnalysisRepositoryTest(unittest.TestCase):
     def test_saves_task_sources_probes_matches_and_builds_post_comment_package(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -187,6 +243,58 @@ class IntentAnalysisRepositoryTest(unittest.TestCase):
             self.assertEqual(matches[0].match_id, match_id)
             self.assertEqual(package[0]["title"], "生图软件市场观察")
             self.assertEqual(package[0]["comments"][0]["content"], "跪求好用的 image2 生图软件推荐。")
+
+    def test_saves_image_level_matches_with_asset_id_and_dedupes_by_asset(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = FalconRepository(Path(tmp) / "falcon.sqlite3")
+            repo.init_schema()
+            task_id = repo.create_intent_analysis_task(
+                IntentAnalysisTask(platform="xiaohongshu", user_intent="market")
+            )
+            probe_id = repo.save_intent_analysis_probe(
+                IntentAnalysisProbe(
+                    task_id=task_id,
+                    probe_key="probe-1",
+                    title="Image evidence",
+                    description="Find image demand",
+                    positive_signals="image",
+                    negative_signals="none",
+                    sort_order=1,
+                )
+            )
+            first = IntentAnalysisMatch(
+                task_id=task_id,
+                probe_id=probe_id,
+                probe_key="probe-1",
+                probe_title="Image evidence",
+                post_id=1,
+                asset_id=10,
+                level="image",
+                score=91,
+                reason="same image",
+                excerpt="same excerpt",
+            )
+            second = IntentAnalysisMatch(
+                task_id=task_id,
+                probe_id=probe_id,
+                probe_key="probe-1",
+                probe_title="Image evidence",
+                post_id=1,
+                asset_id=11,
+                level="image",
+                score=88,
+                reason="other image",
+                excerpt="same excerpt",
+            )
+
+            first_id = repo.save_intent_analysis_match(first)
+            duplicate_id = repo.save_intent_analysis_match(first)
+            second_id = repo.save_intent_analysis_match(second)
+            matches = repo.list_intent_analysis_matches(task_id)
+
+            self.assertEqual(first_id, duplicate_id)
+            self.assertNotEqual(first_id, second_id)
+            self.assertEqual([match.asset_id for match in matches], [10, 11])
 
     def test_rejects_mixed_platform_sources_for_one_intent_task(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -366,6 +474,287 @@ class IntentAnalysisServiceTest(unittest.TestCase):
             self.assertEqual(repo.get_intent_analysis_task(task_id).status, "completed")
             self.assertIn("生图软件市场观察", fake_client.calls[-1][1])
             self.assertIn("跪求好用的生图软件", fake_client.calls[-1][1])
+
+    def test_executes_large_package_in_post_batches_without_global_truncation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = FalconRepository(Path(tmp) / "falcon.sqlite3")
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun("xhs-batched-posts", "xiaohongshu", "收纳工具", "default", status="completed")
+            )
+            post_ids = []
+            for index in range(1, 42):
+                post_ids.append(
+                    repo.save_collected_post(
+                        CollectedPost(
+                            run_id="xhs-batched-posts",
+                            platform="xiaohongshu",
+                            keyword="收纳工具",
+                            title=f"第 {index} 个帖子",
+                            content=f"第 {index} 个帖子正文，正在寻找收纳工具。",
+                            url=f"local://xhs-batched-posts/post-{index}",
+                            detail_fingerprint=f"batched-post-{index}",
+                        )
+                    )
+                )
+            task_id = repo.create_intent_analysis_task(
+                IntentAnalysisTask(platform="xiaohongshu", user_intent="我想分析收纳工具需求")
+            )
+            repo.add_intent_analysis_sources(task_id, ["xhs-batched-posts"])
+            repo.save_intent_analysis_probe(
+                IntentAnalysisProbe(
+                    task_id=task_id,
+                    probe_key="probe-1",
+                    title="收纳需求",
+                    description="识别收纳工具需求",
+                    positive_signals="收纳\n工具",
+                    negative_signals="广告",
+                    sort_order=1,
+                )
+            )
+            fake_client = BatchCaptureIntentClient()
+
+            matches = IntentAnalysisService(repo, client=fake_client).execute_task(task_id)
+
+            batch_sizes = [len(call[2]["posts"]) for call in fake_client.calls]
+            self.assertEqual(batch_sizes, [8, 8, 8, 8, 8, 1])
+            self.assertEqual(len(matches), 41)
+            self.assertIn(post_ids[-1], {match.post_id for match in matches})
+            self.assertEqual(repo.get_intent_analysis_task(task_id).status, "completed")
+
+    def test_executes_task_with_multimodal_images_and_saves_image_match(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            asset_root = tmp_path / "runtime" / "collector" / "xhs-images" / "assets"
+            asset_root.mkdir(parents=True)
+            for index in range(1, 8):
+                (asset_root / f"cover-{index}.jpg").write_bytes(f"fake image {index}".encode("utf-8"))
+            repo = FalconRepository(tmp_path / "falcon.sqlite3")
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun("xhs-images", "xiaohongshu", "收纳工具", "default", status="completed")
+            )
+            post_id = repo.save_collected_post(
+                CollectedPost(
+                    run_id="xhs-images",
+                    platform="xiaohongshu",
+                    keyword="收纳工具",
+                    title="收纳清单截图",
+                    content="想找一个能记录家里物品的小程序。",
+                    url="local://xhs-images/post-1",
+                    detail_fingerprint="xhs-images-1",
+                )
+            )
+            asset_ids = []
+            for index in range(1, 8):
+                asset_ids.append(
+                    repo.save_media_asset(
+                        MediaAsset(
+                            run_id="xhs-images",
+                            post_id=post_id,
+                            path=f"runtime/collector/xhs-images/assets/cover-{index}.jpg",
+                            asset_type="image",
+                        )
+                    )
+                )
+            task_id = repo.create_intent_analysis_task(
+                IntentAnalysisTask(platform="xiaohongshu", user_intent="我想分析收纳工具需求")
+            )
+            repo.add_intent_analysis_sources(task_id, ["xhs-images"])
+            repo.save_intent_analysis_probe(
+                IntentAnalysisProbe(
+                    task_id=task_id,
+                    probe_key="probe-1",
+                    title="图片中的收纳需求",
+                    description="识别图片里出现的收纳工具场景",
+                    positive_signals="收纳\n清单",
+                    negative_signals="广告",
+                    sort_order=1,
+                )
+            )
+            fake_client = MultimodalIntentClient(asset_ids[0])
+
+            matches = IntentAnalysisService(repo, client=fake_client).execute_task(task_id)
+
+            self.assertEqual(len(matches), 1)
+            self.assertEqual(matches[0].level, "image")
+            self.assertEqual(matches[0].asset_id, asset_ids[0])
+            self.assertEqual(repo.get_intent_analysis_task(task_id).status, "completed")
+            self.assertEqual(len(fake_client.multimodal_calls[0][2]), 6)
+            self.assertIn('"asset_id": %d' % asset_ids[0], fake_client.multimodal_calls[0][1])
+
+    def test_multimodal_images_are_limited_inside_each_post_batch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            asset_root = tmp_path / "runtime" / "collector" / "xhs-image-batches" / "assets"
+            asset_root.mkdir(parents=True)
+            repo = FalconRepository(tmp_path / "falcon.sqlite3")
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun("xhs-image-batches", "xiaohongshu", "收纳工具", "default", status="completed")
+            )
+            for post_index in range(1, 10):
+                post_id = repo.save_collected_post(
+                    CollectedPost(
+                        run_id="xhs-image-batches",
+                        platform="xiaohongshu",
+                        keyword="收纳工具",
+                        title=f"图片帖子 {post_index}",
+                        content=f"第 {post_index} 个图片帖子正文。",
+                        url=f"local://xhs-image-batches/post-{post_index}",
+                        detail_fingerprint=f"image-batch-post-{post_index}",
+                    )
+                )
+                for image_index in range(1, 8):
+                    filename = f"post-{post_index}-cover-{image_index}.jpg"
+                    (asset_root / filename).write_bytes(f"fake image {post_index}-{image_index}".encode("utf-8"))
+                    repo.save_media_asset(
+                        MediaAsset(
+                            run_id="xhs-image-batches",
+                            post_id=post_id,
+                            path=f"runtime/collector/xhs-image-batches/assets/{filename}",
+                            asset_type="image",
+                        )
+                    )
+            task_id = repo.create_intent_analysis_task(
+                IntentAnalysisTask(platform="xiaohongshu", user_intent="我想分析图片里的收纳需求")
+            )
+            repo.add_intent_analysis_sources(task_id, ["xhs-image-batches"])
+            repo.save_intent_analysis_probe(
+                IntentAnalysisProbe(
+                    task_id=task_id,
+                    probe_key="probe-1",
+                    title="图片收纳需求",
+                    description="识别图片中的收纳工具场景",
+                    positive_signals="收纳",
+                    negative_signals="广告",
+                    sort_order=1,
+                )
+            )
+            fake_client = EmptyMultimodalBatchClient()
+
+            matches = IntentAnalysisService(repo, client=fake_client).execute_task(task_id)
+
+            self.assertEqual(matches, [])
+            self.assertEqual([len(call[2]) for call in fake_client.multimodal_calls], [48, 6])
+            self.assertEqual([len(call[3]["posts"]) for call in fake_client.multimodal_calls], [8, 1])
+            self.assertEqual(repo.get_intent_analysis_task(task_id).status, "completed")
+
+    def test_execute_marks_task_failed_when_images_exist_but_client_lacks_multimodal(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            asset_root = tmp_path / "runtime" / "collector" / "xhs-no-mm" / "assets"
+            asset_root.mkdir(parents=True)
+            (asset_root / "cover.jpg").write_bytes(b"fake image")
+            repo = FalconRepository(tmp_path / "falcon.sqlite3")
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun("xhs-no-mm", "xiaohongshu", "收纳工具", "default", status="completed")
+            )
+            post_id = repo.save_collected_post(
+                CollectedPost(
+                    run_id="xhs-no-mm",
+                    platform="xiaohongshu",
+                    keyword="收纳工具",
+                    title="图片任务",
+                    content="正文",
+                    url="local://xhs-no-mm/post",
+                    detail_fingerprint="xhs-no-mm-post",
+                )
+            )
+            repo.save_media_asset(
+                MediaAsset(
+                    run_id="xhs-no-mm",
+                    post_id=post_id,
+                    path="runtime/collector/xhs-no-mm/assets/cover.jpg",
+                    asset_type="image",
+                )
+            )
+            task_id = repo.create_intent_analysis_task(
+                IntentAnalysisTask(platform="xiaohongshu", user_intent="market")
+            )
+            repo.add_intent_analysis_sources(task_id, ["xhs-no-mm"])
+            repo.save_intent_analysis_probe(
+                IntentAnalysisProbe(
+                    task_id=task_id,
+                    probe_key="probe-1",
+                    title="Market need",
+                    description="Find market demand",
+                    positive_signals="need",
+                    negative_signals="none",
+                    sort_order=1,
+                )
+            )
+
+            with self.assertRaisesRegex(RuntimeError, "multimodal"):
+                IntentAnalysisService(repo, client=FakeIntentClient()).execute_task(task_id)
+
+            task = repo.get_intent_analysis_task(task_id)
+            self.assertEqual(task.status, "failed")
+            self.assertIn("multimodal", task.failed_reason)
+
+    def test_execute_failed_batch_marks_task_failed_with_batch_position(self):
+        class FailingSecondBatchClient(FakeIntentClient):
+            def complete_json(self, system_prompt, user_prompt):
+                self.calls.append((system_prompt, user_prompt))
+                if len(self.calls) == 2:
+                    raise RuntimeError("relay overload")
+                return {"matches": []}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = FalconRepository(Path(tmp) / "falcon.sqlite3")
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun("xhs-batch-failure", "xiaohongshu", "收纳工具", "default", status="completed")
+            )
+            for index in range(1, 18):
+                repo.save_collected_post(
+                    CollectedPost(
+                        run_id="xhs-batch-failure",
+                        platform="xiaohongshu",
+                        keyword="收纳工具",
+                        title=f"第 {index} 个帖子",
+                        content=f"第 {index} 个帖子正文。",
+                        url=f"local://xhs-batch-failure/post-{index}",
+                        detail_fingerprint=f"batch-failure-post-{index}",
+                    )
+                )
+            task_id = repo.create_intent_analysis_task(
+                IntentAnalysisTask(platform="xiaohongshu", user_intent="我想分析收纳工具需求")
+            )
+            repo.add_intent_analysis_sources(task_id, ["xhs-batch-failure"])
+            repo.save_intent_analysis_probe(
+                IntentAnalysisProbe(
+                    task_id=task_id,
+                    probe_key="probe-1",
+                    title="收纳需求",
+                    description="识别收纳工具需求",
+                    positive_signals="收纳",
+                    negative_signals="广告",
+                    sort_order=1,
+                )
+            )
+            fake_client = FailingSecondBatchClient()
+
+            with self.assertRaisesRegex(RuntimeError, "第 2/3 批分析失败"):
+                service = IntentAnalysisService(repo, client=fake_client)
+                service.log_root = Path(tmp) / "runtime" / "analysis"
+                service.execute_task(task_id)
+
+            task = repo.get_intent_analysis_task(task_id)
+            self.assertEqual(task.status, "failed")
+            self.assertIn("第 2/3 批分析失败", task.failed_reason)
+            self.assertIn("relay overload", task.failed_reason)
+            self.assertEqual(repo.list_intent_analysis_matches(task_id), [])
+            error_log = Path(tmp) / "runtime" / "analysis" / f"task-{task_id}" / "batch-02-error.json"
+            request_log = Path(tmp) / "runtime" / "analysis" / f"task-{task_id}" / "batch-02-request.json"
+            self.assertTrue(request_log.exists())
+            self.assertTrue(error_log.exists())
+            error_payload = json.loads(error_log.read_text(encoding="utf-8"))
+            self.assertEqual(error_payload["event"], "error")
+            self.assertEqual(error_payload["batch_index"], 2)
+            self.assertEqual(error_payload["batch_count"], 3)
+            self.assertIn("relay overload", error_payload["error"])
 
     def test_execute_rejects_zero_probes_before_gpt_config_check(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -582,6 +971,97 @@ class IntentAnalysisServiceTest(unittest.TestCase):
 
             with self.assertRaisesRegex(ValueError, "Post-level"):
                 IntentAnalysisService(repo, client=PostMatchWithCommentClient()).execute_task(task_id)
+
+            self.assertEqual(repo.get_intent_analysis_task(task_id).status, "failed")
+
+    def test_rejects_image_match_when_asset_belongs_to_another_post(self):
+        class CrossPostImageClient(FakeIntentClient):
+            def __init__(self, asset_id: int):
+                super().__init__()
+                self.asset_id = asset_id
+
+            def complete_json_multimodal(self, system_prompt, user_prompt, images):
+                return {
+                    "matches": [
+                        {
+                            "probe_key": "probe-1",
+                            "post_id": 1,
+                            "asset_id": self.asset_id,
+                            "level": "image",
+                            "score": 90,
+                            "reason": "wrong post image",
+                            "excerpt": "跨帖图片",
+                        }
+                    ]
+                }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            asset_root = tmp_path / "runtime" / "collector" / "xhs-cross-image" / "assets"
+            asset_root.mkdir(parents=True)
+            (asset_root / "first.jpg").write_bytes(b"first")
+            (asset_root / "second.jpg").write_bytes(b"second")
+            repo = FalconRepository(tmp_path / "falcon.sqlite3")
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun("xhs-cross-image", "xiaohongshu", "生图软件", "default", status="completed")
+            )
+            first_post_id = repo.save_collected_post(
+                CollectedPost(
+                    run_id="xhs-cross-image",
+                    platform="xiaohongshu",
+                    keyword="生图软件",
+                    title="第一帖",
+                    content="第一帖正文",
+                    url="local://cross-image/1",
+                    detail_fingerprint="cross-image-1",
+                )
+            )
+            second_post_id = repo.save_collected_post(
+                CollectedPost(
+                    run_id="xhs-cross-image",
+                    platform="xiaohongshu",
+                    keyword="生图软件",
+                    title="第二帖",
+                    content="第二帖正文",
+                    url="local://cross-image/2",
+                    detail_fingerprint="cross-image-2",
+                )
+            )
+            repo.save_media_asset(
+                MediaAsset(
+                    run_id="xhs-cross-image",
+                    post_id=first_post_id,
+                    path="runtime/collector/xhs-cross-image/assets/first.jpg",
+                    asset_type="image",
+                )
+            )
+            second_asset_id = repo.save_media_asset(
+                MediaAsset(
+                    run_id="xhs-cross-image",
+                    post_id=second_post_id,
+                    path="runtime/collector/xhs-cross-image/assets/second.jpg",
+                    asset_type="image",
+                )
+            )
+            task_id = repo.create_intent_analysis_task(
+                IntentAnalysisTask(platform="xiaohongshu", user_intent="market")
+            )
+            repo.add_intent_analysis_sources(task_id, ["xhs-cross-image"])
+            repo.save_intent_analysis_probe(
+                IntentAnalysisProbe(
+                    task_id=task_id,
+                    probe_key="probe-1",
+                    title="Market need",
+                    description="Find market demand",
+                    positive_signals="need",
+                    negative_signals="none",
+                    sort_order=1,
+                )
+            )
+
+            with self.assertRaisesRegex(ValueError, f"{second_asset_id}"):
+                IntentAnalysisService(repo, client=CrossPostImageClient(second_asset_id)).execute_task(task_id)
 
             self.assertEqual(repo.get_intent_analysis_task(task_id).status, "failed")
 

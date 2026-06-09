@@ -1,7 +1,7 @@
 import json
 import unittest
 
-from falcon.llm import GPT55Client
+from falcon.llm import GPT55Client, GPTResponseParseError
 
 
 class FakeResponse:
@@ -115,6 +115,21 @@ class GPT55ClientTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "relay stream failed"):
             client.complete_json("system", "user")
 
+    def test_parse_error_keeps_raw_json_candidate(self):
+        response = FakeResponse(
+            lines=[
+                sse_event({"type": "response.output_text.done", "text": '{"matches":[{"reason":"ok" "excerpt":"bad"}]}'}),
+                b"data: [DONE]\n\n",
+            ]
+        )
+        client = GPT55Client(base_url="https://relay.test", api_key="secret", opener=FakeOpener(response))
+
+        with self.assertRaises(GPTResponseParseError) as caught:
+            client.complete_json("system", "user")
+
+        self.assertIn('"matches"', caught.exception.content)
+        self.assertIn('"excerpt"', caught.exception.content)
+
     def test_chat_completions_endpoint_remains_supported(self):
         response = FakeResponse(
             body=json.dumps(
@@ -146,6 +161,84 @@ class GPT55ClientTest(unittest.TestCase):
         self.assertEqual(body["messages"][0]["role"], "system")
         self.assertEqual(body["response_format"]["type"], "json_object")
         self.assertEqual(request.get_header("Accept"), "application/json")
+
+    def test_complete_json_multimodal_uses_responses_image_parts(self):
+        response = FakeResponse(
+            lines=[
+                sse_event({"type": "response.output_text.done", "text": '{"ok":true}'}),
+                b"data: [DONE]\n\n",
+            ]
+        )
+        opener = FakeOpener(response)
+        client = GPT55Client(base_url="https://relay.test", api_key="secret", opener=opener)
+
+        result = client.complete_json_multimodal(
+            "system",
+            "user",
+            [
+                {
+                    "post_id": "12",
+                    "asset_id": "34",
+                    "mime_type": "image/jpeg",
+                    "data_url": "data:image/jpeg;base64,abc",
+                }
+            ],
+        )
+
+        self.assertEqual(result, {"ok": True})
+        request, _timeout = opener.requests[0]
+        body = json.loads(request.data.decode("utf-8"))
+        content = body["input"][0]["content"]
+        self.assertEqual(body["instructions"], "system")
+        self.assertEqual(content[0], {"type": "input_text", "text": "user"})
+        self.assertEqual(content[1]["type"], "input_text")
+        self.assertIn("asset_id=34", content[1]["text"])
+        self.assertEqual(content[2], {"type": "input_image", "image_url": "data:image/jpeg;base64,abc"})
+
+    def test_complete_json_multimodal_uses_chat_image_parts(self):
+        response = FakeResponse(
+            body=json.dumps(
+                {
+                    "choices": [
+                        {
+                            "message": {
+                                "content": '{"ok": true}',
+                            }
+                        }
+                    ]
+                }
+            ).encode("utf-8")
+        )
+        opener = FakeOpener(response)
+        client = GPT55Client(
+            base_url="https://relay.test",
+            endpoint="/v1/chat/completions",
+            api_key="secret",
+            opener=opener,
+        )
+
+        result = client.complete_json_multimodal(
+            "system",
+            "user",
+            [
+                {
+                    "post_id": "12",
+                    "asset_id": "34",
+                    "mime_type": "image/png",
+                    "data_url": "data:image/png;base64,abc",
+                }
+            ],
+        )
+
+        self.assertEqual(result, {"ok": True})
+        request, _timeout = opener.requests[0]
+        body = json.loads(request.data.decode("utf-8"))
+        content = body["messages"][1]["content"]
+        self.assertEqual(body["messages"][0], {"role": "system", "content": "system"})
+        self.assertEqual(content[0], {"type": "text", "text": "user"})
+        self.assertEqual(content[1]["type"], "text")
+        self.assertIn("asset_id=34", content[1]["text"])
+        self.assertEqual(content[2], {"type": "image_url", "image_url": {"url": "data:image/png;base64,abc"}})
 
 
 if __name__ == "__main__":

@@ -1,23 +1,28 @@
+import base64
 import json
+import mimetypes
+from pathlib import Path
 from typing import Dict, Iterable, Iterator, List, Optional
 
 from .db import FalconRepository
-from .llm import GPT55Client
+from .llm import GPT55Client, GPTResponseParseError
 from .models import IntentAnalysisMatch, IntentAnalysisProbe, utc_now_iso
 
 
 class IntentAnalysisService:
     """GPT-5.5 powered semantic probe analysis over collected posts."""
 
-    MAX_POSTS = 40
+    POSTS_PER_BATCH = 8
     MAX_COMMENTS_PER_POST = 20
     MAX_TEXT_CHARS = 900
+    MAX_IMAGES_PER_POST = 6
 
     def __init__(self, repo: FalconRepository, client: Optional[GPT55Client] = None):
         self.repo = repo
         self.client = client or GPT55Client.from_env()
         if hasattr(self.client, "model"):
             self.client.model = "gpt-5.5"
+        self.log_root = Path.cwd() / "runtime" / "analysis"
 
     def generate_probes(self, task_id: int) -> List[IntentAnalysisProbe]:
         probes: List[IntentAnalysisProbe] = []
@@ -40,6 +45,7 @@ class IntentAnalysisService:
                 "type": "status",
                 "message": "已连接 GPT-5.5，正在生成语义探针。",
                 "status": "generating_probes",
+                "progress": 48,
             }
             payload: Optional[Dict[str, object]] = None
             if hasattr(self.client, "stream_json"):
@@ -56,7 +62,7 @@ class IntentAnalysisService:
 
             if payload is None:
                 raise ValueError("GPT probe generation did not return a JSON object")
-            yield {"type": "status", "message": "正在校验 5 个探针并写入本地数据库。"}
+            yield {"type": "status", "message": "正在校验 5 个探针并写入本地数据库。", "progress": 92}
             probes = self._save_probe_payload(task_id, payload)
             self.repo.update_intent_analysis_task(task_id, status="probes_ready", failed_reason="")
             yield {
@@ -128,56 +134,179 @@ class IntentAnalysisService:
             if not package:
                 raise ValueError("Intent analysis data package has no collected posts")
             self._require_configured()
-            payload = self.client.complete_json(
-                system_prompt=(
-                    "你是 Falcon 的 GPT-5.5 意向语义分析器。只返回 JSON。"
-                    "请根据探针对帖子标题、正文和评论做语义匹配，返回帖子级和评论级证据。"
-                    "帖子级命中必须给出 summary，不要生成执行动作，不要创建回复或私信。"
-                ),
-                user_prompt=json.dumps(
-                    {
-                        "platform": task.platform,
-                        "user_intent": task.user_intent,
-                        "probes": [self._probe_payload(probe) for probe in probes],
-                        "posts": self._trimmed_package(package),
-                        "required_schema": {
-                            "matches": [
-                                {
-                                    "probe_key": "probe-1",
-                                    "post_id": 1,
-                                    "comment_id": None,
-                                    "level": "post",
-                                    "score": 0,
-                                    "reason": "string",
-                                    "excerpt": "string",
-                                    "summary": "string",
-                                }
-                            ]
+            batches = list(self._post_batches(package))
+            matches: List[IntentAnalysisMatch] = []
+            for batch_index, batch in enumerate(batches, start=1):
+                supplied_package: List[Dict[str, object]] = []
+                image_inputs: List[Dict[str, str]] = []
+                try:
+                    image_inputs = self._image_inputs(batch)
+                    supplied_package = self._trimmed_package(
+                        batch,
+                        image_asset_ids={int(image["asset_id"]) for image in image_inputs if image.get("asset_id")},
+                    )
+                    self._write_execution_log(
+                        task_id=task_id,
+                        batch_index=batch_index,
+                        batch_count=len(batches),
+                        event="request",
+                        payload={
+                            "task": {
+                                "task_id": task_id,
+                                "platform": task.platform,
+                                "user_intent": task.user_intent,
+                                "model_name": getattr(self.client, "model", "gpt-5.5"),
+                            },
+                            "batch": self._batch_log_summary(supplied_package, image_inputs),
+                            "probes": [self._probe_payload(probe) for probe in probes],
+                            "posts": supplied_package,
                         },
-                    },
-                    ensure_ascii=False,
-                ),
-            )
-            matches = self._validate_match_payload(task_id, payload, probes, package)
+                    )
+                    payload = self._execute_analysis_request(task, probes, supplied_package, image_inputs)
+                    batch_matches = self._validate_match_payload(task_id, payload, probes, supplied_package)
+                    self._write_execution_log(
+                        task_id=task_id,
+                        batch_index=batch_index,
+                        batch_count=len(batches),
+                        event="response",
+                        payload={
+                            "batch": self._batch_log_summary(supplied_package, image_inputs),
+                            "match_count": len(batch_matches),
+                            "response": payload,
+                        },
+                    )
+                    matches.extend(batch_matches)
+                except Exception as exc:
+                    failure_payload = {
+                        "batch": self._batch_log_summary(supplied_package, image_inputs),
+                        "error": str(exc),
+                        "error_type": type(exc).__name__,
+                    }
+                    parse_error = exc
+                    if exc.__cause__ is not None:
+                        parse_error = exc.__cause__
+                    if isinstance(parse_error, GPTResponseParseError):
+                        failure_payload["raw_response"] = parse_error.content
+                    self._write_execution_log(
+                        task_id=task_id,
+                        batch_index=batch_index,
+                        batch_count=len(batches),
+                        event="error",
+                        payload=failure_payload,
+                    )
+                    message = f"第 {batch_index}/{len(batches)} 批分析失败：{exc}"
+                    if isinstance(exc, ValueError):
+                        raise ValueError(message) from exc
+                    raise RuntimeError(message) from exc
             self.repo.clear_intent_analysis_matches(task_id)
-            saved_matches: List[IntentAnalysisMatch] = []
             for match in matches:
-                match_id = self.repo.save_intent_analysis_match(match)
-                saved = next(
-                    (item for item in self.repo.list_intent_analysis_matches(task_id) if item.match_id == match_id),
-                    None,
-                )
-                if saved is not None:
-                    saved_matches.append(saved)
+                self.repo.save_intent_analysis_match(match)
+            saved_matches = self.repo.list_intent_analysis_matches(task_id)
             self.repo.update_intent_analysis_task(task_id, status="completed", failed_reason="", completed_at=utc_now_iso())
             return saved_matches
         except Exception as exc:
             self.repo.update_intent_analysis_task(task_id, status="failed", failed_reason=str(exc))
             raise
 
+    def _post_batches(self, package: List[Dict[str, object]]) -> Iterator[List[Dict[str, object]]]:
+        size = max(1, int(self.POSTS_PER_BATCH))
+        for start in range(0, len(package), size):
+            yield package[start : start + size]
+
+    def _execute_analysis_request(
+        self,
+        task: object,
+        probes: List[IntentAnalysisProbe],
+        supplied_package: List[Dict[str, object]],
+        images: List[Dict[str, str]],
+    ) -> Dict[str, object]:
+        system_prompt = (
+            "你是 Falcon 的 GPT-5.5 意向语义分析器。只返回 JSON。"
+            "请根据探针对帖子标题、正文、图片和评论做语义匹配，返回帖子内容、帖子图片和帖子评论证据。"
+            "level 只能是 post、image、comment。"
+            "帖子内容命中必须给出 summary，图片命中必须引用输入里存在的 asset_id。"
+            "不要生成执行动作，不要创建回复或私信。"
+        )
+        user_prompt = json.dumps(
+            {
+                "platform": task.platform,
+                "user_intent": task.user_intent,
+                "probes": [self._probe_payload(probe) for probe in probes],
+                "posts": supplied_package,
+                "required_schema": {
+                    "matches": [
+                        {
+                            "probe_key": "probe-1",
+                            "post_id": 1,
+                            "comment_id": None,
+                            "asset_id": None,
+                            "level": "post",
+                            "score": 0,
+                            "reason": "string",
+                            "excerpt": "string",
+                            "summary": "string",
+                        }
+                    ]
+                },
+            },
+            ensure_ascii=False,
+        )
+        if images:
+            if not hasattr(self.client, "complete_json_multimodal"):
+                raise RuntimeError("GPT relay does not support multimodal image input")
+            return self.client.complete_json_multimodal(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                images=images,
+            )
+        return self.client.complete_json(system_prompt=system_prompt, user_prompt=user_prompt)
+
     def _require_configured(self) -> None:
         if not self.client or not self.client.is_configured():
             raise RuntimeError("GPT intent probe analysis requires FALCON_GPT_BASE_URL, FALCON_GPT_ENDPOINT, and FALCON_GPT_API_KEY")
+
+    def _write_execution_log(
+        self,
+        task_id: int,
+        batch_index: int,
+        batch_count: int,
+        event: str,
+        payload: Dict[str, object],
+    ) -> None:
+        log_dir = self.log_root / f"task-{task_id}"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_payload = {
+            "event": event,
+            "task_id": task_id,
+            "batch_index": batch_index,
+            "batch_count": batch_count,
+            "created_at": utc_now_iso(),
+            **payload,
+        }
+        log_path = log_dir / f"batch-{batch_index:02d}-{event}.json"
+        try:
+            log_path.write_text(json.dumps(log_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        except OSError:
+            pass
+
+    def _batch_log_summary(
+        self,
+        supplied_package: List[Dict[str, object]],
+        image_inputs: List[Dict[str, str]],
+    ) -> Dict[str, object]:
+        return {
+            "post_count": len(supplied_package),
+            "comment_count": sum(len(post.get("comments") or []) for post in supplied_package),
+            "image_count": len(image_inputs),
+            "post_ids": [post.get("post_id") for post in supplied_package],
+            "titles": [
+                {
+                    "post_id": post.get("post_id"),
+                    "title": str(post.get("title") or "")[:120],
+                }
+                for post in supplied_package
+            ],
+        }
 
     def _validate_probe_payload(self, payload: Dict[str, object]) -> List[Dict[str, object]]:
         probes = payload.get("probes")
@@ -220,10 +349,23 @@ class IntentAnalysisService:
             "negative_signals": [line.strip() for line in probe.negative_signals.splitlines() if line.strip()],
         }
 
-    def _trimmed_package(self, package: List[Dict[str, object]]) -> List[Dict[str, object]]:
+    def _trimmed_package(
+        self,
+        package: List[Dict[str, object]],
+        image_asset_ids: Optional[set[int]] = None,
+    ) -> List[Dict[str, object]]:
         trimmed = []
-        for post in package[: self.MAX_POSTS]:
+        for post in package:
             comments = post.get("comments") if isinstance(post.get("comments"), list) else []
+            images = post.get("images") if isinstance(post.get("images"), list) else []
+            if image_asset_ids is not None:
+                images = [
+                    image
+                    for image in images
+                    if isinstance(image, dict)
+                    and image.get("asset_id") is not None
+                    and int(image["asset_id"]) in image_asset_ids
+                ]
             trimmed.append(
                 {
                     "post_id": post.get("post_id"),
@@ -231,6 +373,16 @@ class IntentAnalysisService:
                     "keyword": post.get("keyword"),
                     "title": self._truncate(post.get("title")),
                     "content": self._truncate(post.get("content")),
+                    "images": [
+                        {
+                            "asset_id": image.get("asset_id"),
+                            "asset_type": image.get("asset_type"),
+                            "url": image.get("url"),
+                            "sha256": image.get("sha256"),
+                        }
+                        for image in images[: self.MAX_IMAGES_PER_POST]
+                        if isinstance(image, dict)
+                    ],
                     "comments": [
                         {
                             "comment_id": comment.get("comment_id"),
@@ -243,6 +395,48 @@ class IntentAnalysisService:
                 }
             )
         return trimmed
+
+    def _image_inputs(self, package: List[Dict[str, object]]) -> List[Dict[str, str]]:
+        images: List[Dict[str, str]] = []
+        for post in package:
+            post_images = post.get("images") if isinstance(post.get("images"), list) else []
+            for image in post_images[: self.MAX_IMAGES_PER_POST]:
+                if not isinstance(image, dict) or image.get("asset_id") is None:
+                    continue
+                path = self._existing_image_path(image.get("path"))
+                if path is None:
+                    continue
+                mime_type = mimetypes.guess_type(path.name)[0] or "image/jpeg"
+                if not mime_type.startswith("image/"):
+                    continue
+                encoded = base64.b64encode(path.read_bytes()).decode("ascii")
+                images.append(
+                    {
+                        "asset_id": str(image.get("asset_id")),
+                        "post_id": str(post.get("post_id") or ""),
+                        "mime_type": mime_type,
+                        "data_url": f"data:{mime_type};base64,{encoded}",
+                    }
+                )
+        return images
+
+    def _existing_image_path(self, value: object) -> Optional[Path]:
+        path_text = str(value or "").strip()
+        if not path_text:
+            return None
+        path = Path(path_text)
+        if not path.is_absolute():
+            candidates = [
+                Path.cwd() / path,
+                self.repo.db_path.parent / path,
+                Path(__file__).resolve().parents[1] / path,
+            ]
+        else:
+            candidates = [path]
+        for candidate in candidates:
+            if candidate.exists() and candidate.is_file():
+                return candidate
+        return None
 
     def _validate_match_payload(
         self,
@@ -258,6 +452,7 @@ class IntentAnalysisService:
         probes_by_title = {probe.title: probe for probe in probes}
         post_ids = {int(post["post_id"]) for post in package if post.get("post_id") is not None}
         comment_post_ids = {}
+        asset_post_ids = {}
         for post in package:
             if post.get("post_id") is None:
                 continue
@@ -265,23 +460,34 @@ class IntentAnalysisService:
             for comment in post.get("comments") or []:
                 if isinstance(comment, dict) and comment.get("comment_id") is not None:
                     comment_post_ids[int(comment["comment_id"])] = package_post_id
+            for image in (post.get("images") or [])[: self.MAX_IMAGES_PER_POST]:
+                if isinstance(image, dict) and image.get("asset_id") is not None:
+                    asset_post_ids[int(image["asset_id"])] = package_post_id
         matches: List[IntentAnalysisMatch] = []
         for item in raw_matches:
             if not isinstance(item, dict):
                 raise ValueError("Each match must be a JSON object")
             probe = self._match_probe(item, probes_by_key, probes_by_title)
             level = str(item.get("level") or item.get("source_type") or "").strip()
-            if level not in {"post", "comment"}:
-                raise ValueError("Match level must be post or comment")
+            if level not in {"post", "comment", "image"}:
+                raise ValueError("Match level must be post, image, or comment")
             post_id = int(item.get("post_id") or 0)
             if post_id not in post_ids:
                 raise ValueError(f"Match post_id is not in the supplied package: {post_id}")
             raw_comment_id = item.get("comment_id")
             comment_id = int(raw_comment_id) if raw_comment_id not in (None, "") else None
-            if level == "post" and comment_id is not None:
-                raise ValueError("Post-level matches must not include comment_id")
+            raw_asset_id = item.get("asset_id")
+            asset_id = int(raw_asset_id) if raw_asset_id not in (None, "") else None
+            if level == "post" and (comment_id is not None or asset_id is not None):
+                raise ValueError("Post-level matches must not include comment_id or asset_id")
+            if level == "comment" and asset_id is not None:
+                raise ValueError("Comment-level matches must not include asset_id")
             if level == "comment" and comment_post_ids.get(comment_id) != post_id:
                 raise ValueError(f"Match comment_id is not in the supplied package: {comment_id}")
+            if level == "image" and comment_id is not None:
+                raise ValueError("Image-level matches must not include comment_id")
+            if level == "image" and asset_post_ids.get(asset_id) != post_id:
+                raise ValueError(f"Match asset_id is not in the supplied package: {asset_id}")
             score = int(item.get("score") if item.get("score") is not None else item.get("confidence", 0))
             if score < 0 or score > 100:
                 raise ValueError("Match score must be between 0 and 100")
@@ -300,6 +506,7 @@ class IntentAnalysisService:
                     probe_title=probe.title,
                     post_id=post_id,
                     comment_id=comment_id,
+                    asset_id=asset_id,
                     level=level,
                     score=score,
                     reason=reason,

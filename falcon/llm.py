@@ -1,9 +1,15 @@
 import json
 import os
-from typing import BinaryIO, Callable, Dict, Iterator, Optional
+from typing import BinaryIO, Callable, Dict, Iterator, List, Optional
 import urllib.request
 
 from .config import DEFAULT_GPT_ENDPOINT, DEFAULT_GPT_MODEL
+
+
+class GPTResponseParseError(ValueError):
+    def __init__(self, message: str, content: str):
+        super().__init__(message)
+        self.content = content
 
 
 class GPT55Client:
@@ -45,6 +51,36 @@ class GPT55Client:
         if not isinstance(payload, dict):
             raise ValueError("GPT responses stream did not return a JSON object")
         return payload
+
+    def complete_json_multimodal(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        images: List[Dict[str, str]],
+    ) -> Dict[str, object]:
+        if not self.is_configured():
+            raise RuntimeError("FALCON_GPT_BASE_URL, FALCON_GPT_ENDPOINT, and FALCON_GPT_API_KEY are required")
+
+        if self.endpoint.rstrip("/").endswith("/chat/completions"):
+            return self._complete_json_chat_completions_multimodal(system_prompt, user_prompt, images)
+        body = {
+            "model": self.model,
+            "instructions": system_prompt,
+            "input": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "input_text", "text": user_prompt},
+                        *self._responses_image_parts(images),
+                    ],
+                }
+            ],
+            "stream": True,
+        }
+        request = self._request(body)
+        with self.opener(request, timeout=self.timeout) as response:
+            content = self._read_responses_stream(response)
+        return self._parse_json_object(content)
 
     def stream_json(self, system_prompt: str, user_prompt: str) -> Iterator[Dict[str, object]]:
         if not self.is_configured():
@@ -91,6 +127,73 @@ class GPT55Client:
 
         content = payload["choices"][0]["message"]["content"]
         return self._parse_json_object(content)
+
+    def _complete_json_chat_completions_multimodal(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        images: List[Dict[str, str]],
+    ) -> Dict[str, object]:
+        body = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": user_prompt},
+                        *self._chat_image_parts(images),
+                    ],
+                },
+            ],
+            "response_format": {"type": "json_object"},
+        }
+        request = self._request(body)
+        with self.opener(request, timeout=self.timeout) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+
+        content = payload["choices"][0]["message"]["content"]
+        return self._parse_json_object(content)
+
+    def _responses_image_parts(self, images: List[Dict[str, str]]) -> List[Dict[str, object]]:
+        parts: List[Dict[str, object]] = []
+        for index, image in enumerate(images, start=1):
+            parts.append(
+                {
+                    "type": "input_text",
+                    "text": (
+                        f"Image input {index}: post_id={image.get('post_id', '')}, "
+                        f"asset_id={image.get('asset_id', '')}."
+                    ),
+                }
+            )
+            parts.append(
+                {
+                    "type": "input_image",
+                    "image_url": image["data_url"],
+                }
+            )
+        return parts
+
+    def _chat_image_parts(self, images: List[Dict[str, str]]) -> List[Dict[str, object]]:
+        parts: List[Dict[str, object]] = []
+        for index, image in enumerate(images, start=1):
+            parts.append(
+                {
+                    "type": "text",
+                    "text": (
+                        f"Image input {index}: post_id={image.get('post_id', '')}, "
+                        f"asset_id={image.get('asset_id', '')}."
+                    ),
+                }
+            )
+            parts.append(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": image["data_url"]},
+                }
+            )
+        return parts
 
     def _request(self, body: Dict[str, object]) -> urllib.request.Request:
         return urllib.request.Request(
@@ -150,4 +253,8 @@ class GPT55Client:
         end = content.rfind("}")
         if start == -1 or end == -1:
             raise ValueError("GPT response did not contain a JSON object")
-        return json.loads(content[start : end + 1])
+        candidate = content[start : end + 1]
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError as exc:
+            raise GPTResponseParseError(str(exc), candidate) from exc
