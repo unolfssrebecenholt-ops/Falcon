@@ -44,6 +44,9 @@ class CollectionRun:
     updated_at: str = field(default_factory=utc_now_iso)
     completed_at: str = ""
     failed_reason: str = ""
+    archived_status: str = ""
+    archived_progress: Optional[int] = None
+    archived_step: str = ""
 
 
 @dataclass
@@ -174,6 +177,7 @@ class IntentAnalysisMatch:
     probe_title: str = ""
     summary: str = ""
     comment_id: Optional[int] = None
+    asset_id: Optional[int] = None
     created_at: str = field(default_factory=utc_now_iso)
     match_id: Optional[int] = None
 

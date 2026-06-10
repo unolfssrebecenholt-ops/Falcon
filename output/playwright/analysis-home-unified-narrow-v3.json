@@ -1,0 +1,87 @@
+{
+  "viewportWidth": 900,
+  "horizontalScroll": 900,
+  "overflow": [],
+  "shell": {
+    "rect": {
+      "x": 250,
+      "y": 207,
+      "w": 632,
+      "h": 1038
+    },
+    "display": "grid",
+    "gridTemplateColumns": "632px",
+    "whiteSpace": "normal",
+    "overflowWrap": "normal"
+  },
+  "historyCard": {
+    "rect": {
+      "x": 265,
+      "y": 259,
+      "w": 587,
+      "h": 234
+    },
+    "display": "grid",
+    "gridTemplateColumns": "565px",
+    "whiteSpace": "normal",
+    "overflowWrap": "anywhere"
+  },
+  "title": {
+    "rect": {
+      "x": 276,
+      "y": 270,
+      "w": 565,
+      "h": 20
+    },
+    "display": "block",
+    "gridTemplateColumns": "none",
+    "whiteSpace": "normal",
+    "overflowWrap": "anywhere"
+  },
+  "chipRow": {
+    "rect": {
+      "x": 276,
+      "y": 388,
+      "w": 565,
+      "h": 52
+    },
+    "display": "flex",
+    "gridTemplateColumns": "none",
+    "whiteSpace": "normal",
+    "overflowWrap": "anywhere"
+  },
+  "chipRects": [
+    {
+      "text": "明确提到具体App或应用场景",
+      "w": 170,
+      "h": 23
+    },
+    {
+      "text": "包含App推荐、种草或避雷意图",
+      "w": 182,
+      "h": 23
+    },
+    {
+      "text": "反映用户任务需求或问题待解决",
+      "w": 184,
+      "h": 23
+    },
+    {
+      "text": "包含可归纳的功能体验信息",
+      "w": 160,
+      "h": 23
+    }
+  ],
+  "actions": {
+    "rect": {
+      "x": 276,
+      "y": 448,
+      "w": 565,
+      "h": 34
+    },
+    "display": "flex",
+    "gridTemplateColumns": "none",
+    "whiteSpace": "normal",
+    "overflowWrap": "anywhere"
+  }
+}

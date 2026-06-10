@@ -26,26 +26,37 @@
   <section class="panel analysis-workspace" aria-labelledby="analysis-workspace-title">
     <div class="section-head analysis-workspace-head">
       <div>
-        <h2 id="analysis-workspace-title">工作区 <button class="help-dot" type="button" data-tip="工作区承载探针生成状态和历史组合；右侧选择数据包，底部工作台输入本次分析意图。">?</button></h2>
+        <h2 id="analysis-workspace-title">工作区 <button class="help-dot" type="button" data-tip="工作区承载未入队的探针生成状态和历史组合；右侧选择数据包，底部工作台输入本次分析意图。">?</button></h2>
       </div>
       <div class="analysis-workspace-actions">
         <span class="pill" id="analysis-selected-pill">已选 0 个数据包</span>
       </div>
     </div>
 
-    <div id="analysis-probe-loading" class="analysis-probe-loading" hidden>
-      <div class="analysis-loading-copy">
-        <span>GPT-5.5 stream</span>
-        <strong id="analysis-loading-title">正在准备探针工作区</strong>
-        <p id="analysis-loading-message">Falcon 正在读取选中的数据包、分析意图和评论上下文。</p>
+    <div id="analysis-probe-loading" class="analysis-probe-loading" data-progress-version="analysis-loading-progress-v2" hidden>
+      <div class="analysis-loading-head">
+        <div class="analysis-loading-copy">
+          <span>GPT-5.5 stream</span>
+          <strong id="analysis-loading-title">正在准备探针工作区</strong>
+          <p id="analysis-loading-message">Falcon 正在读取选中的数据包、分析意图和评论上下文。</p>
+        </div>
+        <div class="analysis-loading-meter" role="progressbar" aria-label="探针生成进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+          <strong id="analysis-loading-percent">0%</strong>
+          <span id="analysis-loading-stage">准备中</span>
+        </div>
+      </div>
+      <div class="analysis-progress-track" aria-hidden="true">
+        <span id="analysis-progress-fill"></span>
       </div>
       <div class="analysis-loading-steps" aria-label="探针生成进度">
-        <span data-create-step="sources" class="is-active">接入数据包</span>
-        <span data-create-step="probes">生成探针</span>
-        <span data-create-step="editor">进入编辑</span>
+        <span data-create-step="sources" class="is-active"><strong>01</strong><em>接入数据包</em><b>30%</b></span>
+        <span data-create-step="probes"><strong>02</strong><em>生成探针</em><b>88%</b></span>
+        <span data-create-step="editor"><strong>03</strong><em>校验写入</em><b>100%</b></span>
       </div>
       <div class="analysis-skeleton-grid" aria-hidden="true">
-        <i></i><i></i><i></i>
+        <i><span></span><span></span><span></span></i>
+        <i><span></span><span></span><span></span></i>
+        <i><span></span><span></span><span></span></i>
       </div>
     </div>
 
@@ -54,27 +65,31 @@
         <div class="analysis-history-list">
           {% for history in intent_histories %}
           <article class="analysis-history-card intent-history-row">
-            <div class="analysis-history-card-head">
-              <strong>{{ history.task.user_intent }}</strong>
-              <span class="status ready">{{ history.task.status }}</span>
-            </div>
-            <div class="analysis-history-meta">
-              <span>{{ history.sources|length }} 个任务</span>
-              <span>{{ history.post_count|default(0) }} 篇帖子</span>
-              <span>{{ history.comment_count|default(0) }} 条评论</span>
-              <span>{{ history.probe_count|default(history.probes|length) }} 个探针</span>
-            </div>
-            <strong class="analysis-history-summary">{{ history.sources|length }} 个任务 · {{ history.post_count|default(0) }} 篇帖子 · {{ history.comment_count|default(0) }} 条评论 · {{ history.probe_count|default(history.probes|length) }} 个探针</strong>
-            <div class="analysis-probe-chip-row" aria-label="历史探针">
-              {% for probe in history.probes[:4] %}
-              <span>{{ probe.title }}</span>
-              {% else %}
-              <span>暂无探针</span>
-              {% endfor %}
+            <div class="analysis-history-main">
+              <div class="analysis-history-card-head">
+                <strong>{{ history.task.user_intent }}</strong>
+                <span class="status ready">{{ history.task.status }}</span>
+              </div>
+              <div class="analysis-history-meta" aria-label="{{ history.sources|length }} 个任务 · {{ history.post_count|default(0) }} 篇帖子 · {{ history.comment_count|default(0) }} 条评论 · {{ history.probe_count|default(history.probes|length) }} 个探针">
+                <span>{{ history.sources|length }} 个任务</span>
+                <span>{{ history.post_count|default(0) }} 篇帖子</span>
+                <span>{{ history.comment_count|default(0) }} 条评论</span>
+                <span>{{ history.probe_count|default(history.probes|length) }} 个探针</span>
+              </div>
+              <div class="analysis-probe-chip-row analysis-history-probes" aria-label="历史探针">
+                {% for probe in history.probes[:3] %}
+                <span>{{ probe.title }}</span>
+                {% else %}
+                <span>暂无探针</span>
+                {% endfor %}
+              </div>
             </div>
             <div class="action-row left-actions">
               <a class="button small primary" href="/analysis/tasks/{{ history.task.task_id }}">继续编辑</a>
               <a class="button small blue" href="/analysis?platform={{ history.task.platform }}&reuse_task_id={{ history.task.task_id }}">复用组合</a>
+              <form class="inline-form" method="post" action="/analysis/tasks/{{ history.task.task_id }}/queue">
+                <button class="button small queue" type="submit">加入到队列</button>
+              </form>
               <form class="inline-form" method="post" action="/analysis/tasks/{{ history.task.task_id }}/delete" onsubmit="return confirm('删除这个分析任务？已采集的数据不会删除。');">
                 <button class="button small danger" type="submit">删除</button>
               </form>
@@ -163,7 +178,17 @@
         </span>
         <span>分析意图</span>
       </span>
-      <textarea name="user_intent" rows="1" placeholder="例如：我想分析生图软件的市场，或者我想知道哪些人需要生图软件" required>{{ prefill_user_intent }}</textarea>
+      <span class="analysis-intent-input-stack">
+        <textarea name="user_intent" rows="1" placeholder="例如：我想分析生图软件的市场，或者我想知道哪些人需要生图软件" required>{{ prefill_user_intent }}</textarea>
+        {% if recent_intent_terms %}
+        <span class="analysis-intent-history" aria-label="最近五次分析意图">
+          <span class="analysis-intent-history-label">最近意图</span>
+          {% for term in recent_intent_terms %}
+          <button class="analysis-intent-history-chip" type="button" data-intent-term="{{ term.user_intent }}" title="{{ term.user_intent }}">{{ term.user_intent }}</button>
+          {% endfor %}
+        </span>
+        {% endif %}
+      </span>
     </label>
     <div class="analysis-workbench-meta" aria-live="polite">
       <div class="analysis-meta-heading">
@@ -195,10 +220,17 @@
   const loading = document.getElementById("analysis-probe-loading");
   const loadingTitle = document.getElementById("analysis-loading-title");
   const loadingMessage = document.getElementById("analysis-loading-message");
+  const loadingMeter = document.querySelector(".analysis-loading-meter");
+  const loadingPercent = document.getElementById("analysis-loading-percent");
+  const loadingStage = document.getElementById("analysis-loading-stage");
+  const progressFill = document.getElementById("analysis-progress-fill");
+  const workspace = document.querySelector(".analysis-workspace");
   const loadingSteps = Array.from(document.querySelectorAll("[data-create-step]"));
   const createButton = document.getElementById("analysis-create-button");
   const submitError = document.getElementById("analysis-submit-error");
   const selectedPill = document.getElementById("analysis-selected-pill");
+  const intentInput = form?.querySelector('textarea[name="user_intent"]');
+  const intentHistoryChips = Array.from(document.querySelectorAll("[data-intent-term]"));
   const fields = {
     runs: document.getElementById("analysis-meta-runs"),
     posts: document.getElementById("analysis-meta-posts"),
@@ -210,6 +242,10 @@
   const numberFormat = new Intl.NumberFormat("zh-CN");
   const toInt = (value) => Number.parseInt(value || "0", 10) || 0;
   const createStepOrder = ["sources", "probes", "editor"];
+  const createStepProgress = { sources: 30, probes: 88, editor: 100 };
+  const createStepLabels = { sources: "接入中", probes: "生成中", editor: "写入中", error: "需检查" };
+  let currentProgress = 0;
+  let streamedTextLength = 0;
 
   const setSubmitError = (message) => {
     if (!submitError) {
@@ -228,7 +264,24 @@
     });
   };
 
-  const setLoadingState = (title, message, step) => {
+  const setLoadingProgress = (progress, step) => {
+    const nextProgress = Math.max(0, Math.min(100, Math.round(progress)));
+    currentProgress = Math.max(currentProgress, nextProgress);
+    if (progressFill) {
+      progressFill.style.width = `${currentProgress}%`;
+    }
+    if (loadingPercent) {
+      loadingPercent.textContent = `${currentProgress}%`;
+    }
+    if (loadingMeter) {
+      loadingMeter.setAttribute("aria-valuenow", String(currentProgress));
+    }
+    if (loadingStage && step) {
+      loadingStage.textContent = createStepLabels[step] || "处理中";
+    }
+  };
+
+  const setLoadingState = (title, message, step, progress) => {
     if (loadingTitle) {
       loadingTitle.textContent = title;
     }
@@ -237,6 +290,9 @@
     }
     if (step) {
       activateCreateStep(step);
+      setLoadingProgress(progress ?? createStepProgress[step] ?? currentProgress, step);
+    } else if (typeof progress === "number") {
+      setLoadingProgress(progress);
     }
   };
 
@@ -274,11 +330,41 @@
   checkboxes.forEach((checkbox) => checkbox.addEventListener("change", updateMetadata));
   updateMetadata();
 
+  intentHistoryChips.forEach((chip) => {
+    chip.addEventListener("click", () => {
+      if (!intentInput) {
+        return;
+      }
+      intentInput.value = chip.dataset.intentTerm || chip.textContent.trim();
+      intentInput.dispatchEvent(new Event("input", { bubbles: true }));
+      intentInput.focus();
+      intentInput.setSelectionRange(intentInput.value.length, intentInput.value.length);
+    });
+  });
+
   const resetCreateFormState = () => {
     if (loading) {
       loading.hidden = true;
+      loading.classList.remove("has-error");
     }
-    setLoadingState("正在准备探针工作区", "Falcon 正在读取选中的数据包、分析意图和评论上下文。", "sources");
+    if (workspace) {
+      workspace.classList.remove("is-generating-probes");
+    }
+    currentProgress = 0;
+    streamedTextLength = 0;
+    if (progressFill) {
+      progressFill.style.width = "0%";
+    }
+    if (loadingPercent) {
+      loadingPercent.textContent = "0%";
+    }
+    if (loadingMeter) {
+      loadingMeter.setAttribute("aria-valuenow", "0");
+    }
+    if (loadingStage) {
+      loadingStage.textContent = "准备中";
+    }
+    setLoadingState("正在准备探针工作区", "Falcon 正在读取选中的数据包、分析意图和评论上下文。", "sources", 0);
     if (submitError) {
       submitError.hidden = true;
     }
@@ -310,18 +396,23 @@
     }
     const payload = JSON.parse(dataLines.join("\n"));
     if (eventName === "delta") {
-      setLoadingState("正在生成 5 个语义探针", "GPT-5.5 正在输出可编辑的判断规则。", "probes");
+      streamedTextLength = Number(payload.chars || 0) || streamedTextLength + String(payload.text || "").length;
+      const streamedProgress = Math.min(88, 50 + Math.round(Math.min(streamedTextLength, 1400) / 1400 * 38));
+      setLoadingState("正在生成 5 个语义探针", "GPT-5.5 正在输出可编辑的判断规则。", "probes", payload.progress || streamedProgress);
       return "";
     }
     if (eventName === "done") {
-      setLoadingState("探针已生成", "正在进入编辑页。", "editor");
+      setLoadingState("探针已生成", "正在进入编辑页。", "editor", 100);
       window.setTimeout(() => {
         window.location.href = payload.redirect_url || taskUrl;
       }, 350);
       return "done";
     }
     if (eventName === "error") {
-      setLoadingState("探针生成失败", "正在进入任务详情查看失败原因。", "editor");
+      if (loading) {
+        loading.classList.add("has-error");
+      }
+      setLoadingState("探针生成失败", "正在进入任务详情查看失败原因。", "error", Math.max(currentProgress, 96));
       window.setTimeout(() => {
         window.location.href = taskUrl;
       }, 900);
@@ -329,17 +420,19 @@
     }
     const status = String(payload.status || "");
     const message = String(payload.message || "正在处理。");
+    const progress = Number(payload.progress || 0) || undefined;
     if (status === "generating_probes") {
-      setLoadingState("正在生成 5 个语义探针", message, "probes");
+      setLoadingState("正在生成 5 个语义探针", message, "probes", progress || 48);
     } else if (message.includes("校验") || message.includes("写入")) {
-      setLoadingState("正在校验并写入本地数据库", message, "editor");
+      setLoadingState("正在校验并写入本地数据库", message, "editor", progress || 92);
     } else {
-      setLoadingState("正在准备探针工作区", message, "sources");
+      setLoadingState("正在准备探针工作区", message, "sources", progress || 30);
     }
     return "";
   };
 
   const streamGeneratedProbes = async (streamUrl, taskUrl) => {
+    setLoadingState("正在建立 GPT-5.5 流", "任务已创建，正在打开探针生成通道。", "sources", 34);
     const response = await fetch(streamUrl, {
       method: "POST",
       headers: { Accept: "text/event-stream" },
@@ -382,7 +475,15 @@
         loading.hidden = false;
         loading.scrollIntoView({ block: "nearest" });
       }
-      setLoadingState("正在准备探针工作区", "Falcon 正在读取选中的数据包、分析意图和评论上下文。", "sources");
+      if (workspace) {
+        workspace.classList.add("is-generating-probes");
+      }
+      currentProgress = 0;
+      streamedTextLength = 0;
+      if (loading) {
+        loading.classList.remove("has-error");
+      }
+      setLoadingState("正在校验分析输入", "Falcon 正在确认数据包、平台和分析意图。", "sources", 8);
       if (createButton) {
         createButton.disabled = true;
         createButton.textContent = "正在创建探针任务";
@@ -405,13 +506,17 @@
           window.location.href = payload.task_url || "/analysis";
           return;
         }
+        setLoadingState("已创建探针任务", "本地任务记录已保存，正在连接 GPT-5.5。", "sources", 24);
         const completed = await streamGeneratedProbes(payload.stream_url, payload.task_url);
         if (!completed) {
           window.location.href = payload.task_url;
         }
       } catch (error) {
+        if (loading) {
+          loading.classList.add("has-error");
+        }
         setSubmitError(error.message || "创建探针任务失败，请稍后重试。");
-        setLoadingState("创建探针任务失败", "请检查右侧数据包和 GPT-5.5 配置后重试。", "sources");
+        setLoadingState("创建探针任务失败", "请检查右侧数据包和 GPT-5.5 配置后重试。", "error", Math.max(currentProgress, 96));
         if (createButton) {
           createButton.disabled = false;
           createButton.textContent = "重新创建探针任务";

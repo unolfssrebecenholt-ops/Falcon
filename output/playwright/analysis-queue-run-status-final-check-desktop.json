@@ -1,0 +1,48 @@
+{
+  "viewport": {
+    "width": 1728,
+    "height": 980
+  },
+  "titleIsLink": false,
+  "titleIsPlainText": true,
+  "itemBox": {
+    "x": 260,
+    "y": 400.8125,
+    "width": 1440,
+    "height": 148.078125,
+    "right": 1700,
+    "bottom": 548.890625
+  },
+  "actionsBox": {
+    "x": 1346,
+    "y": 414.8125,
+    "width": 340,
+    "height": 120.078125,
+    "right": 1686,
+    "bottom": 534.890625
+  },
+  "runControlBox": {
+    "x": 1492,
+    "y": 414.8125,
+    "width": 194,
+    "height": 76.078125,
+    "right": 1686,
+    "bottom": 490.890625
+  },
+  "secondaryBox": {
+    "x": 1410,
+    "y": 500.890625,
+    "width": 276,
+    "height": 34,
+    "right": 1686,
+    "bottom": 534.890625
+  },
+  "pendingBox": {
+    "x": 1492,
+    "y": 461.203125,
+    "width": 194,
+    "height": 29.6875,
+    "right": 1686,
+    "bottom": 490.890625
+  }
+}

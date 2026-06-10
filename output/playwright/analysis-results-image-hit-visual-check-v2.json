@@ -1,0 +1,22 @@
+{
+  "thumbRect": {
+    "width": 106.5,
+    "height": 106.5
+  },
+  "imgRect": {
+    "width": 104.5,
+    "height": 104.5
+  },
+  "hitThumbCount": 1,
+  "hitCaption": "命中图片",
+  "noHorizontalOverflow": true,
+  "markTexts": [
+    "按房间和用途做一个清单",
+    "扫码记录收纳箱里的东西"
+  ],
+  "cssHref": "http://127.0.0.1:8765/static/app.css?v=collector-run-console-v1-analysis-probe-results-v1",
+  "narrow": {
+    "noHorizontalOverflow": true,
+    "hitThumbCount": 1
+  }
+}

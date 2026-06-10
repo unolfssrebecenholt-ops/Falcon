@@ -1,0 +1,30 @@
+{
+  "viewport": {
+    "width": 1632,
+    "height": 918
+  },
+  "beforeCount": 1,
+  "afterCount": 0,
+  "bodyHasTitleAfter": true,
+  "queueCount": 1,
+  "buttonBox": {
+    "x": 1026.265625,
+    "y": 289.8125,
+    "width": 85,
+    "height": 28
+  },
+  "cardBox": {
+    "x": 274.734375,
+    "y": 258.8125,
+    "width": 905.53125,
+    "height": 90
+  },
+  "errors": [],
+  "screenshots": {
+    "beforeFull": "/Users/zhanglongsheng/Documents/Falcon/output/playwright/analysis-workspace-queue-before-full.png",
+    "beforeCard": "/Users/zhanglongsheng/Documents/Falcon/output/playwright/analysis-workspace-queue-before-card.png",
+    "afterHome": "/Users/zhanglongsheng/Documents/Falcon/output/playwright/analysis-workspace-queue-after-home.png",
+    "afterQueue": "/Users/zhanglongsheng/Documents/Falcon/output/playwright/analysis-workspace-queue-after-queue.png",
+    "afterQueueItem": "/Users/zhanglongsheng/Documents/Falcon/output/playwright/analysis-workspace-queue-after-queue-item.png"
+  }
+}

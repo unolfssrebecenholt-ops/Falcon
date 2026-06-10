@@ -1,0 +1,366 @@
+{
+  "audit": [
+    {
+      "route": "/",
+      "status": "ok",
+      "header": {
+        "x": 296,
+        "y": 78,
+        "width": 1560,
+        "height": 84,
+        "background": "rgba(0, 0, 0, 0)",
+        "borderBottom": "1px rgb(217, 222, 231)",
+        "borderTop": "0px rgb(23, 32, 42)",
+        "boxShadow": "none",
+        "paddingTop": "0px",
+        "paddingBottom": "14px",
+        "borderRadius": "0px"
+      },
+      "page": {
+        "x": 296,
+        "width": 1560
+      },
+      "h1": {
+        "fontSize": "24px",
+        "fontWeight": "760"
+      }
+    },
+    {
+      "route": "/collector",
+      "status": "ok",
+      "header": {
+        "x": 296,
+        "y": 78,
+        "width": 1560,
+        "height": 84,
+        "background": "rgba(0, 0, 0, 0)",
+        "borderBottom": "1px rgb(217, 222, 231)",
+        "borderTop": "0px rgb(23, 32, 42)",
+        "boxShadow": "none",
+        "paddingTop": "0px",
+        "paddingBottom": "14px",
+        "borderRadius": "0px"
+      },
+      "page": {
+        "x": 296,
+        "width": 1560
+      },
+      "h1": {
+        "fontSize": "24px",
+        "fontWeight": "760"
+      }
+    },
+    {
+      "route": "/collector/runs",
+      "status": "ok",
+      "header": {
+        "x": 296,
+        "y": 78,
+        "width": 1560,
+        "height": 84,
+        "background": "rgba(0, 0, 0, 0)",
+        "borderBottom": "1px rgb(217, 222, 231)",
+        "borderTop": "0px rgb(23, 32, 42)",
+        "boxShadow": "none",
+        "paddingTop": "0px",
+        "paddingBottom": "14px",
+        "borderRadius": "0px"
+      },
+      "page": {
+        "x": 296,
+        "width": 1560
+      },
+      "h1": {
+        "fontSize": "24px",
+        "fontWeight": "760"
+      }
+    },
+    {
+      "route": "/collector/accounts",
+      "status": "ok",
+      "header": {
+        "x": 296,
+        "y": 78,
+        "width": 1560,
+        "height": 84,
+        "background": "rgba(0, 0, 0, 0)",
+        "borderBottom": "1px rgb(217, 222, 231)",
+        "borderTop": "0px rgb(23, 32, 42)",
+        "boxShadow": "none",
+        "paddingTop": "0px",
+        "paddingBottom": "14px",
+        "borderRadius": "0px"
+      },
+      "page": {
+        "x": 296,
+        "width": 1560
+      },
+      "h1": {
+        "fontSize": "24px",
+        "fontWeight": "760"
+      }
+    },
+    {
+      "route": "/collector/environment",
+      "status": "ok",
+      "header": {
+        "x": 296,
+        "y": 78,
+        "width": 1560,
+        "height": 84,
+        "background": "rgba(0, 0, 0, 0)",
+        "borderBottom": "1px rgb(217, 222, 231)",
+        "borderTop": "0px rgb(23, 32, 42)",
+        "boxShadow": "none",
+        "paddingTop": "0px",
+        "paddingBottom": "14px",
+        "borderRadius": "0px"
+      },
+      "page": {
+        "x": 296,
+        "width": 1560
+      },
+      "h1": {
+        "fontSize": "24px",
+        "fontWeight": "760"
+      }
+    },
+    {
+      "route": "/analysis",
+      "status": "ok",
+      "header": {
+        "x": 296,
+        "y": 72,
+        "width": 1560,
+        "height": 84,
+        "background": "rgba(0, 0, 0, 0)",
+        "borderBottom": "1px rgb(217, 222, 231)",
+        "borderTop": "0px rgb(23, 32, 42)",
+        "boxShadow": "none",
+        "paddingTop": "0px",
+        "paddingBottom": "14px",
+        "borderRadius": "0px"
+      },
+      "page": {
+        "x": 276,
+        "width": 1600
+      },
+      "h1": {
+        "fontSize": "24px",
+        "fontWeight": "760"
+      }
+    },
+    {
+      "route": "/analysis/queue",
+      "status": "ok",
+      "header": {
+        "x": 296,
+        "y": 72,
+        "width": 1560,
+        "height": 84,
+        "background": "rgba(0, 0, 0, 0)",
+        "borderBottom": "1px rgb(217, 222, 231)",
+        "borderTop": "0px rgb(23, 32, 42)",
+        "boxShadow": "none",
+        "paddingTop": "0px",
+        "paddingBottom": "14px",
+        "borderRadius": "0px"
+      },
+      "page": {
+        "x": 276,
+        "width": 1600
+      },
+      "h1": {
+        "fontSize": "24px",
+        "fontWeight": "760"
+      }
+    },
+    {
+      "route": "/analysis/samples",
+      "status": "ok",
+      "header": {
+        "x": 296,
+        "y": 78,
+        "width": 1560,
+        "height": 84,
+        "background": "rgba(0, 0, 0, 0)",
+        "borderBottom": "1px rgb(217, 222, 231)",
+        "borderTop": "0px rgb(23, 32, 42)",
+        "boxShadow": "none",
+        "paddingTop": "0px",
+        "paddingBottom": "14px",
+        "borderRadius": "0px"
+      },
+      "page": {
+        "x": 296,
+        "width": 1560
+      },
+      "h1": {
+        "fontSize": "24px",
+        "fontWeight": "760"
+      }
+    },
+    {
+      "route": "/review",
+      "status": "ok",
+      "header": {
+        "x": 296,
+        "y": 78,
+        "width": 1560,
+        "height": 84,
+        "background": "rgba(0, 0, 0, 0)",
+        "borderBottom": "1px rgb(217, 222, 231)",
+        "borderTop": "0px rgb(23, 32, 42)",
+        "boxShadow": "none",
+        "paddingTop": "0px",
+        "paddingBottom": "14px",
+        "borderRadius": "0px"
+      },
+      "page": {
+        "x": 296,
+        "width": 1560
+      },
+      "h1": {
+        "fontSize": "24px",
+        "fontWeight": "760"
+      }
+    },
+    {
+      "route": "/execution",
+      "status": "ok",
+      "header": {
+        "x": 296,
+        "y": 78,
+        "width": 1560,
+        "height": 84,
+        "background": "rgba(0, 0, 0, 0)",
+        "borderBottom": "1px rgb(217, 222, 231)",
+        "borderTop": "0px rgb(23, 32, 42)",
+        "boxShadow": "none",
+        "paddingTop": "0px",
+        "paddingBottom": "14px",
+        "borderRadius": "0px"
+      },
+      "page": {
+        "x": 296,
+        "width": 1560
+      },
+      "h1": {
+        "fontSize": "24px",
+        "fontWeight": "760"
+      }
+    },
+    {
+      "route": "/tasks",
+      "status": "ok",
+      "header": {
+        "x": 296,
+        "y": 78,
+        "width": 1560,
+        "height": 84,
+        "background": "rgba(0, 0, 0, 0)",
+        "borderBottom": "1px rgb(217, 222, 231)",
+        "borderTop": "0px rgb(23, 32, 42)",
+        "boxShadow": "none",
+        "paddingTop": "0px",
+        "paddingBottom": "14px",
+        "borderRadius": "0px"
+      },
+      "page": {
+        "x": 296,
+        "width": 1560
+      },
+      "h1": {
+        "fontSize": "24px",
+        "fontWeight": "760"
+      }
+    },
+    {
+      "route": "/settings",
+      "status": "ok",
+      "header": {
+        "x": 296,
+        "y": 78,
+        "width": 1560,
+        "height": 84,
+        "background": "rgba(0, 0, 0, 0)",
+        "borderBottom": "1px rgb(217, 222, 231)",
+        "borderTop": "0px rgb(23, 32, 42)",
+        "boxShadow": "none",
+        "paddingTop": "0px",
+        "paddingBottom": "14px",
+        "borderRadius": "0px"
+      },
+      "page": {
+        "x": 296,
+        "width": 1560
+      },
+      "h1": {
+        "fontSize": "24px",
+        "fontWeight": "760"
+      }
+    },
+    {
+      "route": "/settings/gpt",
+      "status": "ok",
+      "header": {
+        "x": 296,
+        "y": 78,
+        "width": 1560,
+        "height": 84,
+        "background": "rgba(0, 0, 0, 0)",
+        "borderBottom": "1px rgb(217, 222, 231)",
+        "borderTop": "0px rgb(23, 32, 42)",
+        "boxShadow": "none",
+        "paddingTop": "0px",
+        "paddingBottom": "14px",
+        "borderRadius": "0px"
+      },
+      "page": {
+        "x": 296,
+        "width": 1560
+      },
+      "h1": {
+        "fontSize": "24px",
+        "fontWeight": "760"
+      }
+    }
+  ],
+  "desktop": {
+    "headerBox": {
+      "x": 296,
+      "y": 72,
+      "width": 1560,
+      "height": 83.8125
+    },
+    "overviewBox": {
+      "x": 296,
+      "y": 171.8125,
+      "width": 1560,
+      "height": 25
+    },
+    "shellBox": {
+      "x": 296,
+      "y": 206.8125,
+      "width": 1560,
+      "height": 835.1875
+    }
+  },
+  "narrow": {
+    "viewportWidth": 900,
+    "horizontalScroll": 900,
+    "overflow": [],
+    "header": {
+      "width": 632,
+      "height": 84
+    },
+    "overview": {
+      "width": 632,
+      "height": 25
+    },
+    "shell": {
+      "width": 632,
+      "height": 2135
+    }
+  }
+}

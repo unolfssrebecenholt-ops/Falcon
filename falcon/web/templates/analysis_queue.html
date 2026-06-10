@@ -71,7 +71,6 @@
 <section class="analysis-queue-list" aria-label="分析任务">
   {% for item in queue_items %}
   {% set task = item.task %}
-  {% set can_open_results = task.status == "completed" %}
   <article class="analysis-queue-item status-{{ task.status }}">
     <div class="analysis-queue-main">
       <div class="analysis-queue-topline">
@@ -80,11 +79,7 @@
         <span class="analysis-platform">{{ task.platform|platform_label }}</span>
       </div>
       <h2 title="{{ task.user_intent }}">
-        {% if can_open_results %}
         <a class="analysis-result-title-link" href="/analysis/tasks/{{ task.task_id }}/results" aria-label="查看 {{ task.user_intent }} 的执行结果明细">{{ task.user_intent }}</a>
-        {% else %}
-        <span class="analysis-result-title-text" aria-label="{{ task.user_intent }}，尚未执行，结果明细不可用">{{ task.user_intent }}</span>
-        {% endif %}
       </h2>
       <div class="analysis-queue-chips" aria-label="数据包关键词">
         {% for keyword in item.source_keywords[:4] %}
@@ -139,7 +134,7 @@
     <div class="analysis-queue-actions">
       <div class="analysis-queue-run-control">
         <form method="post" action="/analysis/tasks/{{ task.task_id }}/execute?return_to=queue{% if selected_platform %}&return_platform={{ selected_platform }}{% endif %}{% if selected_status %}&return_status={{ selected_status }}{% endif %}" data-analysis-execute-form data-submitting-label="正在执行任务" data-pending-target="analysis-task-feedback-{{ task.task_id }}" data-progress-target="analysis-task-progress-{{ task.task_id }}">
-          <button class="button primary analysis-queue-execute-button" type="submit" {% if task.status != "probes_ready" or not item.probe_count %}disabled{% endif %}>执行任务</button>
+          <button class="button primary analysis-queue-execute-button" type="submit" {% if task.status != "probes_ready" or not item.probe_count %}disabled{% endif %}>执行特定任务</button>
         </form>
         <p id="analysis-task-feedback-{{ task.task_id }}" class="analysis-queue-pending-feedback" aria-live="polite" hidden>已接收执行请求，Falcon 正在匹配帖子和评论。</p>
       </div>

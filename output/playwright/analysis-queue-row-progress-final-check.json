@@ -1,0 +1,57 @@
+{
+  "defaultChecks": {
+    "progressOpacityInitially": "0",
+    "progressDisplayInitially": "grid",
+    "titleIsLink": false,
+    "titleIsPlainText": true,
+    "boxes": {
+      "progress": {
+        "x": 568,
+        "y": 435.484375,
+        "width": 140,
+        "height": 88.6875,
+        "right": 708,
+        "bottom": 524.171875
+      },
+      "facts": {
+        "x": 722,
+        "y": 442.328125,
+        "width": 650,
+        "height": 75,
+        "right": 1372,
+        "bottom": 517.328125
+      }
+    }
+  },
+  "runningChecks": {
+    "progressOpacityRunning": "1",
+    "buttonText": "正在执行任务",
+    "boxes": {
+      "progress": {
+        "x": 568,
+        "y": 435.484375,
+        "width": 140,
+        "height": 88.6875,
+        "right": 708,
+        "bottom": 524.171875
+      },
+      "facts": {
+        "x": 722,
+        "y": 442.328125,
+        "width": 650,
+        "height": 75,
+        "right": 1372,
+        "bottom": 517.328125
+      },
+      "actions": {
+        "x": 1386,
+        "y": 429.90625,
+        "width": 300,
+        "height": 99.84375,
+        "right": 1686,
+        "bottom": 529.75
+      }
+    },
+    "gridColumns": "280px 140px 650px 300px"
+  }
+}

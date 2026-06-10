@@ -1,0 +1,81 @@
+{
+  "results": [
+    {
+      "viewport": "1600x950",
+      "before": {
+        "title": "分析结果 - Falcon",
+        "cssHref": "http://127.0.0.1:8765/static/app.css?v=collector-run-console-v1-analysis-probe-results-v1",
+        "probeCount": 5,
+        "postCount": 21,
+        "firstProbeOpen": true,
+        "firstPostOpen": false,
+        "hasProbeCatalog": true,
+        "hasImageLabel": false,
+        "hasNoHorizontalOverflow": true,
+        "scrollWidth": 1600,
+        "clientWidth": 1600
+      },
+      "after": {
+        "firstPostOpen": true,
+        "hasThumbs": true,
+        "hasContent": true,
+        "hasComments": true,
+        "markCount": 12,
+        "hitThumbCount": 0,
+        "visibleSections": [
+          "图片缩略图",
+          "内容",
+          "评论",
+          "图片缩略图",
+          "内容",
+          "评论"
+        ],
+        "hasNoHorizontalOverflow": true,
+        "scrollWidth": 1600,
+        "clientWidth": 1600
+      }
+    },
+    {
+      "viewport": "1024x900",
+      "before": {
+        "title": "分析结果 - Falcon",
+        "cssHref": "http://127.0.0.1:8765/static/app.css?v=collector-run-console-v1-analysis-probe-results-v1",
+        "probeCount": 5,
+        "postCount": 21,
+        "firstProbeOpen": true,
+        "firstPostOpen": false,
+        "hasProbeCatalog": true,
+        "hasImageLabel": false,
+        "hasNoHorizontalOverflow": true,
+        "scrollWidth": 1024,
+        "clientWidth": 1024
+      },
+      "after": {
+        "firstPostOpen": true,
+        "hasThumbs": true,
+        "hasContent": true,
+        "hasComments": true,
+        "markCount": 12,
+        "hitThumbCount": 0,
+        "visibleSections": [
+          "图片缩略图",
+          "内容",
+          "评论",
+          "图片缩略图",
+          "内容",
+          "评论"
+        ],
+        "hasNoHorizontalOverflow": true,
+        "scrollWidth": 1024,
+        "clientWidth": 1024
+      }
+    }
+  ],
+  "queue": {
+    "titleLinkCount": 1,
+    "firstHref": "/analysis/tasks/15/results",
+    "noHorizontalOverflow": true,
+    "navigatedPath": "/analysis/tasks/15/results",
+    "hasResultsPage": true
+  }
+}

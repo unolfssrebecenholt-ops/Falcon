@@ -39,9 +39,6 @@
       <span>{% if created_count %}刚加入 {{ created_count }} 个任务，{% endif %}待启动任务不占用资源，确认后可手动启动或批量启动。</span>
     </div>
     <div class="queue-attention-actions">
-      <form class="inline-form" action="/collector/queue/start" method="post">
-        <button class="button small primary" type="submit">批量启动</button>
-      </form>
       <a class="button small" href="/collector/runs?status=queued">只看待启动</a>
     </div>
   </div>
@@ -147,7 +144,16 @@
                 <button class="button small archive" type="submit">归档</button>
               </form>
               {% else %}
-              <button class="button small archived" type="button" disabled>已归档</button>
+              <form class="inline-form queue-archive-form queue-unarchive-form" action="/collector/runs/{{ run.run_id }}/unarchive" method="post" data-queue-archive-form data-run-id="{{ run.run_id }}" data-loading-text="取消中">
+                <input type="hidden" name="return_to" value="/collector/runs">
+                <button class="button small archived" type="submit">已归档</button>
+              </form>
+              {% endif %}
+              {% if run.status != "running" %}
+              <form class="inline-form queue-delete-form" action="/collector/runs/{{ run.run_id }}/delete" method="post" data-queue-delete-form data-run-id="{{ run.run_id }}" data-confirm-message="确定要物理删除 {{ run.run_id }} 吗？关联采集结果、评论、媒体、证据和运行目录都会被删除。">
+                <input type="hidden" name="return_to" value="/collector/runs">
+                <button class="button small danger queue-delete-button" type="submit">删除</button>
+              </form>
               {% endif %}
               </div>
               {% if run.status == "manual_action_required" %}
@@ -312,7 +318,7 @@
     const originalText = button?.textContent || "";
     if (button) {
       button.disabled = true;
-      button.textContent = "归档中";
+      button.textContent = form.dataset.loadingText || "归档中";
     }
     try {
       const response = await fetch(form.action, {
@@ -330,6 +336,40 @@
       if (button) {
         button.disabled = false;
         button.textContent = originalText || "归档";
+      }
+      console.error(error);
+    }
+  });
+
+  document.addEventListener("submit", async (event) => {
+    const form = event.target.closest("[data-queue-delete-form]");
+    if (!form) return;
+    event.preventDefault();
+    const message = form.dataset.confirmMessage || "确定要物理删除这个任务吗？";
+    if (!window.confirm(message)) return;
+    const button = form.querySelector("button[type='submit']");
+    const originalText = button?.textContent || "";
+    if (button) {
+      button.disabled = true;
+      button.textContent = "删除中";
+    }
+    try {
+      const response = await fetch(form.action, {
+        method: "POST",
+        headers: {
+          "Accept": "application/json",
+          "X-Requested-With": "fetch",
+        },
+        body: new FormData(form),
+      });
+      if (!response.ok) throw new Error(`Delete failed: ${response.status}`);
+      const runId = (await response.json()).run_id || form.dataset.runId;
+      document.querySelector(rowSelectorForRun(runId))?.remove();
+      applyQueueFilters();
+    } catch (error) {
+      if (button) {
+        button.disabled = false;
+        button.textContent = originalText || "删除";
       }
       console.error(error);
     }

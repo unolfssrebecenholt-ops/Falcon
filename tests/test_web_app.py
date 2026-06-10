@@ -939,16 +939,23 @@ class WebAppTest(unittest.TestCase):
             self.assertIn('data-run-id="xhs-inline-archive"', response.text)
             self.assertIn('data-queue-archive-form', response.text)
             self.assertIn('action="/collector/runs/xhs-inline-archive/archive"', response.text)
+            self.assertIn('action="/collector/runs/xhs-inline-archived/unarchive"', response.text)
+            self.assertIn('data-queue-delete-form', response.text)
+            self.assertIn('action="/collector/runs/xhs-inline-archive/delete"', response.text)
             self.assertIn('class="button small archive"', response.text)
             self.assertIn('class="button small archived"', response.text)
+            self.assertIn('class="button small danger queue-delete-button"', response.text)
             self.assertNotIn('class="queue-action-more"', response.text)
             self.assertIn("fetch(form.action", response.text)
+            self.assertIn("Delete failed", response.text)
             self.assertIn("/static/app.css?v=", response.text)
             css = (Path(__file__).resolve().parents[1] / "falcon" / "web" / "static" / "app.css").read_text(
                 encoding="utf-8"
             )
             self.assertIn("flex-wrap: nowrap", css)
             self.assertIn(".queue-action-primary .inline-form:not(.queue-archive-form)", css)
+            self.assertIn(".queue-action-primary .queue-unarchive-form", css)
+            self.assertIn(".queue-action-primary .queue-delete-form", css)
             self.assertIn("flex: 0 0 auto", css)
             self.assertIn("flex: 0 0 104px", css)
             self.assertIn("flex: 0 0 62px", css)
@@ -984,6 +991,132 @@ class WebAppTest(unittest.TestCase):
             self.assertEqual(response.json()["status"], "cancelled")
             self.assertEqual(response.json()["status_label"], "已归档")
             self.assertEqual(repo.get_collection_run("xhs-inline-json").status, "cancelled")
+            self.assertEqual(repo.get_collection_run("xhs-inline-json").archived_status, "completed")
+
+    def test_collector_unarchive_supports_inline_json_refresh(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "falcon.sqlite3"
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="xhs-inline-unarchive",
+                    platform="xiaohongshu",
+                    keyword="内容表现",
+                    profile="default",
+                    status="cancelled",
+                    archived_status="completed",
+                    archived_progress=100,
+                    archived_step="采集已完成",
+                    completed_at="2026-06-01T10:00:00+00:00",
+                )
+            )
+            client = TestClient(create_app(db_path))
+
+            response = client.post(
+                "/collector/runs/xhs-inline-unarchive/unarchive",
+                headers={"Accept": "application/json", "X-Requested-With": "fetch"},
+                follow_redirects=False,
+            )
+
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            restored = repo.get_collection_run("xhs-inline-unarchive")
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json()["run_id"], "xhs-inline-unarchive")
+            self.assertEqual(response.json()["status"], "completed")
+            self.assertEqual(response.json()["status_label"], "已完成")
+            self.assertEqual(restored.status, "completed")
+            self.assertEqual(restored.progress, 100)
+            self.assertEqual(restored.current_step, "采集已完成")
+            self.assertEqual(restored.archived_status, "")
+
+    def test_collector_delete_removes_run_data_and_runtime_dir(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            db_path = tmp_path / "falcon.sqlite3"
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="xhs-delete-run",
+                    platform="xiaohongshu",
+                    keyword="内容表现",
+                    profile="default",
+                    status="cancelled",
+                )
+            )
+            post_id = repo.save_collected_post(
+                CollectedPost(
+                    run_id="xhs-delete-run",
+                    platform="xiaohongshu",
+                    keyword="内容表现",
+                    title="Delete me",
+                    content="content",
+                    url="https://example.test/delete",
+                )
+            )
+            repo.save_collected_comment(
+                CollectedComment(
+                    post_id=post_id,
+                    run_id="xhs-delete-run",
+                    commenter="user",
+                    content="comment",
+                )
+            )
+            repo.save_media_asset(
+                MediaAsset(
+                    run_id="xhs-delete-run",
+                    post_id=post_id,
+                    path="runtime/collector/xhs-delete-run/assets/a.png",
+                    asset_type="image",
+                )
+            )
+            repo.save_evidence(
+                Evidence(
+                    run_id="xhs-delete-run",
+                    evidence_type="screenshot",
+                    path="runtime/collector/xhs-delete-run/evidence/a.png",
+                )
+            )
+            task_id = repo.create_intent_analysis_task(
+                IntentAnalysisTask(platform="xiaohongshu", user_intent="find ideas")
+            )
+            repo.save_intent_analysis_match(
+                IntentAnalysisMatch(
+                    task_id=task_id,
+                    probe_id=1,
+                    probe_key="p1",
+                    probe_title="Probe",
+                    post_id=post_id,
+                    level="post",
+                    score=80,
+                    reason="match",
+                    excerpt="content",
+                )
+            )
+            run_dir = tmp_path / "runtime" / "collector" / "xhs-delete-run"
+            run_dir.mkdir(parents=True)
+            (run_dir / "request.json").write_text("{}", encoding="utf-8")
+            client = TestClient(create_app(db_path))
+
+            response = client.post(
+                "/collector/runs/xhs-delete-run/delete",
+                headers={"Accept": "application/json", "X-Requested-With": "fetch"},
+                follow_redirects=False,
+            )
+
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json(), {"run_id": "xhs-delete-run", "deleted": True})
+            self.assertIsNone(repo.get_collection_run("xhs-delete-run"))
+            self.assertEqual(repo.list_collected_posts("xhs-delete-run"), [])
+            self.assertEqual(repo.list_collected_comments(run_id="xhs-delete-run"), [])
+            self.assertEqual(repo.list_media_assets("xhs-delete-run"), [])
+            self.assertEqual(repo.list_evidences("xhs-delete-run"), [])
+            self.assertEqual(repo.list_intent_analysis_matches(task_id), [])
+            self.assertFalse(run_dir.exists())
 
     def test_collector_archive_releases_profile_and_dispatches_next_queued_run(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -2521,6 +2654,173 @@ class WebAppTest(unittest.TestCase):
             self.assertIn("queue_worker_dispatched", default_events)
             self.assertIn("queue_worker_dispatched", creator_events)
 
+    def test_collector_queue_refresh_dispatches_next_run_after_sidecar_completion(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            db_path = tmp_path / "falcon.sqlite3"
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="xhs-first-running",
+                    platform="xiaohongshu",
+                    keyword="蛋白粉",
+                    profile="default",
+                    status="running",
+                    progress=95,
+                    current_step="采集器运行中",
+                    created_at="2026-05-23T00:00:00+00:00",
+                    updated_at="2026-05-23T00:00:00+00:00",
+                )
+            )
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="xhs-next-queued",
+                    platform="xiaohongshu",
+                    keyword="健身",
+                    profile="default",
+                    status="queued",
+                    progress=0,
+                    current_step="等待浏览器采集调度",
+                    created_at="2026-05-23T00:01:00+00:00",
+                    updated_at="2026-05-23T00:01:00+00:00",
+                )
+            )
+            run_dir = tmp_path / "runtime" / "collector" / "xhs-first-running"
+            run_dir.mkdir(parents=True)
+            (run_dir / "events.jsonl").write_text(
+                json.dumps(
+                    {
+                        "sequence": 1,
+                        "time": "2026-05-23T00:02:00+00:00",
+                        "level": "info",
+                        "scope": "collector",
+                        "event": "run_completed",
+                        "message": "采集任务已完成",
+                        "payload": {"run_id": "xhs-first-running"},
+                    },
+                    ensure_ascii=False,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (run_dir / "records.jsonl").write_text("", encoding="utf-8")
+            launches = []
+            client = TestClient(create_app(db_path, collector_run_launcher=lambda run_id: launches.append(run_id)))
+
+            response = client.get("/collector/runs")
+
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            first = repo.get_collection_run("xhs-first-running")
+            next_run = repo.get_collection_run("xhs-next-queued")
+            next_events = {event.event for event in repo.list_collection_events("xhs-next-queued")}
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(first.status, "completed")
+            self.assertEqual(next_run.status, "running")
+            self.assertEqual(launches, ["xhs-next-queued"])
+            self.assertIn("queue_worker_dispatched", next_events)
+
+    def test_collector_queue_recovers_when_completed_worker_left_next_run_queued(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "falcon.sqlite3"
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="xhs-worker-completed",
+                    platform="xiaohongshu",
+                    keyword="蛋白粉",
+                    profile="default",
+                    status="completed",
+                    progress=100,
+                    current_step="采集器已完成",
+                    created_at="2026-05-23T00:00:00+00:00",
+                    updated_at="2026-05-23T00:30:00+00:00",
+                    completed_at="2026-05-23T00:30:00+00:00",
+                )
+            )
+            repo.append_collection_event(
+                CollectionEvent(
+                    run_id="xhs-worker-completed",
+                    sequence=1,
+                    scope="core",
+                    event="queue_worker_dispatched",
+                    message="队列 worker 已确认 xiaohongshu/default 空闲，启动采集器。",
+                    created_at="2026-05-23T00:01:00+00:00",
+                )
+            )
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="xhs-still-queued",
+                    platform="xiaohongshu",
+                    keyword="健身",
+                    profile="default",
+                    status="queued",
+                    progress=0,
+                    current_step="等待浏览器采集调度",
+                    created_at="2026-05-23T00:02:00+00:00",
+                    updated_at="2026-05-23T00:02:00+00:00",
+                )
+            )
+            launches = []
+            client = TestClient(create_app(db_path, collector_run_launcher=lambda run_id: launches.append(run_id)))
+
+            response = client.get("/collector/runs")
+
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            next_run = repo.get_collection_run("xhs-still-queued")
+            next_events = {event.event for event in repo.list_collection_events("xhs-still-queued")}
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(next_run.status, "running")
+            self.assertEqual(launches, ["xhs-still-queued"])
+            self.assertIn("queue_worker_dispatched", next_events)
+
+    def test_collector_queue_recovery_does_not_start_new_queue_after_manual_completed_run(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "falcon.sqlite3"
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="xhs-manual-completed",
+                    platform="xiaohongshu",
+                    keyword="蛋白粉",
+                    profile="default",
+                    status="completed",
+                    progress=100,
+                    current_step="采集器已完成",
+                    created_at="2026-05-23T00:00:00+00:00",
+                    updated_at="2026-05-23T00:30:00+00:00",
+                    completed_at="2026-05-23T00:30:00+00:00",
+                )
+            )
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="xhs-new-queued",
+                    platform="xiaohongshu",
+                    keyword="健身",
+                    profile="default",
+                    status="queued",
+                    progress=0,
+                    current_step="等待浏览器采集调度",
+                    created_at="2026-05-23T00:31:00+00:00",
+                    updated_at="2026-05-23T00:31:00+00:00",
+                )
+            )
+            launches = []
+            client = TestClient(create_app(db_path, collector_run_launcher=lambda run_id: launches.append(run_id)))
+
+            response = client.get("/collector/runs")
+
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            next_run = repo.get_collection_run("xhs-new-queued")
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(next_run.status, "queued")
+            self.assertEqual(launches, [])
+
     def test_collector_manual_action_opens_matching_profile_window(self):
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "falcon.sqlite3"
@@ -3602,6 +3902,42 @@ class WebAppTest(unittest.TestCase):
             self.assertIn('href="/analysis/samples"', response.text)
             assert_no_legacy_collection_markers(self, response.text)
 
+    def test_analysis_overview_shows_recent_five_intent_terms_for_selected_platform(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "falcon.sqlite3"
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            for index in range(1, 7):
+                repo.create_intent_analysis_task(
+                    IntentAnalysisTask(
+                        platform="xiaohongshu",
+                        user_intent=f"小红书分析意图 {index}",
+                    )
+                )
+            repo.create_intent_analysis_task(
+                IntentAnalysisTask(
+                    platform="xiaohongshu",
+                    user_intent="小红书分析意图 6",
+                )
+            )
+            repo.create_intent_analysis_task(
+                IntentAnalysisTask(
+                    platform="douyin",
+                    user_intent="抖音分析意图",
+                )
+            )
+            client = TestClient(create_app(db_path))
+
+            response = client.get("/analysis?platform=xiaohongshu")
+
+            self.assertEqual(response.status_code, 200)
+            self.assertIn('aria-label="最近五次分析意图"', response.text)
+            self.assertEqual(response.text.count('data-intent-term="小红书分析意图 6"'), 1)
+            self.assertIn('data-intent-term="小红书分析意图 3"', response.text)
+            self.assertNotIn('data-intent-term="小红书分析意图 1"', response.text)
+            self.assertNotIn('data-intent-term="抖音分析意图"', response.text)
+            self.assertIn("intentInput.value = chip.dataset.intentTerm", response.text)
+
     def test_analysis_home_groups_runs_by_platform_and_creates_intent_task(self):
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "falcon.sqlite3"
@@ -3720,11 +4056,24 @@ class WebAppTest(unittest.TestCase):
             self.assertIn(f'href="/analysis/tasks/{task_id}"', history.text)
             self.assertIn("继续编辑", history.text)
             self.assertIn("复用组合", history.text)
+            self.assertIn("加入到队列", history.text)
+            self.assertIn(f'action="/analysis/tasks/{task_id}/queue"', history.text)
             self.assertIn(f'action="/analysis/tasks/{task_id}/delete"', history.text)
             self.assertIn("已采集的数据不会删除", history.text)
             self.assertIn("删除", history.text)
             self.assertIn("data-tip=", history.text)
             self.assertNotIn("复选", history.text)
+
+            queued_from_workspace = client.post(f"/analysis/tasks/{task_id}/queue", follow_redirects=False)
+            refreshed_home = client.get("/analysis?platform=xiaohongshu")
+            refreshed_queue = client.get("/analysis/queue?platform=xiaohongshu&status=probes_ready")
+
+            self.assertEqual(queued_from_workspace.status_code, 303)
+            self.assertEqual(queued_from_workspace.headers["location"], "/analysis?platform=xiaohongshu")
+            self.assertEqual(repo.get_intent_analysis_task(task_id).status, "probes_ready")
+            self.assertNotIn(f'action="/analysis/tasks/{task_id}/queue"', refreshed_home.text)
+            self.assertNotIn(f'href="/analysis/tasks/{task_id}"', refreshed_home.text)
+            self.assertIn(f'href="/analysis/tasks/{task_id}"', refreshed_queue.text)
 
             deleted = client.post(f"/analysis/tasks/{task_id}/delete", follow_redirects=False)
             self.assertEqual(deleted.status_code, 303)
@@ -3800,13 +4149,21 @@ class WebAppTest(unittest.TestCase):
 
             self.assertEqual(created.status_code, 200)
             self.assertIn('data-create-step="probes"', home.text)
+            self.assertIn('id="analysis-loading-percent"', home.text)
+            self.assertIn('role="progressbar"', home.text)
+            self.assertIn('id="analysis-progress-fill"', home.text)
+            self.assertIn("analysis-loading-progress-v2", home.text)
+            self.assertIn("setLoadingProgress", home.text)
             self.assertIn('headers: { Accept: "application/json", "X-Requested-With": "fetch" }', home.text)
             self.assertIn('window.addEventListener("pageshow"', home.text)
             self.assertEqual(payload["task_url"], f"/analysis/tasks/{payload['task_id']}")
             self.assertEqual(payload["stream_url"], f"/analysis/tasks/{payload['task_id']}/probes/generate/stream")
             self.assertEqual(streamed.status_code, 200)
+            self.assertIn('"progress": 30', streamed.text)
             self.assertIn("event: delta", streamed.text)
+            self.assertIn('"chars":', streamed.text)
             self.assertIn("event: done", streamed.text)
+            self.assertIn('"progress": 100', streamed.text)
             self.assertEqual(repo.list_intent_analysis_probes(payload["task_id"])[0].title, "求推荐归纳小程序")
             self.assertEqual(repo.get_intent_analysis_task(payload["task_id"]).status, "probes_ready")
             self.assertIn("求推荐归纳小程序", detail.text)
@@ -3987,7 +4344,23 @@ class WebAppTest(unittest.TestCase):
                     status="probes_ready",
                 )
             )
+            draft_task_id = repo.create_intent_analysis_task(
+                IntentAnalysisTask(
+                    platform="xiaohongshu",
+                    user_intent="不要在队列显示的草稿分析",
+                    status="draft",
+                )
+            )
+            generating_task_id = repo.create_intent_analysis_task(
+                IntentAnalysisTask(
+                    platform="xiaohongshu",
+                    user_intent="不要在队列显示的探针生成中分析",
+                    status="generating_probes",
+                )
+            )
             repo.add_intent_analysis_sources(task_id, ["xhs-analysis-queue"])
+            repo.add_intent_analysis_sources(draft_task_id, ["xhs-analysis-queue"])
+            repo.add_intent_analysis_sources(generating_task_id, ["xhs-analysis-queue"])
             repo.save_intent_analysis_probe(
                 IntentAnalysisProbe(
                     task_id=task_id,
@@ -4016,6 +4389,13 @@ class WebAppTest(unittest.TestCase):
             self.assertIn("分析队列", queue.text)
             self.assertIn("独立管理意向分析任务", queue.text)
             self.assertIn('href="/analysis/tasks/%d"' % task_id, queue.text)
+            self.assertIn('href="/analysis/tasks/%d/results"' % task_id, queue.text)
+            self.assertNotIn('href="/analysis/tasks/%d"' % draft_task_id, queue.text)
+            self.assertNotIn('href="/analysis/tasks/%d"' % generating_task_id, queue.text)
+            self.assertNotIn("不要在队列显示的草稿分析", queue.text)
+            self.assertNotIn("不要在队列显示的探针生成中分析", queue.text)
+            self.assertNotIn('<option value="draft"', queue.text)
+            self.assertNotIn('<option value="generating_probes"', queue.text)
             self.assertIn('action="/analysis/tasks/%d/meta"' % task_id, queue.text)
             self.assertIn('action="/analysis/queue/execute"', queue.text)
             self.assertIn('>执行队列</button>', queue.text)
@@ -4041,6 +4421,201 @@ class WebAppTest(unittest.TestCase):
             self.assertEqual(deleted.headers["location"], "/analysis/queue")
             self.assertIsNone(repo.get_intent_analysis_task(task_id))
             self.assertEqual(repo.get_collection_run("xhs-analysis-queue").status, "completed")
+
+    def test_analysis_task_results_page_groups_matches_from_queue_title(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            db_path = tmp_path / "falcon.sqlite3"
+            asset_root = tmp_path / "runtime" / "collector" / "xhs-analysis-results" / "assets"
+            asset_root.mkdir(parents=True)
+            (asset_root / "cover.jpg").write_bytes(b"fake image")
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="xhs-analysis-results",
+                    platform="xiaohongshu",
+                    keyword="归纳 app",
+                    profile="default",
+                    status="completed",
+                )
+            )
+            post_id = repo.save_collected_post(
+                CollectedPost(
+                    run_id="xhs-analysis-results",
+                    platform="xiaohongshu",
+                    keyword="归纳 app",
+                    title="谁需要物品归纳的小程序",
+                    content="家里物品越来越多，想按房间和用途做一个清单。",
+                    url="local://analysis-results/post",
+                    author="operator",
+                    detail_fingerprint="analysis-results-post",
+                )
+            )
+            comment_id = repo.save_collected_comment(
+                CollectedComment(
+                    post_id=post_id,
+                    run_id="xhs-analysis-results",
+                    commenter="reader",
+                    content="如果能扫码记录收纳箱里的东西就好了。",
+                )
+            )
+            asset_id = repo.save_media_asset(
+                MediaAsset(
+                    run_id="xhs-analysis-results",
+                    post_id=post_id,
+                    path="runtime/collector/xhs-analysis-results/assets/cover.jpg",
+                    asset_type="image",
+                    sha256="imagehash",
+                )
+            )
+            task_id = repo.create_intent_analysis_task(
+                IntentAnalysisTask(
+                    platform="xiaohongshu",
+                    user_intent="谁需要物品归纳的小程序",
+                    status="completed",
+                    completed_at="2026-06-09T08:30:00+00:00",
+                )
+            )
+            repo.add_intent_analysis_sources(task_id, ["xhs-analysis-results"])
+            repo.save_intent_analysis_probe(
+                IntentAnalysisProbe(
+                    task_id=task_id,
+                    probe_key="probe-empty",
+                    title="无命中探针",
+                    description="这个探针没有命中帖子。",
+                    positive_signals="不存在",
+                    negative_signals="",
+                    sort_order=0,
+                )
+            )
+            first_probe_id = repo.save_intent_analysis_probe(
+                IntentAnalysisProbe(
+                    task_id=task_id,
+                    probe_key="probe-1",
+                    title="收纳数字化需求",
+                    description="识别需要记录、归纳、找回物品的用户。",
+                    positive_signals="清单\n扫码",
+                    negative_signals="装修",
+                    sort_order=1,
+                )
+            )
+            second_probe_id = repo.save_intent_analysis_probe(
+                IntentAnalysisProbe(
+                    task_id=task_id,
+                    probe_key="probe-2",
+                    title="找回物品痛点",
+                    description="识别找不到、需要定位物品的痛点。",
+                    positive_signals="找回\n定位",
+                    negative_signals="装修",
+                    sort_order=2,
+                )
+            )
+            repo.save_intent_analysis_match(
+                IntentAnalysisMatch(
+                    task_id=task_id,
+                    probe_id=first_probe_id,
+                    probe_key="probe-1",
+                    probe_title="收纳数字化需求",
+                    post_id=post_id,
+                    comment_id=None,
+                    level="post",
+                    score=91,
+                    reason="正文表达了按房间和用途做清单的需求。",
+                    excerpt="想按房间和用途做一个清单。",
+                    summary="用户希望用工具管理家庭物品。",
+                )
+            )
+            repo.save_intent_analysis_match(
+                IntentAnalysisMatch(
+                    task_id=task_id,
+                    probe_id=first_probe_id,
+                    probe_key="probe-1",
+                    probe_title="收纳数字化需求",
+                    post_id=post_id,
+                    asset_id=asset_id,
+                    level="image",
+                    score=90,
+                    reason="图片里有收纳箱和清单界面。",
+                    excerpt="图片显示收纳箱清单",
+                    summary="",
+                )
+            )
+            repo.save_intent_analysis_match(
+                IntentAnalysisMatch(
+                    task_id=task_id,
+                    probe_id=first_probe_id,
+                    probe_key="probe-1",
+                    probe_title="收纳数字化需求",
+                    post_id=post_id,
+                    comment_id=comment_id,
+                    level="comment",
+                    score=88,
+                    reason="评论提出扫码记录收纳箱内容。",
+                    excerpt="扫码记录收纳箱里的东西",
+                    summary="",
+                )
+            )
+            repo.save_intent_analysis_match(
+                IntentAnalysisMatch(
+                    task_id=task_id,
+                    probe_id=second_probe_id,
+                    probe_key="probe-2",
+                    probe_title="找回物品痛点",
+                    post_id=post_id,
+                    comment_id=None,
+                    level="post",
+                    score=82,
+                    reason="正文提到物品越来越多，隐含找回困难。",
+                    excerpt="家里物品越来越多",
+                    summary="同一个帖子也符合找回物品痛点探针。",
+                )
+            )
+            client = TestClient(create_app(db_path))
+
+            queue = client.get("/analysis/queue")
+            results = client.get(f"/analysis/tasks/{task_id}/results")
+
+            self.assertEqual(queue.status_code, 200)
+            self.assertIn('href="/analysis/tasks/%d/results"' % task_id, queue.text)
+            self.assertEqual(results.status_code, 200)
+            self.assertIn("执行结果 #%d" % task_id, results.text)
+            self.assertIn("证据", results.text)
+            self.assertIn("内容 2 / 图片 1 / 评论 1", results.text)
+            self.assertIn('aria-label="探针范围选择"', results.text)
+            self.assertIn('class="analysis-result-index-list"', results.text)
+            self.assertIn('data-probe-filter="result-probe-1"', results.text)
+            self.assertIn('data-probe-filter="result-probe-2"', results.text)
+            self.assertIn('data-probe-filter="result-probe-3"', results.text)
+            self.assertIn('aria-controls="result-probe-1"\n          aria-pressed="false"', results.text)
+            self.assertIn('aria-controls="result-probe-2"\n          aria-pressed="true"', results.text)
+            self.assertIn('role="group" aria-label="探针范围"', results.text)
+            self.assertIn('id="result-probe-1"\n      class="analysis-probe-result"\n      data-probe-panel\n      aria-hidden="true"\n      hidden', results.text)
+            self.assertIn('id="result-probe-2"\n      class="analysis-probe-result"\n      data-probe-panel\n      aria-hidden="false"', results.text)
+            self.assertIn('id="result-probe-3"\n      class="analysis-probe-result"\n      data-probe-panel\n      aria-hidden="true"\n      hidden', results.text)
+            self.assertIn('class="analysis-result-card">', results.text)
+            self.assertIn("图片缩略图", results.text)
+            self.assertIn("命中图片", results.text)
+            self.assertIn("帖子内容", results.text)
+            self.assertIn("帖子图片", results.text)
+            self.assertIn("帖子评论", results.text)
+            self.assertIn("谁需要物品归纳的小程序", results.text)
+            self.assertIn("无命中探针", results.text)
+            self.assertIn("收纳数字化需求", results.text)
+            self.assertIn("找回物品痛点", results.text)
+            self.assertIn("<small>当前</small>", results.text)
+            self.assertIn(f'id="result-probe-2-post-{post_id}" class="analysis-result-card"', results.text)
+            self.assertIn(f'id="result-probe-3-post-{post_id}" class="analysis-result-card"', results.text)
+            self.assertIn("这个探针暂无命中帖子", results.text)
+            self.assertIn("selectProbe(button.dataset.probeFilter, true)", results.text)
+            self.assertIn("<mark>想按房间和用途做一个清单。</mark>", results.text)
+            self.assertIn("<mark>扫码记录收纳箱里的东西</mark>", results.text)
+            self.assertIn("想按房间和用途做一个清单。", results.text)
+            self.assertIn("扫码记录收纳箱里的东西", results.text)
+            self.assertIn("评论提出扫码记录收纳箱内容。", results.text)
+            self.assertIn(f'src="/collector/runs/xhs-analysis-results/assets/{asset_id}"', results.text)
+            self.assertIn(f'href="/collector/runs/xhs-analysis-results/posts/{post_id}"', results.text)
+            self.assertIn('href="/analysis/tasks/%d"' % task_id, results.text)
 
     def test_analysis_queue_executes_ready_tasks_in_current_filter(self):
         executed_task_ids = []

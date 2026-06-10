@@ -1,0 +1,63 @@
+{
+  "defaultChecks": {
+    "itemCount": 3,
+    "progressHiddenInitially": true,
+    "titleIsLink": false,
+    "titleIsPlainText": true
+  },
+  "runningChecks": {
+    "progressHiddenAfterSimulation": false,
+    "buttonTextAfterSimulation": "正在执行任务",
+    "boxes": {
+      "item": {
+        "x": 260,
+        "y": 400.8125,
+        "width": 1440,
+        "height": 158.03125,
+        "right": 1700,
+        "bottom": 558.84375
+      },
+      "main": {
+        "x": 274,
+        "y": 414.8125,
+        "width": 280,
+        "height": 130.03125,
+        "right": 554,
+        "bottom": 544.84375
+      },
+      "progress": {
+        "x": 568,
+        "y": 435.484375,
+        "width": 140,
+        "height": 88.6875,
+        "right": 708,
+        "bottom": 524.171875
+      },
+      "facts": {
+        "x": 722,
+        "y": 442.328125,
+        "width": 650,
+        "height": 75,
+        "right": 1372,
+        "bottom": 517.328125
+      },
+      "actions": {
+        "x": 1386,
+        "y": 429.90625,
+        "width": 300,
+        "height": 99.84375,
+        "right": 1686,
+        "bottom": 529.75
+      },
+      "button": {
+        "x": 1410,
+        "y": 429.90625,
+        "width": 276,
+        "height": 34,
+        "right": 1686,
+        "bottom": 463.90625
+      }
+    },
+    "gridColumns": "280px 140px 650px 300px"
+  }
+}

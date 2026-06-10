@@ -1,0 +1,319 @@
+{% extends "base.html" %}
+{% block title %}分析结果 - Falcon{% endblock %}
+{% block content %}
+<header class="page-header analysis-results-header">
+  <div>
+    <div class="breadcrumb"><a href="/analysis/queue">分析队列</a> / 结果明细</div>
+    <h1>执行结果 #{{ task.task_id }}</h1>
+    <p>{{ task.user_intent }}</p>
+  </div>
+  <div class="action-row">
+    <a class="button" href="/analysis/queue?platform={{ task.platform }}">返回队列</a>
+    <a class="button" href="/analysis/tasks/{{ task.task_id }}">编辑探针</a>
+  </div>
+</header>
+
+<section class="analysis-results-summary" aria-label="执行结果概况">
+  <div>
+    <span>状态</span>
+    <strong>{{ task.status|intent_task_status }}</strong>
+    <em>{{ task.completed_at|readable_time if task.completed_at else "尚未完成" }}</em>
+  </div>
+  <div>
+    <span>证据</span>
+    <strong>{{ result_stats.total }}</strong>
+    <em>内容 {{ result_stats.post }} / 图片 {{ result_stats.image }} / 评论 {{ result_stats.comment }}</em>
+  </div>
+  <div>
+    <span>命中帖子</span>
+    <strong>{{ result_stats.posts }}</strong>
+    <em>按探针分类查阅</em>
+  </div>
+  <div>
+    <span>最高分</span>
+    <strong>{{ result_stats.max_score }}</strong>
+    <em>GPT-5.5 语义匹配</em>
+  </div>
+</section>
+
+{% if task.failed_reason %}
+<section class="analysis-results-notice has-error" aria-label="分析失败原因">
+  <strong>执行失败</strong>
+  <span>{{ task.failed_reason }}</span>
+</section>
+{% elif task.status != "completed" %}
+<section class="analysis-results-notice" aria-label="分析状态提示">
+  <strong>尚未完成</strong>
+  <span>这个任务还没有可复核的完整结果。回到队列执行后，命中证据会显示在这里。</span>
+</section>
+{% endif %}
+
+<section class="analysis-results-layout" aria-label="分析结果明细" data-analysis-results>
+  <aside class="analysis-results-side" aria-label="探针范围选择">
+    <div class="analysis-results-side-block">
+      <h2>探针范围</h2>
+      <div class="analysis-result-index-list" role="group" aria-label="探针范围">
+        {% for group in probe_groups %}
+        {% set is_selected_probe = loop.index == selected_probe_index %}
+        <button
+          type="button"
+          class="analysis-result-index-button {{ 'is-selected' if is_selected_probe }} {{ 'is-empty' if not group.posts }}"
+          data-probe-filter="result-probe-{{ loop.index }}"
+          aria-controls="result-probe-{{ loop.index }}"
+          aria-pressed="{{ 'true' if is_selected_probe else 'false' }}"
+          aria-current="{{ 'true' if is_selected_probe else 'false' }}"
+        >
+          <span>#{{ loop.index }}</span>
+          <strong>
+            <span>{{ group.probe.title }}</span>
+            <small>当前</small>
+          </strong>
+          <em>{{ group.stats.posts }} 帖 · 内容 {{ group.stats.post }} / 图片 {{ group.stats.image }} / 评论 {{ group.stats.comment }}</em>
+        </button>
+        {% else %}
+        <span class="analysis-result-empty-token">暂无探针</span>
+        {% endfor %}
+      </div>
+    </div>
+    <div class="analysis-results-side-block">
+      <h2>分析范围</h2>
+      <div class="analysis-result-context-list">
+        {% for source in sources %}
+        <a href="/collector/runs/{{ source.run_id }}" title="{{ source.run_id }}">
+          <strong>{{ source.keyword or "未命名数据包" }}</strong>
+          <span>{{ source.run_id }}</span>
+        </a>
+        {% else %}
+        <span class="analysis-result-empty-token">暂无数据包</span>
+        {% endfor %}
+      </div>
+    </div>
+  </aside>
+
+  <div class="analysis-results-main">
+    {% for group in probe_groups %}
+    {% set probe_loop_index = loop.index %}
+    {% set is_selected_probe = loop.index == selected_probe_index %}
+    <section
+      id="result-probe-{{ loop.index }}"
+      class="analysis-probe-result"
+      data-probe-panel
+      aria-hidden="{{ 'false' if is_selected_probe else 'true' }}"
+      {% if not is_selected_probe %}hidden{% endif %}
+    >
+      <div class="analysis-probe-result-summary">
+        <div class="analysis-probe-result-copy">
+          <div class="analysis-probe-result-meta">
+            <span>{{ group.probe.probe_key }}</span>
+            <span>{{ group.stats.posts }} 个帖子</span>
+            <span>{{ group.stats.total }} 条证据</span>
+          </div>
+          <h2>{{ group.probe.title }}</h2>
+          <p>{{ group.probe.description }}</p>
+        </div>
+        <div class="analysis-probe-result-counts" aria-label="探针命中统计">
+          <span>内容 <strong>{{ group.stats.post }}</strong></span>
+          <span>图片 <strong>{{ group.stats.image }}</strong></span>
+          <span>评论 <strong>{{ group.stats.comment }}</strong></span>
+        </div>
+      </div>
+
+      <div class="analysis-probe-post-list">
+        {% for item in group.posts %}
+        {% set post = item.post %}
+        <details id="result-probe-{{ probe_loop_index }}-post-{{ post.post_id if post else loop.index }}" class="analysis-result-card">
+          <summary class="analysis-result-card-summary">
+            <div>
+              <div class="analysis-result-card-meta">
+                <span>{{ post.platform|platform_label if post else task.platform|platform_label }}</span>
+                <span>{{ post.keyword if post and post.keyword else "无关键词" }}</span>
+                {% for level in item.hit_levels %}
+                <span class="hit-source hit-source-{{ level }}">{{ level|match_level }}</span>
+                {% endfor %}
+              </div>
+              <h3>{{ post.title if post else "原帖已不可用" }}</h3>
+              {% if item.content_matches and item.content_matches[0].summary %}
+              <p>{{ item.content_matches[0].summary }}</p>
+              {% elif post %}
+              <p>{{ post.content }}</p>
+              {% endif %}
+            </div>
+            <div class="analysis-result-open-indicator">
+              <strong>最高分 {{ item.max_score }}</strong>
+              <span>展开</span>
+            </div>
+          </summary>
+
+          <div class="analysis-result-card-body">
+            <div class="analysis-result-card-actions">
+              {% if post %}
+              <a class="button" href="/collector/runs/{{ post.run_id }}/posts/{{ post.post_id }}">查看原帖</a>
+              {% if post.url %}
+              <a class="button ghost" href="{{ post.url }}" target="_blank" rel="noreferrer">打开来源</a>
+              {% endif %}
+              {% endif %}
+            </div>
+
+            <section class="analysis-result-section analysis-result-media-section" aria-label="帖子图片">
+              <div class="analysis-result-section-head">
+                <h3>图片缩略图</h3>
+                <span>{{ item.image_matches|length }} 张命中</span>
+              </div>
+              <div class="analysis-result-thumb-grid">
+                {% for image in item.image_items %}
+                <figure class="analysis-result-thumb {{ 'is-hit' if image.is_hit }}">
+                  {% if image.src %}
+                  <img src="{{ image.src }}" alt="帖子图片 {{ loop.index }}">
+                  {% else %}
+                  <div class="analysis-result-thumb-missing">缺失</div>
+                  {% endif %}
+                  {% if image.is_hit %}
+                  <figcaption>命中图片</figcaption>
+                  {% endif %}
+                </figure>
+                {% else %}
+                <p class="analysis-result-section-empty">无图片</p>
+                {% endfor %}
+              </div>
+              {% if item.image_matches %}
+              <div class="analysis-result-evidence-list compact">
+                {% for match in item.image_matches %}
+                <section class="analysis-result-evidence evidence-image">
+                  <div class="analysis-result-evidence-top">
+                    <span>{{ match.level|match_level }}</span>
+                    <strong>asset #{{ match.asset_id }}</strong>
+                    <em>分数 {{ match.score }}</em>
+                  </div>
+                  <blockquote>{{ match.excerpt }}</blockquote>
+                  <p class="analysis-result-reason">{{ match.reason }}</p>
+                </section>
+                {% endfor %}
+              </div>
+              {% endif %}
+            </section>
+
+            <section class="analysis-result-section" aria-label="帖子正文">
+              <div class="analysis-result-section-head">
+                <h3>内容</h3>
+                <span>{{ item.content_matches|length }} 条内容命中</span>
+              </div>
+              <div class="analysis-result-content-box">
+                {% if post and item.content_segments %}
+                <p>
+                  {% for segment in item.content_segments %}{% if segment.hit %}<mark>{{ segment.text }}</mark>{% else %}{{ segment.text }}{% endif %}{% endfor %}
+                </p>
+                {% else %}
+                <p>暂无正文。</p>
+                {% endif %}
+              </div>
+              {% if item.content_fallbacks %}
+              <div class="analysis-result-evidence-list compact">
+                {% for match in item.content_fallbacks %}
+                <section class="analysis-result-evidence evidence-post">
+                  <div class="analysis-result-evidence-top">
+                    <span>{{ match.level|match_level }}</span>
+                    <strong>{{ match.probe_title or match.probe_key }}</strong>
+                    <em>分数 {{ match.score }}</em>
+                  </div>
+                  <blockquote>{{ match.excerpt }}</blockquote>
+                  <p class="analysis-result-reason">{{ match.reason }}</p>
+                </section>
+                {% endfor %}
+              </div>
+              {% endif %}
+            </section>
+
+            <section class="analysis-result-section" aria-label="命中评论">
+              <div class="analysis-result-section-head">
+                <h3>评论</h3>
+                <span>{{ item.hit_comments|length }} 条命中评论</span>
+              </div>
+              <div class="analysis-result-comment-list">
+                {% for hit in item.hit_comments %}
+                <article class="analysis-result-comment">
+                  <div class="analysis-result-comment-meta">
+                    <strong>{{ hit.comment.commenter or "评论用户" }}</strong>
+                    <span>分数 {{ hit.match.score }}</span>
+                  </div>
+                  <p>
+                    {% for segment in hit.segments %}{% if segment.hit %}<mark>{{ segment.text }}</mark>{% else %}{{ segment.text }}{% endif %}{% endfor %}
+                  </p>
+                  {% if hit.fallbacks %}
+                  <blockquote>{{ hit.match.excerpt }}</blockquote>
+                  {% endif %}
+                  <small>{{ hit.match.reason }}</small>
+                </article>
+                {% else %}
+                <p class="analysis-result-section-empty">没有评论命中。</p>
+                {% endfor %}
+              </div>
+            </section>
+          </div>
+        </details>
+        {% else %}
+        <div class="analysis-results-empty compact">
+          <strong>这个探针暂无命中帖子</strong>
+          <span>执行完成后，如果该探针命中内容、图片或评论，会按帖子显示在这里。</span>
+        </div>
+        {% endfor %}
+      </div>
+    </section>
+    {% else %}
+    <div class="analysis-results-empty">
+      <strong>暂无命中明细</strong>
+      <span>队列执行后，如果 GPT-5.5 找到符合探针的帖子、图片或评论，会按探针聚合显示在这里。</span>
+      <a class="button primary" href="/analysis/queue?platform={{ task.platform }}">返回分析队列</a>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+
+<script>
+(() => {
+  const root = document.querySelector("[data-analysis-results]");
+  if (!root) return;
+
+  const buttons = Array.from(root.querySelectorAll("[data-probe-filter]"));
+  const panels = Array.from(root.querySelectorAll("[data-probe-panel]"));
+  if (!buttons.length || !panels.length) return;
+
+  function selectProbe(panelId, syncHash) {
+    const target = panels.find((panel) => panel.id === panelId) || panels[0];
+    const targetId = target.id;
+
+    buttons.forEach((button) => {
+      const selected = button.dataset.probeFilter === targetId;
+      button.classList.toggle("is-selected", selected);
+      button.setAttribute("aria-pressed", selected ? "true" : "false");
+      button.setAttribute("aria-current", selected ? "true" : "false");
+    });
+
+    panels.forEach((panel) => {
+      const selected = panel.id === targetId;
+      panel.hidden = !selected;
+      panel.setAttribute("aria-hidden", selected ? "false" : "true");
+    });
+
+    if (syncHash && window.history?.replaceState) {
+      window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#${targetId}`);
+    }
+  }
+
+  const hashId = window.location.hash ? decodeURIComponent(window.location.hash.slice(1)) : "";
+  const initialButton = buttons.find((button) => button.getAttribute("aria-pressed") === "true") || buttons[0];
+  const initialPanelId = panels.some((panel) => panel.id === hashId) ? hashId : initialButton.dataset.probeFilter;
+  selectProbe(initialPanelId, false);
+
+  buttons.forEach((button) => {
+    button.addEventListener("click", () => selectProbe(button.dataset.probeFilter, true));
+  });
+
+  window.addEventListener("hashchange", () => {
+    const nextHashId = window.location.hash ? decodeURIComponent(window.location.hash.slice(1)) : "";
+    if (panels.some((panel) => panel.id === nextHashId)) {
+      selectProbe(nextHashId, false);
+    }
+  });
+})();
+</script>
+{% endblock %}

@@ -2,6 +2,23 @@
 
 本文件只保留当前可继续开发所需的信息。历史实现流水账、已执行计划和过时原型已经从仓库清理；需要追溯细节时使用 Git history。
 
+## 2026-06-10 Analysis queue results and collector queue actions
+
+- 本次补齐分析队列和采集队列的本地工作台闭环：
+  - 分析首页新增最近 5 次分析意图快捷填充、探针生成进度条和工作区任务加入队列入口。
+  - 分析队列只展示 `probes_ready`、`completed`、`failed` 任务，队列标题可进入结果明细页；新增 `analysis_results.html` 按探针聚合帖子、图片和评论命中证据。
+  - 意向分析命中记录新增 `asset_id`，执行结果页可标记命中图片，并保留正文和评论命中高亮。
+  - 采集任务归档会保存归档前状态，支持取消归档恢复；非运行任务支持物理删除，并清理关联帖子、评论、媒体、证据、分析命中和运行目录。
+  - 采集队列在运行任务完成后会继续派发同平台同 profile 的下一个 queued 任务，并补充了已完成 worker 遗留 queued 任务的恢复派发。
+- 本次包含 Playwright 视觉验证产物：
+  - `output/playwright/` 保存本轮分析页、队列、结果页和采集队列按钮状态截图/JSON。
+  - `uv.lock` 为本地 uv 依赖锁文件。
+- 验证：
+  - `python3 -m unittest tests.test_web_app.WebAppTest.test_analysis_queue_lists_edits_details_and_deletes_without_collection_queue tests.test_web_app.WebAppTest.test_analysis_task_results_page_groups_matches_from_queue_title`：passed。
+  - `python3 -m unittest discover -s tests`：268 tests passed。
+  - `python3 -m compileall falcon scripts/falcon_bootstrap.py`：passed。
+  - `git diff --check`：passed。
+
 ## 2026-05-29 Analysis platform redesign v1 archive
 
 - 新增分析层平台化重设计交接资产：

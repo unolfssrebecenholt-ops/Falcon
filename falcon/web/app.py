@@ -1,7 +1,8 @@
 import json
 import mimetypes
 import re
-from collections import Counter
+import shutil
+from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlencode, urlparse
@@ -77,6 +78,8 @@ COLLECTOR_EVENT_LABELS = {
     "rerun_created": "已创建重跑",
     "run_marked_failed": "人工标记失败",
     "run_archived": "任务归档",
+    "run_unarchived": "取消归档",
+    "run_deleted": "任务删除",
     "manual_action_window_opened": "已打开处理窗口",
     "manual_action_resumed": "继续采集",
     "queue_worker_dispatched": "队列启动",
@@ -108,6 +111,7 @@ INTENT_TASK_STATUS_LABELS = {
     "completed": "已完成",
     "failed": "失败",
 }
+ANALYSIS_QUEUE_STATUSES = {"probes_ready", "completed", "failed"}
 ASSET_TYPE_LABELS = {
     "image": "图片",
     "video": "视频",
@@ -183,6 +187,14 @@ def basename_label(value: str) -> str:
     return Path(value or "").name or "-"
 
 
+def match_level_label(value: str) -> str:
+    return {
+        "post": "帖子内容",
+        "image": "帖子图片",
+        "comment": "帖子评论",
+    }.get(str(value or ""), str(value or "-"))
+
+
 templates.env.filters["collector_status"] = collector_status_label
 templates.env.filters["collector_level"] = collector_level_label
 templates.env.filters["collector_scope"] = collector_scope_label
@@ -194,6 +206,7 @@ templates.env.filters["intent_task_status"] = intent_task_status_label
 templates.env.filters["asset_type"] = asset_type_label
 templates.env.filters["evidence_scope"] = evidence_scope_label
 templates.env.filters["basename"] = basename_label
+templates.env.filters["match_level"] = match_level_label
 templates.env.filters["relevance_label"] = relevance_label
 templates.env.filters["relevance_role_label"] = role_label
 SHANGHAI_TZ = timezone(timedelta(hours=8))
@@ -543,14 +556,27 @@ def create_app(
             },
         }
 
-    def refresh_running_run(repository: FalconRepository, run: CollectionRun) -> CollectionRun:
+    def refresh_running_run(
+        repository: FalconRepository,
+        run: CollectionRun,
+        background_tasks: Optional[BackgroundTasks] = None,
+    ) -> CollectionRun:
+        run = repository.get_collection_run(run.run_id) or run
         if run.status != "running":
             return run
         service = collector_service(repository)
         paths = service.paths_for(run.run_id, run.platform, run.profile)
         if paths.events_path.exists() or paths.records_path.exists():
             service.ingest_outputs(run.run_id, paths.events_path, paths.records_path)
-        return repository.get_collection_run(run.run_id) or run
+        refreshed = repository.get_collection_run(run.run_id) or run
+        if refreshed.status == "completed":
+            dispatch_queued_runs(
+                repository,
+                background_tasks=background_tasks,
+                only_profile=(refreshed.platform, refreshed.profile),
+            )
+            refreshed = repository.get_collection_run(run.run_id) or refreshed
+        return refreshed
 
     def append_run_event(
         repository: FalconRepository,
@@ -657,6 +683,55 @@ def create_app(
             background_tasks.add_task(app.state.collector_run_launcher, run.run_id)
         return dispatched
 
+    def recover_completed_queue_dispatches(
+        repository: FalconRepository,
+        background_tasks: Optional[BackgroundTasks] = None,
+    ) -> list[str]:
+        runs = repository.list_collection_runs(limit=1000)
+        busy = busy_profile_keys(repository)
+        queued_by_profile: dict[tuple[str, str], list[CollectionRun]] = defaultdict(list)
+        for run in runs:
+            if run.status == "queued":
+                queued_by_profile[(run.platform, run.profile)].append(run)
+
+        dispatched: list[str] = []
+        latest_completed_by_profile: dict[tuple[str, str], CollectionRun] = {}
+        completed_runs = [run for run in runs if run.status == "completed"]
+        completed_runs.sort(
+            key=lambda run: _parse_time(run.completed_at or run.updated_at) or datetime.min.replace(tzinfo=timezone.utc),
+            reverse=True,
+        )
+        for completed in completed_runs:
+            profile_key = (completed.platform, completed.profile)
+            if profile_key in latest_completed_by_profile:
+                continue
+            latest_completed_by_profile[profile_key] = completed
+
+        for profile_key, completed in latest_completed_by_profile.items():
+            if profile_key in busy or profile_key not in queued_by_profile:
+                continue
+            completed_at = _parse_time(completed.completed_at or completed.updated_at)
+            if completed_at is None:
+                continue
+            queued_before_completion = [
+                queued
+                for queued in queued_by_profile[profile_key]
+                if (_parse_time(queued.created_at) or datetime.max.replace(tzinfo=timezone.utc)) <= completed_at
+            ]
+            if not queued_before_completion:
+                continue
+            if not any(event.event == "queue_worker_dispatched" for event in repository.list_collection_events(completed.run_id)):
+                continue
+            profile_dispatches = dispatch_queued_runs(
+                repository,
+                background_tasks=background_tasks,
+                only_profile=profile_key,
+            )
+            dispatched.extend(profile_dispatches)
+            if profile_dispatches:
+                busy.add(profile_key)
+        return dispatched
+
     def manual_action_target_url(repository: FalconRepository, run: CollectionRun) -> str:
         payload = latest_manual_action_payload(repository.list_collection_events(run.run_id))
         for candidate in manual_action_payload_url_candidates(payload):
@@ -703,6 +778,18 @@ def create_app(
             raise HTTPException(status_code=404, detail="Asset file not found")
         media_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
         return FileResponse(path, media_type=media_type)
+
+    def wants_json_response(request: Request) -> bool:
+        return "application/json" in request.headers.get("accept", "") or request.headers.get("x-requested-with") == "fetch"
+
+    def delete_run_runtime_dir(run_id: str) -> None:
+        run_id = safe_collector_identifier(run_id, "run_id")
+        runtime_root = app.state.runtime_root.resolve()
+        run_dir = (app.state.runtime_root / run_id).resolve()
+        if run_dir == runtime_root or runtime_root not in run_dir.parents:
+            raise HTTPException(status_code=400, detail="Collector run path is not allowed")
+        if run_dir.exists():
+            shutil.rmtree(run_dir)
 
     def media_item_from_asset(asset):
         path = local_asset_path(asset.path)
@@ -962,9 +1049,25 @@ def create_app(
             if run.platform == selected and run.status == "completed"
         ]
         attach_analysis_run_summaries(repository, runs)
-        tasks = repository.list_intent_analysis_tasks(platform=selected, limit=8)
-        histories = []
+        tasks = repository.list_intent_analysis_tasks(platform=selected, limit=100)
+        recent_intent_terms = []
+        seen_recent_intents: set[str] = set()
         for task in tasks:
+            normalized_intent = " ".join(task.user_intent.split())
+            if not normalized_intent or normalized_intent in seen_recent_intents:
+                continue
+            seen_recent_intents.add(normalized_intent)
+            recent_intent_terms.append(
+                {
+                    "task_id": task.task_id,
+                    "user_intent": task.user_intent,
+                }
+            )
+            if len(recent_intent_terms) >= 5:
+                break
+        histories = []
+        workspace_tasks = [task for task in tasks if task.status not in ANALYSIS_QUEUE_STATUSES][:8]
+        for task in workspace_tasks:
             history_task_id = task.task_id or 0
             sources = repository.list_intent_analysis_sources(history_task_id)
             probes = repository.list_intent_analysis_probes(history_task_id)
@@ -995,6 +1098,7 @@ def create_app(
             "analysis_runs": runs,
             "intent_tasks": tasks,
             "intent_histories": histories,
+            "recent_intent_terms": recent_intent_terms,
             "prefill_run_ids": prefill_run_ids,
             "prefill_user_intent": prefill_user_intent,
         }
@@ -1011,16 +1115,191 @@ def create_app(
             "probes": probes,
         }
 
+    def intent_task_results_context(repository: FalconRepository, task_id: int):
+        detail = intent_task_detail_context(repository, task_id)
+        probes = detail["probes"]
+        matches = repository.list_intent_analysis_matches(task_id)
+        matches_by_probe_post = defaultdict(list)
+        for match in matches:
+            matches_by_probe_post[(match.probe_key, match.post_id)].append(match)
+
+        post_cache = {}
+        comments_cache = {}
+        assets_cache = {}
+
+        def post_for(post_id: int):
+            if post_id not in post_cache:
+                post_cache[post_id] = repository.get_collected_post(post_id)
+            return post_cache[post_id]
+
+        def comments_for(post_id: int):
+            if post_id not in comments_cache:
+                comments_cache[post_id] = {
+                    comment.comment_id: comment
+                    for comment in repository.list_collected_comments(post_id=post_id)
+                    if comment.comment_id is not None
+                }
+            return comments_cache[post_id]
+
+        def image_items_for(post_id: int, hit_asset_ids: set[int]):
+            if post_id not in assets_cache:
+                post = post_for(post_id)
+                assets = []
+                if post is not None:
+                    for asset in repository.list_media_assets(post.run_id, post_id=post_id):
+                        item = media_item_from_asset(asset)
+                        if item["kind"] == "image":
+                            assets.append(item)
+                assets_cache[post_id] = assets
+            items = []
+            for item in assets_cache[post_id]:
+                items.append({**item, "is_hit": item.get("id") in hit_asset_ids})
+            return items
+
+        def highlighted_segments(text: str, match_items):
+            value = str(text or "")
+            spans = []
+            for match in match_items:
+                excerpt = str(match.excerpt or "").strip()
+                if not excerpt:
+                    continue
+                start = value.find(excerpt)
+                if start < 0:
+                    continue
+                spans.append((start, start + len(excerpt)))
+            if not spans:
+                return [{"text": value, "hit": False}] if value else []
+            spans.sort()
+            merged = []
+            for start, end in spans:
+                if not merged or start > merged[-1][1]:
+                    merged.append([start, end])
+                else:
+                    merged[-1][1] = max(merged[-1][1], end)
+            parts = []
+            cursor = 0
+            for start, end in merged:
+                if start > cursor:
+                    parts.append({"text": value[cursor:start], "hit": False})
+                parts.append({"text": value[start:end], "hit": True})
+                cursor = end
+            if cursor < len(value):
+                parts.append({"text": value[cursor:], "hit": False})
+            return parts
+
+        def fallback_matches(text: str, match_items):
+            value = str(text or "")
+            fallbacks = []
+            for match in match_items:
+                excerpt = str(match.excerpt or "").strip()
+                if excerpt and excerpt not in value:
+                    fallbacks.append(match)
+            return fallbacks
+
+        probe_groups = []
+        for probe in probes:
+            post_items = []
+            for (probe_key, post_id), probe_post_matches in matches_by_probe_post.items():
+                if probe_key != probe.probe_key:
+                    continue
+                post = post_for(post_id)
+                content_matches = [match for match in probe_post_matches if match.level == "post"]
+                image_matches = [match for match in probe_post_matches if match.level == "image"]
+                comment_matches = [match for match in probe_post_matches if match.level == "comment"]
+                comments_by_id = comments_for(post_id)
+                hit_asset_ids = {match.asset_id for match in image_matches if match.asset_id is not None}
+                hit_comments = []
+                for match in comment_matches:
+                    comment = comments_by_id.get(match.comment_id)
+                    if comment is None:
+                        continue
+                    hit_comments.append(
+                        {
+                            "match": match,
+                            "comment": comment,
+                            "segments": highlighted_segments(comment.content, [match]),
+                            "fallbacks": fallback_matches(comment.content, [match]),
+                        }
+                    )
+                hit_levels = [
+                    level
+                    for level in ("post", "image", "comment")
+                    if any(match.level == level for match in probe_post_matches)
+                ]
+                post_items.append(
+                    {
+                        "post": post,
+                        "matches": probe_post_matches,
+                        "content_matches": content_matches,
+                        "image_matches": image_matches,
+                        "comment_matches": comment_matches,
+                        "hit_comments": hit_comments,
+                        "hit_levels": hit_levels,
+                        "image_items": image_items_for(post_id, hit_asset_ids),
+                        "content_segments": highlighted_segments(post.content if post else "", content_matches),
+                        "content_fallbacks": fallback_matches(post.content if post else "", content_matches),
+                        "max_score": max((match.score for match in probe_post_matches), default=0),
+                    }
+                )
+            post_items.sort(key=lambda item: (-item["max_score"], item["post"].post_id if item["post"] else 0))
+            probe_matches = [match for match in matches if match.probe_key == probe.probe_key]
+            probe_groups.append(
+                {
+                    "probe": probe,
+                    "posts": post_items,
+                    "stats": {
+                        "posts": len(post_items),
+                        "post": sum(1 for match in probe_matches if match.level == "post"),
+                        "image": sum(1 for match in probe_matches if match.level == "image"),
+                        "comment": sum(1 for match in probe_matches if match.level == "comment"),
+                        "total": len(probe_matches),
+                    },
+                }
+            )
+
+        post_match_count = sum(1 for match in matches if match.level == "post")
+        image_match_count = sum(1 for match in matches if match.level == "image")
+        comment_match_count = sum(1 for match in matches if match.level == "comment")
+        unique_post_count = len({match.post_id for match in matches})
+        selected_probe_index = next(
+            (index for index, group in enumerate(probe_groups, start=1) if group["posts"]),
+            1 if probe_groups else 0,
+        )
+        return {
+            **detail,
+            "matches": matches,
+            "probe_groups": probe_groups,
+            "selected_probe_index": selected_probe_index,
+            "result_stats": {
+                "total": len(matches),
+                "post": post_match_count,
+                "image": image_match_count,
+                "comment": comment_match_count,
+                "posts": unique_post_count,
+                "max_score": max((match.score for match in matches), default=0),
+            },
+        }
+
     def analysis_queue_context(repository: FalconRepository, platform: str = "", status: str = ""):
         allowed_platforms = {item["key"] for item in _collector_platforms()}
         selected_platform = platform if platform in allowed_platforms else ""
-        allowed_statuses = set(INTENT_TASK_STATUS_LABELS)
+        allowed_statuses = ANALYSIS_QUEUE_STATUSES
         selected_status = status if status in allowed_statuses else ""
-        tasks = repository.list_intent_analysis_tasks(
-            platform=selected_platform or None,
-            status=selected_status or None,
-            limit=100,
-        )
+        if selected_status:
+            tasks = repository.list_intent_analysis_tasks(
+                platform=selected_platform or None,
+                status=selected_status,
+                limit=100,
+            )
+        else:
+            tasks = [
+                task
+                for task in repository.list_intent_analysis_tasks(
+                    platform=selected_platform or None,
+                    limit=100,
+                )
+                if task.status in ANALYSIS_QUEUE_STATUSES
+            ]
         queue_items = []
         stats = {
             "total": len(tasks),
@@ -1055,6 +1334,7 @@ def create_app(
                     "comment_count": sum(len(item.get("comments", [])) for item in package),
                     "probe_count": len(probes),
                     "post_match_count": sum(1 for match in matches if match.level == "post"),
+                    "image_match_count": sum(1 for match in matches if match.level == "image"),
                     "comment_match_count": sum(1 for match in matches if match.level == "comment"),
                 }
             )
@@ -1067,6 +1347,7 @@ def create_app(
             "status_options": [
                 {"key": key, "label": label}
                 for key, label in INTENT_TASK_STATUS_LABELS.items()
+                if key in ANALYSIS_QUEUE_STATUSES
             ],
         }
 
@@ -1246,10 +1527,12 @@ def create_app(
         return RedirectResponse("/settings/gpt?status=saved", status_code=303)
 
     @app.get("/collector")
-    def collector_page(request: Request):
+    def collector_page(request: Request, background_tasks: BackgroundTasks):
         repository = repo()
         runs = repository.list_collection_runs(limit=100)
-        runs = [refresh_running_run(repository, run) for run in runs]
+        runs = [refresh_running_run(repository, run, background_tasks=background_tasks) for run in runs]
+        if recover_completed_queue_dispatches(repository, background_tasks=background_tasks):
+            runs = repository.list_collection_runs(limit=100)
         dashboard = repository.collector_dashboard()
         posts = repository.list_collected_posts(limit=50)
         queued_runs = [run for run in runs if run.status in {"queued", "running", "manual_action_required"}]
@@ -1272,10 +1555,12 @@ def create_app(
         )
 
     @app.get("/collector/runs")
-    def collector_runs_page(request: Request):
+    def collector_runs_page(request: Request, background_tasks: BackgroundTasks):
         repository = repo()
         runs = repository.list_collection_runs(limit=100)
-        runs = [refresh_running_run(repository, run) for run in runs]
+        runs = [refresh_running_run(repository, run, background_tasks=background_tasks) for run in runs]
+        if recover_completed_queue_dispatches(repository, background_tasks=background_tasks):
+            runs = repository.list_collection_runs(limit=100)
         posts = repository.list_collected_posts(limit=50)
         default_status_filter = request.query_params.get("status", "all")
         if default_status_filter not in {"all", "queued", "manual_action_required", "failed"}:
@@ -1533,12 +1818,18 @@ def create_app(
         return RedirectResponse(f"/collector/runs?status=queued&created={len(created_runs)}", status_code=303)
 
     @app.get("/collector/runs/{run_id}")
-    def collector_run_detail(request: Request, run_id: str, run_notice: str = ""):
+    def collector_run_detail(
+        request: Request,
+        background_tasks: BackgroundTasks,
+        run_id: str,
+        run_notice: str = "",
+    ):
         repository = repo()
         run = repository.get_collection_run(run_id)
         if run is None:
             raise HTTPException(status_code=404, detail="Collection run not found")
-        run = refresh_running_run(repository, run)
+        run = refresh_running_run(repository, run, background_tasks=background_tasks)
+        recover_completed_queue_dispatches(repository, background_tasks=background_tasks)
         events = repository.list_collection_events(run_id)
         collected_posts = repository.list_collected_posts(run_id=run_id)
         assets = repository.list_media_assets(run_id)
@@ -1750,11 +2041,7 @@ def create_app(
         if run is None:
             raise HTTPException(status_code=404, detail="Collection run not found")
         released_profile = (run.platform, run.profile) if run.status == "manual_action_required" else None
-        repository.update_collection_run(
-            run_id,
-            status="cancelled",
-            current_step="已归档",
-        )
+        repository.archive_collection_run(run_id)
         append_run_event(
             repository,
             run_id,
@@ -1763,7 +2050,7 @@ def create_app(
         )
         if released_profile is not None:
             dispatch_queued_runs(repository, background_tasks=background_tasks, only_profile=released_profile)
-        if "application/json" in request.headers.get("accept", "") or request.headers.get("x-requested-with") == "fetch":
+        if wants_json_response(request):
             updated_run = repository.get_collection_run(run_id)
             return JSONResponse(
                 {
@@ -1774,7 +2061,54 @@ def create_app(
             )
         if return_to == "/collector":
             return RedirectResponse("/collector", status_code=303)
+        if return_to == "/collector/runs":
+            return RedirectResponse("/collector/runs", status_code=303)
         return RedirectResponse(f"/collector/runs/{run_id}", status_code=303)
+
+    @app.post("/collector/runs/{run_id}/unarchive")
+    def unarchive_collection_run(request: Request, run_id: str, return_to: str = Form("")):
+        repository = repo()
+        run = repository.get_collection_run(run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="Collection run not found")
+        restored = repository.restore_archived_collection_run(run_id)
+        if restored is None:
+            raise HTTPException(status_code=404, detail="Collection run not found")
+        append_run_event(
+            repository,
+            run_id,
+            event="run_unarchived",
+            message=f"任务已取消归档，恢复为{collector_status_label(restored.status)}。",
+        )
+        if wants_json_response(request):
+            return JSONResponse(
+                {
+                    "run_id": run_id,
+                    "status": restored.status,
+                    "status_label": collector_status_label(restored.status),
+                }
+            )
+        if return_to == "/collector":
+            return RedirectResponse("/collector", status_code=303)
+        if return_to == "/collector/runs":
+            return RedirectResponse("/collector/runs", status_code=303)
+        return RedirectResponse(f"/collector/runs/{run_id}", status_code=303)
+
+    @app.post("/collector/runs/{run_id}/delete")
+    def delete_collection_run(request: Request, run_id: str, return_to: str = Form("")):
+        repository = repo()
+        run = repository.get_collection_run(run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="Collection run not found")
+        if run.status == "running":
+            raise HTTPException(status_code=400, detail="Running collection runs cannot be deleted")
+        delete_run_runtime_dir(run_id)
+        repository.delete_collection_run(run_id)
+        if wants_json_response(request):
+            return JSONResponse({"run_id": run_id, "deleted": True})
+        if return_to == "/collector":
+            return RedirectResponse("/collector", status_code=303)
+        return RedirectResponse("/collector/runs", status_code=303)
 
     @app.get("/collector/runs/{run_id}/posts/{post_id}")
     def collector_post_preview(request: Request, run_id: str, post_id: int):
@@ -1994,6 +2328,16 @@ def create_app(
             return RedirectResponse("/analysis/queue", status_code=303)
         return RedirectResponse(f"/analysis?platform={task.platform}", status_code=303)
 
+    @app.post("/analysis/tasks/{task_id}/queue")
+    def queue_intent_analysis_task(task_id: int):
+        repository = repo()
+        task = repository.get_intent_analysis_task(task_id)
+        if task is None:
+            raise HTTPException(status_code=404, detail="Intent analysis task not found")
+        if task.status not in ANALYSIS_QUEUE_STATUSES:
+            repository.update_intent_analysis_task(task_id, status="probes_ready", failed_reason="")
+        return RedirectResponse(f"/analysis?platform={task.platform}", status_code=303)
+
     @app.post("/analysis/tasks/{task_id}/meta")
     async def update_intent_analysis_task_meta(request: Request, task_id: int):
         form = await request.form()
@@ -2033,6 +2377,20 @@ def create_app(
             },
         )
 
+    @app.get("/analysis/tasks/{task_id}/results")
+    def intent_analysis_task_results_page(request: Request, task_id: int):
+        repository = repo()
+        return templates.TemplateResponse(
+            request,
+            "analysis_results.html",
+            {
+                "active": "analysis_results",
+                "page_view": "analysis_results",
+                "page_width": "wide",
+                **intent_task_results_context(repository, task_id),
+            },
+        )
+
     @app.post("/analysis/tasks/{task_id}/probes/generate")
     def generate_intent_analysis_probes(task_id: int):
         repository = repo()
@@ -2057,18 +2415,31 @@ def create_app(
                     {
                         "message": "正在准备意向、平台和数据包上下文。",
                         "status": "preparing",
+                        "progress": 30,
                     },
                 )
+                streamed_chars = 0
                 for item in service.generate_probes_stream(task_id):
                     event_type = str(item.get("type") or "status")
                     if event_type == "delta":
-                        yield sse_payload("delta", {"text": str(item.get("text") or "")})
+                        text = str(item.get("text") or "")
+                        streamed_chars += len(text)
+                        progress = min(88, 50 + round(min(streamed_chars, 1400) / 1400 * 38))
+                        yield sse_payload(
+                            "delta",
+                            {
+                                "text": text,
+                                "chars": streamed_chars,
+                                "progress": progress,
+                            },
+                        )
                     elif event_type == "done":
                         yield sse_payload(
                             "done",
                             {
                                 "message": str(item.get("message") or "探针已生成。"),
                                 "count": int(item.get("count") or 0),
+                                "progress": 100,
                                 "redirect_url": f"/analysis/tasks/{task_id}",
                             },
                         )
@@ -2078,6 +2449,7 @@ def create_app(
                             {
                                 "message": str(item.get("message") or "正在处理。"),
                                 "status": str(item.get("status") or ""),
+                                "progress": int(item.get("progress") or 48),
                             },
                         )
             except Exception as exc:

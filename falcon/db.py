@@ -109,7 +109,10 @@ class FalconRepository:
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
                     completed_at TEXT NOT NULL DEFAULT '',
-                    failed_reason TEXT NOT NULL DEFAULT ''
+                    failed_reason TEXT NOT NULL DEFAULT '',
+                    archived_status TEXT NOT NULL DEFAULT '',
+                    archived_progress INTEGER,
+                    archived_step TEXT NOT NULL DEFAULT ''
                 );
 
                 CREATE TABLE IF NOT EXISTS collection_events (
@@ -248,6 +251,7 @@ class FalconRepository:
                     probe_title TEXT NOT NULL DEFAULT '',
                     post_id INTEGER NOT NULL,
                     comment_id INTEGER,
+                    asset_id INTEGER,
                     level TEXT NOT NULL,
                     score INTEGER NOT NULL,
                     reason TEXT NOT NULL,
@@ -272,6 +276,9 @@ class FalconRepository:
             self._ensure_column(conn, "raw_items", "relevance_reason", "TEXT NOT NULL DEFAULT ''")
             self._ensure_column(conn, "collection_runs", "completed_at", "TEXT NOT NULL DEFAULT ''")
             self._ensure_column(conn, "collection_runs", "failed_reason", "TEXT NOT NULL DEFAULT ''")
+            self._ensure_column(conn, "collection_runs", "archived_status", "TEXT NOT NULL DEFAULT ''")
+            self._ensure_column(conn, "collection_runs", "archived_progress", "INTEGER")
+            self._ensure_column(conn, "collection_runs", "archived_step", "TEXT NOT NULL DEFAULT ''")
             self._ensure_column(conn, "collected_posts", "collect_count", "TEXT NOT NULL DEFAULT ''")
             self._ensure_column(conn, "collected_posts", "comment_count", "TEXT NOT NULL DEFAULT ''")
             self._ensure_column(conn, "collected_posts", "detail_fingerprint", "TEXT NOT NULL DEFAULT ''")
@@ -287,6 +294,7 @@ class FalconRepository:
             self._ensure_column(conn, "collected_comments", "reply_to", "TEXT NOT NULL DEFAULT ''")
             self._ensure_column(conn, "intent_analysis_matches", "probe_title", "TEXT NOT NULL DEFAULT ''")
             self._ensure_column(conn, "intent_analysis_matches", "summary", "TEXT NOT NULL DEFAULT ''")
+            self._ensure_column(conn, "intent_analysis_matches", "asset_id", "INTEGER")
 
     def create_collection_run(self, run: CollectionRun) -> str:
         with self._connect() as conn:
@@ -294,8 +302,9 @@ class FalconRepository:
                 """
                 INSERT INTO collection_runs (
                     run_id, platform, keyword, profile, status, progress, current_step,
-                    max_posts, max_comments_per_post, created_at, updated_at, completed_at, failed_reason
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    max_posts, max_comments_per_post, created_at, updated_at, completed_at, failed_reason,
+                    archived_status, archived_progress, archived_step
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     run.run_id,
@@ -311,6 +320,9 @@ class FalconRepository:
                     run.updated_at,
                     run.completed_at,
                     run.failed_reason,
+                    run.archived_status,
+                    run.archived_progress,
+                    run.archived_step,
                 ),
             )
         return run.run_id
@@ -343,6 +355,73 @@ class FalconRepository:
                 f"UPDATE collection_runs SET {', '.join(updates)} WHERE run_id = ?",
                 params,
             )
+
+    def archive_collection_run(self, run_id: str) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE collection_runs
+                SET updated_at = ?,
+                    archived_status = CASE WHEN status = 'cancelled' THEN archived_status ELSE status END,
+                    archived_progress = CASE WHEN status = 'cancelled' THEN archived_progress ELSE progress END,
+                    archived_step = CASE WHEN status = 'cancelled' THEN archived_step ELSE current_step END,
+                    status = 'cancelled',
+                    current_step = '已归档'
+                WHERE run_id = ?
+                """,
+                (utc_now_iso(), run_id),
+            )
+
+    def restore_archived_collection_run(self, run_id: str) -> Optional[CollectionRun]:
+        run = self.get_collection_run(run_id)
+        if run is None:
+            return None
+        if run.status != "cancelled":
+            return run
+        next_status = run.archived_status or self._infer_restored_collection_status(run)
+        next_progress = run.archived_progress if run.archived_progress is not None else _restored_progress(next_status)
+        next_step = run.archived_step or _restored_step(next_status)
+        with self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE collection_runs
+                SET updated_at = ?,
+                    status = ?,
+                    progress = ?,
+                    current_step = ?,
+                    archived_status = '',
+                    archived_progress = NULL,
+                    archived_step = ''
+                WHERE run_id = ?
+                """,
+                (utc_now_iso(), next_status, next_progress, next_step, run_id),
+            )
+        return self.get_collection_run(run_id)
+
+    def delete_collection_run(self, run_id: str) -> None:
+        with self._connect() as conn:
+            post_rows = conn.execute("SELECT id FROM collected_posts WHERE run_id = ?", (run_id,)).fetchall()
+            post_ids = [int(row["id"]) for row in post_rows]
+            if post_ids:
+                placeholders = ", ".join("?" for _ in post_ids)
+                conn.execute(
+                    f"DELETE FROM intent_analysis_matches WHERE post_id IN ({placeholders})",
+                    post_ids,
+                )
+            conn.execute("DELETE FROM intent_analysis_sources WHERE run_id = ?", (run_id,))
+            conn.execute("DELETE FROM media_assets WHERE run_id = ?", (run_id,))
+            conn.execute("DELETE FROM evidences WHERE run_id = ?", (run_id,))
+            conn.execute("DELETE FROM collected_comments WHERE run_id = ?", (run_id,))
+            conn.execute("DELETE FROM collected_posts WHERE run_id = ?", (run_id,))
+            conn.execute("DELETE FROM collection_events WHERE run_id = ?", (run_id,))
+            conn.execute("DELETE FROM collection_runs WHERE run_id = ?", (run_id,))
+
+    def _infer_restored_collection_status(self, run: CollectionRun) -> str:
+        if run.failed_reason:
+            return "failed"
+        if run.completed_at or self.list_collected_posts(run_id=run.run_id, limit=1):
+            return "completed"
+        return "queued"
 
     def append_collection_event(self, event: CollectionEvent) -> int:
         with self._connect() as conn:
@@ -638,12 +717,15 @@ class FalconRepository:
             rows = conn.execute(sql, params).fetchall()
         return [self._row_to_collected_comment(row) for row in rows]
 
-    def list_media_assets(self, run_id: str) -> List[MediaAsset]:
+    def list_media_assets(self, run_id: str, post_id: Optional[int] = None) -> List[MediaAsset]:
+        sql = "SELECT * FROM media_assets WHERE run_id = ?"
+        params: List[object] = [run_id]
+        if post_id is not None:
+            sql += " AND post_id = ?"
+            params.append(post_id)
+        sql += " ORDER BY id ASC"
         with self._connect() as conn:
-            rows = conn.execute(
-                "SELECT * FROM media_assets WHERE run_id = ? ORDER BY id ASC",
-                (run_id,),
-            ).fetchall()
+            rows = conn.execute(sql, params).fetchall()
         return [self._row_to_media_asset(row) for row in rows]
 
     def list_evidences(self, run_id: str) -> List[Evidence]:
@@ -919,6 +1001,7 @@ class FalconRepository:
                 SELECT id FROM intent_analysis_matches
                 WHERE task_id = ? AND probe_id = ? AND post_id = ? AND level = ?
                     AND ((comment_id IS NULL AND ? IS NULL) OR comment_id = ?)
+                    AND ((asset_id IS NULL AND ? IS NULL) OR asset_id = ?)
                     AND excerpt = ?
                 """,
                 (
@@ -928,6 +1011,8 @@ class FalconRepository:
                     match.level,
                     match.comment_id,
                     match.comment_id,
+                    match.asset_id,
+                    match.asset_id,
                     match.excerpt,
                 ),
             ).fetchone()
@@ -936,9 +1021,9 @@ class FalconRepository:
             cursor = conn.execute(
                 """
                 INSERT INTO intent_analysis_matches (
-                    task_id, probe_id, probe_key, probe_title, post_id, comment_id,
+                    task_id, probe_id, probe_key, probe_title, post_id, comment_id, asset_id,
                     level, score, reason, excerpt, summary, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     match.task_id,
@@ -947,6 +1032,7 @@ class FalconRepository:
                     match.probe_title,
                     match.post_id,
                     match.comment_id,
+                    match.asset_id,
                     match.level,
                     match.score,
                     match.reason,
@@ -992,6 +1078,11 @@ class FalconRepository:
                 continue
             seen.add(key)
             comments = self.list_collected_comments(post_id=post.post_id)
+            image_assets = [
+                asset
+                for asset in self.list_media_assets(post.run_id, post_id=post.post_id)
+                if str(asset.asset_type or "").lower() == "image"
+            ]
             package.append(
                 {
                     "post_id": post.post_id,
@@ -1002,6 +1093,17 @@ class FalconRepository:
                     "content": post.content,
                     "author": post.author,
                     "url": post.url,
+                    "images": [
+                        {
+                            "asset_id": asset.asset_id,
+                            "run_id": asset.run_id,
+                            "path": asset.path,
+                            "asset_type": asset.asset_type,
+                            "url": asset.url,
+                            "sha256": asset.sha256,
+                        }
+                        for asset in image_assets
+                    ],
                     "comments": [
                         {
                             "comment_id": comment.comment_id,
@@ -1306,6 +1408,9 @@ class FalconRepository:
             updated_at=row["updated_at"],
             completed_at=row["completed_at"],
             failed_reason=row["failed_reason"],
+            archived_status=row["archived_status"],
+            archived_progress=int(row["archived_progress"]) if row["archived_progress"] is not None else None,
+            archived_step=row["archived_step"],
         )
 
     def _row_to_collection_event(self, row: sqlite3.Row) -> CollectionEvent:
@@ -1432,6 +1537,7 @@ class FalconRepository:
             probe_title=row["probe_title"],
             post_id=int(row["post_id"]),
             comment_id=int(row["comment_id"]) if row["comment_id"] is not None else None,
+            asset_id=int(row["asset_id"]) if row["asset_id"] is not None else None,
             level=row["level"],
             score=int(row["score"]),
             reason=row["reason"],
@@ -1462,3 +1568,19 @@ class FalconRepository:
         columns = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
         if column not in columns:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
+
+def _restored_progress(status: str) -> int:
+    if status in {"completed", "failed"}:
+        return 100
+    if status == "manual_action_required":
+        return 50
+    return 0
+
+
+def _restored_step(status: str) -> str:
+    return {
+        "completed": "已取消归档，保留完成结果",
+        "failed": "已取消归档，保留失败状态",
+        "manual_action_required": "已取消归档，等待人工处理",
+    }.get(status, "已取消归档，等待启动")

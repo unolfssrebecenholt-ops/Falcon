@@ -1,0 +1,27 @@
+{
+  "probeCount": 1,
+  "postCount": 1,
+  "firstPostOpen": true,
+  "hitThumbCount": 1,
+  "hitThumbText": [
+    "命中图片"
+  ],
+  "hitBadges": [
+    "帖子内容",
+    "帖子图片",
+    "帖子评论"
+  ],
+  "markTexts": [
+    "按房间和用途做一个清单",
+    "扫码记录收纳箱里的东西"
+  ],
+  "noHorizontalOverflow": true,
+  "scrollWidth": 1600,
+  "clientWidth": 1600,
+  "narrow": {
+    "noHorizontalOverflow": true,
+    "scrollWidth": 1024,
+    "clientWidth": 1024,
+    "hitThumbCount": 1
+  }
+}

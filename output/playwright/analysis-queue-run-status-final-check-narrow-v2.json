@@ -1,0 +1,19 @@
+{
+  "titleIsLink": false,
+  "titleIsPlainText": true,
+  "factsOverflowRight": false,
+  "actionsOverflowRight": false,
+  "factsColumns": "200px 200px 200px",
+  "item": {
+    "width": 632,
+    "right": 882
+  },
+  "facts": {
+    "width": 604,
+    "right": 868
+  },
+  "actions": {
+    "width": 604,
+    "right": 868
+  }
+}

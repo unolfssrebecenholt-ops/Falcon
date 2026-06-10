@@ -1,0 +1,59 @@
+{
+  "itemCount": 1,
+  "firstItemStatus": "analysis-queue-item status-probes_ready is-executing",
+  "titleIsLink": false,
+  "titleIsPlainText": true,
+  "executeButtonDisabled": true,
+  "buttonText": "正在执行任务",
+  "pendingHidden": false,
+  "boxes": {
+    "item": {
+      "x": 260,
+      "y": 400.8125,
+      "width": 1440,
+      "height": 148.078125,
+      "right": 1700,
+      "bottom": 548.890625
+    },
+    "actions": {
+      "x": 1346,
+      "y": 414.8125,
+      "width": 340,
+      "height": 120.078125,
+      "right": 1686,
+      "bottom": 534.890625
+    },
+    "runControl": {
+      "x": 1492,
+      "y": 414.8125,
+      "width": 194,
+      "height": 76.078125,
+      "right": 1686,
+      "bottom": 490.890625
+    },
+    "secondary": {
+      "x": 1410,
+      "y": 500.890625,
+      "width": 276,
+      "height": 34,
+      "right": 1686,
+      "bottom": 534.890625
+    },
+    "button": {
+      "x": 1492,
+      "y": 414.8125,
+      "width": 194,
+      "height": 39.390625,
+      "right": 1686,
+      "bottom": 454.203125
+    },
+    "pending": {
+      "x": 1492,
+      "y": 461.203125,
+      "width": 194,
+      "height": 29.6875,
+      "right": 1686,
+      "bottom": 490.890625
+    }
+  }
+}
