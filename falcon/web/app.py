@@ -2334,7 +2334,7 @@ def create_app(
         task = repository.get_intent_analysis_task(task_id)
         if task is None:
             raise HTTPException(status_code=404, detail="Intent analysis task not found")
-        if task.status not in ANALYSIS_QUEUE_STATUSES:
+        if task.status != "probes_ready":
             repository.update_intent_analysis_task(task_id, status="probes_ready", failed_reason="")
         return RedirectResponse(f"/analysis?platform={task.platform}", status_code=303)
 

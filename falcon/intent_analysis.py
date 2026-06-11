@@ -5,17 +5,17 @@ from pathlib import Path
 from typing import Dict, Iterable, Iterator, List, Optional
 
 from .db import FalconRepository
-from .llm import GPT55Client, GPTResponseParseError
+from .llm import GPT55Client, GPTHTTPError, GPTResponseParseError
 from .models import IntentAnalysisMatch, IntentAnalysisProbe, utc_now_iso
 
 
 class IntentAnalysisService:
     """GPT-5.5 powered semantic probe analysis over collected posts."""
 
-    POSTS_PER_BATCH = 8
-    MAX_COMMENTS_PER_POST = 20
-    MAX_TEXT_CHARS = 900
-    MAX_IMAGES_PER_POST = 6
+    POSTS_PER_BATCH = 4
+    MAX_COMMENTS_PER_POST = 12
+    MAX_TEXT_CHARS = 700
+    MAX_IMAGES_PER_POST = 4
 
     def __init__(self, repo: FalconRepository, client: Optional[GPT55Client] = None):
         self.repo = repo
@@ -182,11 +182,15 @@ class IntentAnalysisService:
                         "error": str(exc),
                         "error_type": type(exc).__name__,
                     }
-                    parse_error = exc
-                    if exc.__cause__ is not None:
-                        parse_error = exc.__cause__
+                    parse_error = self._parse_error_from_exception(exc)
                     if isinstance(parse_error, GPTResponseParseError):
                         failure_payload["raw_response"] = parse_error.content
+                    http_error = self._http_error_from_exception(exc)
+                    if isinstance(http_error, GPTHTTPError):
+                        failure_payload["http_status"] = http_error.status
+                        failure_payload["http_reason"] = http_error.reason
+                        if http_error.content:
+                            failure_payload["raw_response"] = http_error.content[:4000]
                     self._write_execution_log(
                         task_id=task_id,
                         batch_index=batch_index,
@@ -225,6 +229,8 @@ class IntentAnalysisService:
             "请根据探针对帖子标题、正文、图片和评论做语义匹配，返回帖子内容、帖子图片和帖子评论证据。"
             "level 只能是 post、image、comment。"
             "帖子内容命中必须给出 summary，图片命中必须引用输入里存在的 asset_id。"
+            "score 必须是 0 到 100 的整数。"
+            "只输出一个合法 JSON object，根字段只能包含 matches；不要 markdown、注释、尾随逗号或 JSON 之外的文字。"
             "不要生成执行动作，不要创建回复或私信。"
         )
         user_prompt = json.dumps(
@@ -288,6 +294,26 @@ class IntentAnalysisService:
             log_path.write_text(json.dumps(log_payload, ensure_ascii=False, indent=2), encoding="utf-8")
         except OSError:
             pass
+
+    def _parse_error_from_exception(self, exc: BaseException) -> Optional[GPTResponseParseError]:
+        visited = set()
+        current: Optional[BaseException] = exc
+        while current is not None and id(current) not in visited:
+            if isinstance(current, GPTResponseParseError):
+                return current
+            visited.add(id(current))
+            current = current.__cause__ or current.__context__
+        return None
+
+    def _http_error_from_exception(self, exc: BaseException) -> Optional[GPTHTTPError]:
+        visited = set()
+        current: Optional[BaseException] = exc
+        while current is not None and id(current) not in visited:
+            if isinstance(current, GPTHTTPError):
+                return current
+            visited.add(id(current))
+            current = current.__cause__ or current.__context__
+        return None
 
     def _batch_log_summary(
         self,
@@ -488,7 +514,7 @@ class IntentAnalysisService:
                 raise ValueError("Image-level matches must not include comment_id")
             if level == "image" and asset_post_ids.get(asset_id) != post_id:
                 raise ValueError(f"Match asset_id is not in the supplied package: {asset_id}")
-            score = int(item.get("score") if item.get("score") is not None else item.get("confidence", 0))
+            score = self._normalize_score(item.get("score") if item.get("score") is not None else item.get("confidence", 0))
             if score < 0 or score > 100:
                 raise ValueError("Match score must be between 0 and 100")
             reason = str(item.get("reason") or "").strip()
@@ -534,3 +560,12 @@ class IntentAnalysisService:
         if len(text) <= self.MAX_TEXT_CHARS:
             return text
         return text[: self.MAX_TEXT_CHARS] + "..."
+
+    def _normalize_score(self, value: object) -> int:
+        try:
+            score = float(value)
+        except (TypeError, ValueError):
+            score = 0
+        if 0 < score <= 1:
+            score *= 100
+        return round(score)

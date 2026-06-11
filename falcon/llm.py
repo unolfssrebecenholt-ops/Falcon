@@ -1,6 +1,7 @@
 import json
 import os
 from typing import BinaryIO, Callable, Dict, Iterator, List, Optional
+import urllib.error
 import urllib.request
 
 from .config import DEFAULT_GPT_ENDPOINT, DEFAULT_GPT_MODEL
@@ -9,6 +10,15 @@ from .config import DEFAULT_GPT_ENDPOINT, DEFAULT_GPT_MODEL
 class GPTResponseParseError(ValueError):
     def __init__(self, message: str, content: str):
         super().__init__(message)
+        self.content = content
+
+
+class GPTHTTPError(RuntimeError):
+    def __init__(self, status: int, reason: str, content: str = ""):
+        message = f"GPT relay 返回 HTTP {status}: {reason or 'request failed'}"
+        super().__init__(message)
+        self.status = status
+        self.reason = reason
         self.content = content
 
 
@@ -76,10 +86,14 @@ class GPT55Client:
                 }
             ],
             "stream": True,
+            "text": self._responses_json_text_format(),
         }
         request = self._request(body)
-        with self.opener(request, timeout=self.timeout) as response:
-            content = self._read_responses_stream(response)
+        try:
+            with self.opener(request, timeout=self.timeout) as response:
+                content = self._read_responses_stream(response)
+        except urllib.error.HTTPError as exc:
+            raise self._http_error(exc) from exc
         return self._parse_json_object(content)
 
     def stream_json(self, system_prompt: str, user_prompt: str) -> Iterator[Dict[str, object]]:
@@ -95,18 +109,22 @@ class GPT55Client:
             "instructions": system_prompt,
             "input": user_prompt,
             "stream": True,
+            "text": self._responses_json_text_format(),
         }
         request = self._request(body)
         chunks = []
         done_text = ""
-        with self.opener(request, timeout=self.timeout) as response:
-            for text_event in self._iter_responses_text(response):
-                if text_event["type"] == "delta":
-                    text = str(text_event.get("text") or "")
-                    chunks.append(text)
-                    yield {"type": "delta", "text": text}
-                elif text_event["type"] == "done_text":
-                    done_text = str(text_event.get("text") or "")
+        try:
+            with self.opener(request, timeout=self.timeout) as response:
+                for text_event in self._iter_responses_text(response):
+                    if text_event["type"] == "delta":
+                        text = str(text_event.get("text") or "")
+                        chunks.append(text)
+                        yield {"type": "delta", "text": text}
+                    elif text_event["type"] == "done_text":
+                        done_text = str(text_event.get("text") or "")
+        except urllib.error.HTTPError as exc:
+            raise self._http_error(exc) from exc
         content = done_text or "".join(chunks)
         if not content:
             raise ValueError("GPT responses stream did not contain output text")
@@ -122,8 +140,11 @@ class GPT55Client:
             "response_format": {"type": "json_object"},
         }
         request = self._request(body)
-        with self.opener(request, timeout=self.timeout) as response:
-            payload = json.loads(response.read().decode("utf-8"))
+        try:
+            with self.opener(request, timeout=self.timeout) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            raise self._http_error(exc) from exc
 
         content = payload["choices"][0]["message"]["content"]
         return self._parse_json_object(content)
@@ -149,8 +170,11 @@ class GPT55Client:
             "response_format": {"type": "json_object"},
         }
         request = self._request(body)
-        with self.opener(request, timeout=self.timeout) as response:
-            payload = json.loads(response.read().decode("utf-8"))
+        try:
+            with self.opener(request, timeout=self.timeout) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            raise self._http_error(exc) from exc
 
         content = payload["choices"][0]["message"]["content"]
         return self._parse_json_object(content)
@@ -207,6 +231,16 @@ class GPT55Client:
             },
             method="POST",
         )
+
+    def _responses_json_text_format(self) -> Dict[str, object]:
+        return {"format": {"type": "json_object"}}
+
+    def _http_error(self, exc: urllib.error.HTTPError) -> GPTHTTPError:
+        try:
+            content = exc.read().decode("utf-8", errors="replace")
+        except Exception:
+            content = ""
+        return GPTHTTPError(exc.code, exc.reason, content)
 
     def _read_responses_stream(self, response: BinaryIO) -> str:
         chunks = []

@@ -1,7 +1,9 @@
+import io
 import json
 import unittest
+import urllib.error
 
-from falcon.llm import GPT55Client, GPTResponseParseError
+from falcon.llm import GPT55Client, GPTHTTPError, GPTResponseParseError
 
 
 class FakeResponse:
@@ -32,6 +34,21 @@ class FakeOpener:
         return self.response
 
 
+class FailingHTTPOpener:
+    def __init__(self):
+        self.error = None
+
+    def __call__(self, request, timeout):
+        self.error = urllib.error.HTTPError(
+            request.full_url,
+            502,
+            "Bad Gateway",
+            {},
+            io.BytesIO(b'{"error":"upstream failed"}'),
+        )
+        raise self.error
+
+
 def sse_event(payload):
     return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n".encode("utf-8")
 
@@ -60,7 +77,7 @@ class GPT55ClientTest(unittest.TestCase):
         self.assertEqual(body["model"], "gpt-5.5")
         self.assertEqual(body["instructions"], "system")
         self.assertEqual(body["input"], "user")
-        self.assertNotIn("text", body)
+        self.assertEqual(body["text"]["format"]["type"], "json_object")
         self.assertEqual(request.get_header("Authorization"), "Bearer secret")
         self.assertEqual(request.get_header("Accept"), "text/event-stream")
         self.assertEqual(request.get_header("User-agent"), "Falcon/0.1 OpenAI-Compatible-Client")
@@ -114,6 +131,19 @@ class GPT55ClientTest(unittest.TestCase):
 
         with self.assertRaisesRegex(RuntimeError, "relay stream failed"):
             client.complete_json("system", "user")
+
+    def test_complete_json_wraps_http_error_with_status_and_body(self):
+        opener = FailingHTTPOpener()
+        client = GPT55Client(base_url="https://relay.test", api_key="secret", opener=opener)
+
+        with self.assertRaisesRegex(GPTHTTPError, "HTTP 502") as caught:
+            client.complete_json("system", "user")
+
+        self.assertEqual(caught.exception.status, 502)
+        self.assertEqual(caught.exception.reason, "Bad Gateway")
+        self.assertIn("upstream failed", caught.exception.content)
+        if opener.error is not None:
+            opener.error.close()
 
     def test_parse_error_keeps_raw_json_candidate(self):
         response = FakeResponse(
@@ -190,6 +220,7 @@ class GPT55ClientTest(unittest.TestCase):
         body = json.loads(request.data.decode("utf-8"))
         content = body["input"][0]["content"]
         self.assertEqual(body["instructions"], "system")
+        self.assertEqual(body["text"]["format"]["type"], "json_object")
         self.assertEqual(content[0], {"type": "input_text", "text": "user"})
         self.assertEqual(content[1]["type"], "input_text")
         self.assertIn("asset_id=34", content[1]["text"])

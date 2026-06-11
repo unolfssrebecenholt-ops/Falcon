@@ -4075,6 +4075,14 @@ class WebAppTest(unittest.TestCase):
             self.assertNotIn(f'href="/analysis/tasks/{task_id}"', refreshed_home.text)
             self.assertIn(f'href="/analysis/tasks/{task_id}"', refreshed_queue.text)
 
+            repo.update_intent_analysis_task(task_id, status="failed", failed_reason="relay failed")
+            requeued_failed_task = client.post(f"/analysis/tasks/{task_id}/queue", follow_redirects=False)
+            task_after_requeue = repo.get_intent_analysis_task(task_id)
+
+            self.assertEqual(requeued_failed_task.status_code, 303)
+            self.assertEqual(task_after_requeue.status, "probes_ready")
+            self.assertEqual(task_after_requeue.failed_reason, "")
+
             deleted = client.post(f"/analysis/tasks/{task_id}/delete", follow_redirects=False)
             self.assertEqual(deleted.status_code, 303)
             self.assertEqual(deleted.headers["location"], "/analysis?platform=xiaohongshu")
