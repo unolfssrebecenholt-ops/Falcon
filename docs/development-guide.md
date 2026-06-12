@@ -309,9 +309,9 @@ falcon/web/static/app.css
 
 ## GPT-5.5 中转站
 
-Falcon 后端默认调用 OpenAI-compatible `/v1/responses`，使用 streaming 接收完整 JSON；意向探针生成页会通过 SSE 流式展示模型输出、校验和落库状态。
+Falcon 后端默认调用 OpenAI-compatible `/v1/chat/completions`，使用 `stream: true` 接收模型输出，并在后端拼完整 JSON 后再校验和落库。模型配置页保留 `/v1/responses` 作为可选通道；部分中转站的 Responses JSON/stream 组合可能返回 502。
 
-推荐从 Web 工作台 `基础 / 模型配置` 一键写入本机 `.env`：只需要填写中转站 URL 和 API key，其余参数使用默认值。
+推荐从 Web 工作台 `基础 / 模型配置` 一键写入本机 `.env`：填写中转站 URL、API key，并按当前中转站能力选择 Chat Completions 或 Responses API。
 
 环境变量名：
 

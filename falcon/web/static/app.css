@@ -10281,7 +10281,7 @@ body[data-page-view="analysis_queue"] .main {
 .analysis-queue-metrics {
   width: min(1560px, 100%);
   display: grid;
-  grid-template-columns: repeat(4, minmax(150px, 1fr));
+  grid-template-columns: repeat(5, minmax(128px, 1fr));
   gap: 10px;
   margin: 0 auto 10px;
 }
@@ -10555,7 +10555,7 @@ body[data-page-view="analysis_queue"] .main {
 .analysis-queue-facts {
   min-width: 0;
   display: grid;
-  grid-template-columns: 88px 112px 112px 100px minmax(154px, 0.9fr) minmax(148px, 1fr);
+  grid-template-columns: minmax(68px, 0.75fr) minmax(80px, 0.95fr) minmax(80px, 0.95fr) minmax(70px, 0.8fr) minmax(124px, 1.25fr) minmax(118px, 1fr);
   align-items: stretch;
   gap: 1px;
   overflow: hidden;

@@ -15,7 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from ..collector import CollectorService, clean_metric_count, safe_collector_identifier
-from ..config import load_gpt_config_view, save_gpt_config
+from ..config import GPT_ENDPOINT_OPTIONS, load_gpt_config_view, save_gpt_config
 from ..db import FalconRepository
 from ..doctor import build_doctor_report, checks_for_web
 from ..intent_analysis import IntentAnalysisService
@@ -1305,6 +1305,7 @@ def create_app(
             "total": len(tasks),
             "draft": 0,
             "probes_ready": 0,
+            "executable": 0,
             "completed": 0,
             "failed": 0,
             "source_count": 0,
@@ -1318,8 +1319,11 @@ def create_app(
             matches = repository.list_intent_analysis_matches(task_id)
             package = repository.build_intent_analysis_package(task_id)
             source_keywords = list(dict.fromkeys([source.keyword for source in sources if source.keyword]))
+            can_execute = task.status in {"probes_ready", "failed"} and bool(probes) and bool(package)
             if task.status in stats:
                 stats[task.status] += 1
+            if can_execute:
+                stats["executable"] += 1
             stats["source_count"] += len(sources)
             stats["probe_count"] += len(probes)
             stats["match_count"] += len(matches)
@@ -1333,6 +1337,7 @@ def create_app(
                     "post_count": len(package),
                     "comment_count": sum(len(item.get("comments", [])) for item in package),
                     "probe_count": len(probes),
+                    "can_execute": can_execute,
                     "post_match_count": sum(1 for match in matches if match.level == "post"),
                     "image_match_count": sum(1 for match in matches if match.level == "image"),
                     "comment_match_count": sum(1 for match in matches if match.level == "comment"),
@@ -1508,6 +1513,7 @@ def create_app(
             {
                 "active": "settings_gpt",
                 "gpt_config": load_gpt_config_view(app.state.env_path),
+                "gpt_endpoint_options": GPT_ENDPOINT_OPTIONS,
                 "settings_notice": _settings_notice(status),
             },
         )
@@ -1516,9 +1522,10 @@ def create_app(
     def save_gpt_settings(
         base_url: str = Form(""),
         api_key: str = Form(""),
+        endpoint: str = Form(""),
     ):
         try:
-            save_gpt_config(app.state.env_path, base_url=base_url, api_key=api_key)
+            save_gpt_config(app.state.env_path, base_url=base_url, api_key=api_key, endpoint=endpoint)
         except ValueError as exc:
             return RedirectResponse(
                 "/settings/gpt?" + urlencode({"status": f"error:{exc}"}),
@@ -2210,6 +2217,7 @@ def create_app(
                 "keyword_stats": keyword_stats,
                 "quality_pool": quality_pool,
                 "last_run": app.state.last_run,
+                "gpt_config": load_gpt_config_view(app.state.env_path),
                 **platform_context,
                 "stats": {
                     "scored_count": len(scored_items),
@@ -2373,6 +2381,7 @@ def create_app(
             {
                 "active": "analysis",
                 "page_view": "analysis_task",
+                "gpt_config": load_gpt_config_view(app.state.env_path),
                 **intent_task_detail_context(repository, task_id),
             },
         )

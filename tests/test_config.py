@@ -21,17 +21,18 @@ class GPTConfigTest(unittest.TestCase):
                 env_path,
                 base_url="https://relay.example.com/",
                 api_key="sk-test-secret",
+                endpoint="/v1/chat/completions",
                 environment=runtime_env,
             )
 
             content = env_path.read_text(encoding="utf-8")
             self.assertIn("FALCON_IMAGE2_MODEL=gpt-image-2", content)
             self.assertIn("FALCON_GPT_BASE_URL=https://relay.example.com", content)
-            self.assertIn("FALCON_GPT_ENDPOINT=/v1/responses", content)
+            self.assertIn("FALCON_GPT_ENDPOINT=/v1/chat/completions", content)
             self.assertIn("FALCON_GPT_API_KEY=sk-test-secret", content)
             self.assertIn("FALCON_GPT_MODEL=gpt-5.5", content)
-            self.assertIn("FALCON_GPT_TIMEOUT=60", content)
-            self.assertEqual(runtime_env["FALCON_GPT_ENDPOINT"], "/v1/responses")
+            self.assertIn("FALCON_GPT_TIMEOUT=180", content)
+            self.assertEqual(runtime_env["FALCON_GPT_ENDPOINT"], "/v1/chat/completions")
 
     def test_load_gpt_config_view_prefers_environment_and_masks_key(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -51,9 +52,11 @@ class GPTConfigTest(unittest.TestCase):
             )
 
             self.assertEqual(view.base_url, "https://env.example.com")
-            self.assertEqual(view.endpoint, "/v1/responses")
+            self.assertEqual(view.endpoint, "/v1/chat/completions")
+            self.assertEqual(view.endpoint_label, "Chat Completions")
+            self.assertTrue(view.endpoint_streaming)
             self.assertEqual(view.model, "gpt-5.5")
-            self.assertEqual(view.timeout, "60")
+            self.assertEqual(view.timeout, "180")
             self.assertEqual(view.masked_api_key, "env-...-key")
             self.assertTrue(view.configured)
 
@@ -64,6 +67,13 @@ class GPTConfigTest(unittest.TestCase):
                 save_gpt_config(env_path, base_url="relay.example.com", api_key="secret")
             with self.assertRaisesRegex(ValueError, "line breaks"):
                 save_gpt_config(env_path, base_url="https://relay.example.com", api_key="secret\nnext")
+            with self.assertRaisesRegex(ValueError, "endpoint"):
+                save_gpt_config(
+                    env_path,
+                    base_url="https://relay.example.com",
+                    api_key="secret",
+                    endpoint="/v1/unknown",
+                )
 
     def test_mask_secret_handles_short_and_empty_values(self):
         self.assertEqual(mask_secret(""), "未配置")

@@ -19,9 +19,9 @@
 
 <section class="metrics">
   <div class="metric"><span>配置状态</span><strong class="fit-text">{{ '已配置' if gpt_config.configured else '未配置' }}</strong></div>
-  <div class="metric"><span>接口</span><strong class="fit-text">{{ gpt_config.endpoint }}</strong></div>
+  <div class="metric"><span>接口</span><strong class="fit-text">{{ gpt_config.endpoint_label }}</strong></div>
   <div class="metric"><span>模型</span><strong class="fit-text">{{ gpt_config.model }}</strong></div>
-  <div class="metric"><span>超时</span><strong>{{ gpt_config.timeout }}s</strong></div>
+  <div class="metric"><span>输出方式</span><strong>{{ '流式' if gpt_config.endpoint_streaming else '整包' }}</strong></div>
 </section>
 
 <section class="layout-grid settings-grid">
@@ -51,11 +51,20 @@
           </button>
         </span>
       </label>
+      <label>
+        <span>接口通道</span>
+        <select name="endpoint" class="select-control">
+          {% for endpoint, option in gpt_endpoint_options.items() %}
+          <option value="{{ endpoint }}" {% if endpoint == gpt_config.endpoint %}selected{% endif %}>{{ option.label }} · {{ endpoint }}</option>
+          {% endfor %}
+        </select>
+      </label>
       <div class="settings-defaults">
         <div><span>Endpoint</span><strong>{{ gpt_config.endpoint }}</strong></div>
         <div><span>Model</span><strong>{{ gpt_config.model }}</strong></div>
         <div><span>Timeout</span><strong>{{ gpt_config.timeout }} 秒</strong></div>
       </div>
+      <p class="muted">当前通道：{{ gpt_config.endpoint_summary }}</p>
     </form>
   </section>
 
@@ -69,6 +78,7 @@
     <dl class="compact-list priority-list">
       <div><dt>URL</dt><dd>{{ gpt_config.base_url or '未配置' }}</dd></div>
       <div><dt>Key</dt><dd>{{ gpt_config.masked_api_key }}</dd></div>
+      <div><dt>通道</dt><dd>{{ gpt_config.endpoint_label }}，{{ '流式输出' if gpt_config.endpoint_streaming else '等待完整结果' }}</dd></div>
       <div><dt>本机文件</dt><dd>{{ gpt_config.env_path }}</dd></div>
       <div><dt>安全边界</dt><dd>密钥只保存在本机 ignored 文件</dd></div>
     </dl>

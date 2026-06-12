@@ -4,7 +4,7 @@ from typing import BinaryIO, Callable, Dict, Iterator, List, Optional
 import urllib.error
 import urllib.request
 
-from .config import DEFAULT_GPT_ENDPOINT, DEFAULT_GPT_MODEL
+from .config import DEFAULT_GPT_ENDPOINT, DEFAULT_GPT_MODEL, DEFAULT_GPT_TIMEOUT
 
 
 class GPTResponseParseError(ValueError):
@@ -31,7 +31,7 @@ class GPT55Client:
         endpoint: str = "",
         api_key: str = "",
         model: str = "",
-        timeout: int = 60,
+        timeout: int = int(DEFAULT_GPT_TIMEOUT),
         opener: Optional[Callable[..., BinaryIO]] = None,
     ):
         self.base_url = (base_url or os.getenv("FALCON_GPT_BASE_URL", "")).rstrip("/")
@@ -101,7 +101,8 @@ class GPT55Client:
             raise RuntimeError("FALCON_GPT_BASE_URL, FALCON_GPT_ENDPOINT, and FALCON_GPT_API_KEY are required")
 
         if self.endpoint.rstrip("/").endswith("/chat/completions"):
-            yield {"type": "done", "payload": self._complete_json_chat_completions(system_prompt, user_prompt)}
+            body = self._chat_completions_body(system_prompt, user_prompt, stream=True)
+            yield from self._stream_json_chat_completions(body)
             return
 
         body = {
@@ -131,22 +132,8 @@ class GPT55Client:
         yield {"type": "done", "payload": self._parse_json_object(content)}
 
     def _complete_json_chat_completions(self, system_prompt: str, user_prompt: str) -> Dict[str, object]:
-        body = {
-            "model": self.model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            "response_format": {"type": "json_object"},
-        }
-        request = self._request(body)
-        try:
-            with self.opener(request, timeout=self.timeout) as response:
-                payload = json.loads(response.read().decode("utf-8"))
-        except urllib.error.HTTPError as exc:
-            raise self._http_error(exc) from exc
-
-        content = payload["choices"][0]["message"]["content"]
+        body = self._chat_completions_body(system_prompt, user_prompt, stream=True)
+        content = self._read_chat_completions_stream(body)
         return self._parse_json_object(content)
 
     def _complete_json_chat_completions_multimodal(
@@ -155,29 +142,65 @@ class GPT55Client:
         user_prompt: str,
         images: List[Dict[str, str]],
     ) -> Dict[str, object]:
+        body = self._chat_completions_body(
+            system_prompt,
+            [
+                {"type": "text", "text": user_prompt},
+                *self._chat_image_parts(images),
+            ],
+            stream=True,
+        )
+        content = self._read_chat_completions_stream(body)
+        return self._parse_json_object(content)
+
+    def _chat_completions_body(
+        self,
+        system_prompt: str,
+        user_content: object,
+        *,
+        stream: bool,
+    ) -> Dict[str, object]:
         body = {
             "model": self.model,
             "messages": [
                 {"role": "system", "content": system_prompt},
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": user_prompt},
-                        *self._chat_image_parts(images),
-                    ],
-                },
+                {"role": "user", "content": user_content},
             ],
             "response_format": {"type": "json_object"},
+            "stream": stream,
         }
+        return body
+
+    def _read_chat_completions_stream(self, body: Dict[str, object]) -> str:
+        chunks = []
+        try:
+            with self.opener(self._request(body), timeout=self.timeout) as response:
+                for text_event in self._iter_chat_completions_text(response):
+                    if text_event["type"] == "delta":
+                        chunks.append(str(text_event.get("text") or ""))
+        except urllib.error.HTTPError as exc:
+            raise self._http_error(exc) from exc
+        content = "".join(chunks)
+        if not content:
+            raise ValueError("GPT chat completions stream did not contain output text")
+        return content
+
+    def _stream_json_chat_completions(self, body: Dict[str, object]) -> Iterator[Dict[str, object]]:
+        chunks = []
         request = self._request(body)
         try:
             with self.opener(request, timeout=self.timeout) as response:
-                payload = json.loads(response.read().decode("utf-8"))
+                for text_event in self._iter_chat_completions_text(response):
+                    if text_event["type"] == "delta":
+                        text = str(text_event.get("text") or "")
+                        chunks.append(text)
+                        yield {"type": "delta", "text": text}
         except urllib.error.HTTPError as exc:
             raise self._http_error(exc) from exc
-
-        content = payload["choices"][0]["message"]["content"]
-        return self._parse_json_object(content)
+        content = "".join(chunks)
+        if not content:
+            raise ValueError("GPT chat completions stream did not contain output text")
+        yield {"type": "done", "payload": self._parse_json_object(content)}
 
     def _responses_image_parts(self, images: List[Dict[str, str]]) -> List[Dict[str, object]]:
         parts: List[Dict[str, object]] = []
@@ -220,13 +243,14 @@ class GPT55Client:
         return parts
 
     def _request(self, body: Dict[str, object]) -> urllib.request.Request:
+        wants_stream = bool(body.get("stream"))
         return urllib.request.Request(
             self.base_url + self.endpoint,
             data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
             headers={
                 "Authorization": f"Bearer {self.api_key}",
                 "Content-Type": "application/json",
-                "Accept": "text/event-stream" if not self.endpoint.rstrip("/").endswith("/chat/completions") else "application/json",
+                "Accept": "text/event-stream" if wants_stream else "application/json",
                 "User-Agent": "Falcon/0.1 OpenAI-Compatible-Client",
             },
             method="POST",
@@ -277,6 +301,29 @@ class GPT55Client:
                 error = event.get("error") if isinstance(event.get("error"), dict) else {}
                 message = error.get("message") if isinstance(error, dict) else ""
                 raise RuntimeError(str(message or "GPT responses stream failed"))
+
+    def _iter_chat_completions_text(self, response: BinaryIO) -> Iterator[Dict[str, str]]:
+        for raw_line in response:
+            line = raw_line.decode("utf-8").strip()
+            if not line or line.startswith(":"):
+                continue
+            if not line.startswith("data:"):
+                continue
+            data = line[5:].strip()
+            if data == "[DONE]":
+                break
+            event = json.loads(data)
+            if isinstance(event.get("error"), dict):
+                message = str(event["error"].get("message") or "GPT chat completions stream failed")
+                raise RuntimeError(message)
+            choices = event.get("choices")
+            if not isinstance(choices, list) or not choices:
+                continue
+            choice = choices[0] if isinstance(choices[0], dict) else {}
+            delta = choice.get("delta") if isinstance(choice.get("delta"), dict) else {}
+            text = delta.get("content")
+            if text:
+                yield {"type": "delta", "text": str(text)}
 
     def _parse_json_object(self, content: str) -> Dict[str, object]:
         content = content.strip()

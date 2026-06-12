@@ -37,11 +37,11 @@
 
 - 新增 GPT-5.5 本地配置入口：
   - Web 工作台 `基础 / 模型配置` 可读取和写入本机 `.env`。
-  - 用户只需要填写中转站 URL 和 API key；endpoint 固定为 `/v1/responses`，模型固定为 `gpt-5.5`，timeout 默认 `60`。
+  - 用户只需要填写中转站 URL 和 API key；模型固定为 `gpt-5.5`，timeout 默认已提高到 `180`，Chat Completions 默认通过流式接收降低长请求被中转站断开的概率。
   - API key 页面默认脱敏，眼睛按钮可临时显示完整值；保存后同步当前 Web 进程环境，避免必须重启才能使用。
 - GPT 后端客户端已切到 OpenAI-compatible Responses streaming：
-  - `GPT55Client.complete_json()` 默认请求 `/v1/responses` 且 `stream=true`，后端拼完整 JSON 后返回给现有业务层。
-  - 显式配置 `/v1/chat/completions` 时仍保留旧分支作为兼容路径。
+  - 该阶段 `GPT55Client.complete_json()` 默认请求 `/v1/responses` 且 `stream=true`，后端拼完整 JSON 后返回给现有业务层。
+  - 当前默认已改为 `/v1/chat/completions`，Responses API 保留为可选流式通道。
 - 新增本地 Web 进程管理脚本：
   - macOS: `./scripts/stop.sh`、`./scripts/restart.sh`
   - Windows: `.\scripts\stop.ps1`、`.\scripts\restart.ps1`

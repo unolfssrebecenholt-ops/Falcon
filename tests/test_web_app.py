@@ -3,7 +3,7 @@ import os
 import sqlite3
 import tempfile
 import unittest
-from contextlib import closing
+from contextlib import closing, contextmanager
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -29,11 +29,33 @@ from falcon.web.app import create_app
 
 
 LEGACY_COLLECTION_MARKERS = ("".join(chr(code) for code in (24433, 20992)), "R" + "PA")
+GPT_ENV_KEYS = [
+    "FALCON_GPT_BASE_URL",
+    "FALCON_GPT_ENDPOINT",
+    "FALCON_GPT_API_KEY",
+    "FALCON_GPT_MODEL",
+    "FALCON_GPT_TIMEOUT",
+]
 
 
 def assert_no_legacy_collection_markers(test_case: unittest.TestCase, content: str) -> None:
     for marker in LEGACY_COLLECTION_MARKERS:
         test_case.assertNotIn(marker, content)
+
+
+@contextmanager
+def isolated_gpt_environment():
+    previous_env = {key: os.environ.get(key) for key in GPT_ENV_KEYS}
+    try:
+        for key in GPT_ENV_KEYS:
+            os.environ.pop(key, None)
+        yield
+    finally:
+        for key, value in previous_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
 
 
 class WebAppTest(unittest.TestCase):
@@ -315,7 +337,7 @@ class WebAppTest(unittest.TestCase):
         self.assertNotIn("slate-command-reference-pages-20260524", base_template)
         self.assertNotIn("slate-command-soft-sage-pages-20260524", base_template)
         self.assertNotIn("slate-command-stone-moss-pages-", base_template)
-        self.assertIn("collector-run-console-v1", base_template)
+        self.assertIn("analysis-queue-retry-v2", base_template)
 
     def test_help_tooltips_are_not_clipped_by_panels(self):
         css = (Path(__file__).resolve().parents[1] / "falcon" / "web" / "static" / "app.css").read_text(
@@ -711,14 +733,6 @@ class WebAppTest(unittest.TestCase):
 
     def test_gpt_settings_page_reads_and_saves_local_env(self):
         with tempfile.TemporaryDirectory() as tmp:
-            env_keys = [
-                "FALCON_GPT_BASE_URL",
-                "FALCON_GPT_ENDPOINT",
-                "FALCON_GPT_API_KEY",
-                "FALCON_GPT_MODEL",
-                "FALCON_GPT_TIMEOUT",
-            ]
-            previous_env = {key: os.environ.get(key) for key in env_keys}
             project_root = Path(tmp)
             db_path = project_root / "data" / "falcon.sqlite3"
             db_path.parent.mkdir()
@@ -733,15 +747,14 @@ class WebAppTest(unittest.TestCase):
             app.state.env_path = env_path
             client = TestClient(app)
 
-            try:
-                for key in env_keys:
-                    os.environ.pop(key, None)
+            with isolated_gpt_environment():
                 page = client.get("/settings/gpt")
                 saved = client.post(
                     "/settings/gpt",
                     data={
                         "base_url": "https://relay.example.com/",
                         "api_key": "sk-live-secret",
+                        "endpoint": "/v1/chat/completions",
                     },
                     follow_redirects=False,
                 )
@@ -751,6 +764,9 @@ class WebAppTest(unittest.TestCase):
                 self.assertIn("模型配置", page.text)
                 self.assertIn('href="/settings"', page.text)
                 self.assertIn('action="/settings/gpt"', page.text)
+                self.assertIn('name="endpoint"', page.text)
+                self.assertIn("Chat Completions", page.text)
+                self.assertIn("Responses API", page.text)
                 self.assertIn('id="gpt-api-key-toggle"', page.text)
                 self.assertIn("old-...-key", page.text)
                 self.assertNotIn(">old-secret-key<", page.text)
@@ -759,16 +775,10 @@ class WebAppTest(unittest.TestCase):
                 content = env_path.read_text(encoding="utf-8")
                 self.assertIn("FALCON_IMAGE2_MODEL=gpt-image-2", content)
                 self.assertIn("FALCON_GPT_BASE_URL=https://relay.example.com", content)
-                self.assertIn("FALCON_GPT_ENDPOINT=/v1/responses", content)
+                self.assertIn("FALCON_GPT_ENDPOINT=/v1/chat/completions", content)
                 self.assertIn("FALCON_GPT_API_KEY=sk-live-secret", content)
                 self.assertIn("FALCON_GPT_MODEL=gpt-5.5", content)
-                self.assertIn("FALCON_GPT_TIMEOUT=60", content)
-            finally:
-                for key, value in previous_env.items():
-                    if value is None:
-                        os.environ.pop(key, None)
-                    else:
-                        os.environ[key] = value
+                self.assertIn("FALCON_GPT_TIMEOUT=180", content)
 
     def test_gpt_settings_page_reports_invalid_url_without_writing_env(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -4161,6 +4171,7 @@ class WebAppTest(unittest.TestCase):
             self.assertIn('role="progressbar"', home.text)
             self.assertIn('id="analysis-progress-fill"', home.text)
             self.assertIn("analysis-loading-progress-v2", home.text)
+            self.assertIn("gptEndpointStreaming", home.text)
             self.assertIn("setLoadingProgress", home.text)
             self.assertIn('headers: { Accept: "application/json", "X-Requested-With": "fetch" }', home.text)
             self.assertIn('window.addEventListener("pageshow"', home.text)
@@ -4282,6 +4293,7 @@ class WebAppTest(unittest.TestCase):
             self.assertIn('action="/analysis/tasks/%d/probes/generate"' % task_id, detail.text)
             self.assertIn('data-stream-url="/analysis/tasks/%d/probes/generate/stream"' % task_id, detail.text)
             self.assertIn('id="probe-stream-panel"', detail.text)
+            self.assertIn("gptEndpointStreaming", detail.text)
             self.assertIn('class="probe-workbench-shell"', detail.text)
             self.assertIn('class="probe-summary-grid"', detail.text)
             self.assertIn('class="probe-inspector"', detail.text)
@@ -4311,6 +4323,62 @@ class WebAppTest(unittest.TestCase):
             self.assertEqual(repo.get_intent_analysis_task(task_id).status, "probes_ready")
             self.assertNotIn("双层证据", final_detail.text)
             self.assertNotIn("评论直接求推荐", final_detail.text)
+
+    def test_analysis_pages_reflect_chat_completions_endpoint_copy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project_root = Path(tmp)
+            db_path = project_root / "data" / "falcon.sqlite3"
+            db_path.parent.mkdir()
+            env_path = project_root / ".env"
+            env_path.write_text(
+                "FALCON_GPT_BASE_URL=https://relay.example.com\n"
+                "FALCON_GPT_ENDPOINT=/v1/chat/completions\n"
+                "FALCON_GPT_API_KEY=sk-local\n",
+                encoding="utf-8",
+            )
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="xhs-chat-copy",
+                    platform="xiaohongshu",
+                    keyword="Chat 通道",
+                    profile="default",
+                    status="completed",
+                )
+            )
+            repo.save_collected_post(
+                CollectedPost(
+                    run_id="xhs-chat-copy",
+                    platform="xiaohongshu",
+                    keyword="Chat 通道",
+                    title="Chat 通道测试",
+                    content="用于检查页面文案。",
+                    url="local://chat-copy/post",
+                    detail_fingerprint="chat-copy-post",
+                )
+            )
+            task_id = repo.create_intent_analysis_task(
+                IntentAnalysisTask(platform="xiaohongshu", user_intent="检查 Chat 通道 UI")
+            )
+            repo.add_intent_analysis_sources(task_id, ["xhs-chat-copy"])
+            app = create_app(db_path)
+            app.state.env_path = env_path
+            client = TestClient(app)
+
+            with isolated_gpt_environment():
+                home = client.get("/analysis?platform=xiaohongshu")
+                detail = client.get(f"/analysis/tasks/{task_id}")
+
+            self.assertEqual(home.status_code, 200)
+            self.assertIn("Chat Completions", home.text)
+            self.assertIn("GPT-5.5 stream", home.text)
+            self.assertIn("gptEndpointStreaming = true", home.text)
+            self.assertIn("正在建立 GPT-5.5 流", home.text)
+            self.assertEqual(detail.status_code, 200)
+            self.assertIn("GPT-5.5 stream", detail.text)
+            self.assertIn("gptEndpointStreaming = true", detail.text)
+            self.assertIn("正在准备意向、平台和数据包上下文", detail.text)
 
     def test_analysis_queue_lists_edits_details_and_deletes_without_collection_queue(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -4780,6 +4848,82 @@ class WebAppTest(unittest.TestCase):
             )
             self.assertEqual(executed_task_ids, [task_id])
             self.assertEqual(repo.get_intent_analysis_task(task_id).status, "completed")
+
+    def test_analysis_queue_failed_task_can_be_retried_from_specific_action(self):
+        executed_task_ids = []
+
+        class FakeIntentService:
+            def __init__(self, repository):
+                self.repository = repository
+
+            def execute_task(self, task_id):
+                executed_task_ids.append(task_id)
+                self.repository.update_intent_analysis_task(task_id, status="completed", failed_reason="")
+                return []
+
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "falcon.sqlite3"
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="xhs-analysis-retry",
+                    platform="xiaohongshu",
+                    keyword="蛋白粉",
+                    profile="default",
+                    status="completed",
+                )
+            )
+            repo.save_collected_post(
+                CollectedPost(
+                    run_id="xhs-analysis-retry",
+                    platform="xiaohongshu",
+                    keyword="蛋白粉",
+                    title="蛋白粉推荐",
+                    content="想找适合新手的蛋白粉。",
+                    url="local://analysis-retry/post",
+                    detail_fingerprint="analysis-retry-post",
+                )
+            )
+            task_id = repo.create_intent_analysis_task(
+                IntentAnalysisTask(
+                    platform="xiaohongshu",
+                    user_intent="蛋白粉推荐",
+                    status="failed",
+                    failed_reason="第 1/4 批分析失败：GPT relay 返回 HTTP 502: Bad Gateway",
+                )
+            )
+            repo.add_intent_analysis_sources(task_id, ["xhs-analysis-retry"])
+            repo.save_intent_analysis_probe(
+                IntentAnalysisProbe(
+                    task_id=task_id,
+                    probe_key="probe-1",
+                    title="推荐需求",
+                    description="识别用户是否正在找蛋白粉推荐。",
+                    positive_signals="推荐\n新手",
+                    negative_signals="无关",
+                    sort_order=1,
+                )
+            )
+            client = TestClient(create_app(db_path, intent_analysis_service_factory=FakeIntentService))
+
+            queue = client.get("/analysis/queue?status=failed")
+            self.assertEqual(queue.status_code, 200)
+            self.assertRegex(queue.text, r'<button[^>]+>重新执行任务</button>')
+            self.assertNotRegex(queue.text, r'<button[^>]+disabled[^>]*>重新执行任务</button>')
+            self.assertIn("<strong>1</strong><em>含失败重试</em>", queue.text)
+            self.assertIn("<strong>1 / 1</strong>", queue.text)
+
+            response = client.post(
+                f"/analysis/tasks/{task_id}/execute?return_to=queue&return_status=failed",
+                follow_redirects=False,
+            )
+
+            self.assertEqual(response.status_code, 303)
+            self.assertEqual(response.headers["location"], "/analysis/queue?status=failed&executed=1")
+            self.assertEqual(executed_task_ids, [task_id])
+            self.assertEqual(repo.get_intent_analysis_task(task_id).status, "completed")
+            self.assertEqual(repo.get_intent_analysis_task(task_id).failed_reason, "")
 
     def test_analysis_task_probe_edit_cannot_mutate_other_task_probe(self):
         with tempfile.TemporaryDirectory() as tmp:

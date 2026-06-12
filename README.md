@@ -217,13 +217,13 @@ GPT-5.5：
 
 ```text
 FALCON_GPT_BASE_URL=
-FALCON_GPT_ENDPOINT=/v1/responses
+FALCON_GPT_ENDPOINT=/v1/chat/completions
 FALCON_GPT_API_KEY=
 FALCON_GPT_MODEL=gpt-5.5
-FALCON_GPT_TIMEOUT=60
+FALCON_GPT_TIMEOUT=180
 ```
 
-Falcon 后端通过 OpenAI-compatible Responses streaming 接收 GPT-5.5 输出；意向探针生成页会流式展示模型输出、校验和落库状态。
+Falcon 后端默认通过 OpenAI-compatible Chat Completions 流式接收 GPT-5.5 输出，并在后端拼完整 JSON 后校验落库。模型配置页也可以切换到 Responses API；部分中转站的 Responses JSON/stream 组合可能返回 502。
 
 Image2：
 

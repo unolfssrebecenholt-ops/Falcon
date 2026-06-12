@@ -194,6 +194,8 @@ class FractionalScoreIntentClient(FakeIntentClient):
 
 
 class WrappedHTTPErrorClient(FakeIntentClient):
+    endpoint = "/v1/responses"
+
     def complete_json(self, system_prompt, user_prompt):
         raise RuntimeError("relay gateway failed") from GPTHTTPError(502, "Bad Gateway", '{"error":"upstream"}')
 
@@ -548,7 +550,7 @@ class IntentAnalysisServiceTest(unittest.TestCase):
             matches = IntentAnalysisService(repo, client=fake_client).execute_task(task_id)
 
             batch_sizes = [len(call[2]["posts"]) for call in fake_client.calls]
-            self.assertEqual(batch_sizes, [4] * 10 + [1])
+            self.assertEqual(batch_sizes, [2] * 20 + [1])
             self.assertEqual(len(matches), 41)
             self.assertIn(post_ids[-1], {match.post_id for match in matches})
             self.assertEqual(repo.get_intent_analysis_task(task_id).status, "completed")
@@ -705,8 +707,8 @@ class IntentAnalysisServiceTest(unittest.TestCase):
             matches = IntentAnalysisService(repo, client=fake_client).execute_task(task_id)
 
             self.assertEqual(matches, [])
-            self.assertEqual([len(call[2]) for call in fake_client.multimodal_calls], [16, 16, 4])
-            self.assertEqual([len(call[3]["posts"]) for call in fake_client.multimodal_calls], [4, 4, 1])
+            self.assertEqual([len(call[2]) for call in fake_client.multimodal_calls], [8, 8, 8, 8, 4])
+            self.assertEqual([len(call[3]["posts"]) for call in fake_client.multimodal_calls], [2, 2, 2, 2, 1])
             self.assertEqual(repo.get_intent_analysis_task(task_id).status, "completed")
 
     def test_execute_marks_task_failed_when_images_exist_but_client_lacks_multimodal(self):
@@ -805,14 +807,14 @@ class IntentAnalysisServiceTest(unittest.TestCase):
             )
             fake_client = FailingSecondBatchClient()
 
-            with self.assertRaisesRegex(RuntimeError, "第 2/5 批分析失败"):
+            with self.assertRaisesRegex(RuntimeError, "第 2/9 批分析失败"):
                 service = IntentAnalysisService(repo, client=fake_client)
                 service.log_root = Path(tmp) / "runtime" / "analysis"
                 service.execute_task(task_id)
 
             task = repo.get_intent_analysis_task(task_id)
             self.assertEqual(task.status, "failed")
-            self.assertIn("第 2/5 批分析失败", task.failed_reason)
+            self.assertIn("第 2/9 批分析失败", task.failed_reason)
             self.assertIn("relay overload", task.failed_reason)
             self.assertEqual(repo.list_intent_analysis_matches(task_id), [])
             error_log = Path(tmp) / "runtime" / "analysis" / f"task-{task_id}" / "batch-02-error.json"
@@ -822,7 +824,7 @@ class IntentAnalysisServiceTest(unittest.TestCase):
             error_payload = json.loads(error_log.read_text(encoding="utf-8"))
             self.assertEqual(error_payload["event"], "error")
             self.assertEqual(error_payload["batch_index"], 2)
-            self.assertEqual(error_payload["batch_count"], 5)
+            self.assertEqual(error_payload["batch_count"], 9)
             self.assertIn("relay overload", error_payload["error"])
 
     def test_execute_error_log_keeps_raw_response_from_wrapped_parse_error(self):
@@ -908,6 +910,9 @@ class IntentAnalysisServiceTest(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "relay gateway failed"):
                 service.execute_task(task_id)
 
+            task = repo.get_intent_analysis_task(task_id)
+            self.assertIn("Chat Completions", task.failed_reason)
+            self.assertIn("Responses JSON/stream 通道异常", task.failed_reason)
             error_log = Path(tmp) / "runtime" / "analysis" / f"task-{task_id}" / "batch-01-error.json"
             error_payload = json.loads(error_log.read_text(encoding="utf-8"))
             self.assertEqual(error_payload["http_status"], 502)

@@ -12,7 +12,7 @@ from .models import IntentAnalysisMatch, IntentAnalysisProbe, utc_now_iso
 class IntentAnalysisService:
     """GPT-5.5 powered semantic probe analysis over collected posts."""
 
-    POSTS_PER_BATCH = 4
+    POSTS_PER_BATCH = 2
     MAX_COMMENTS_PER_POST = 12
     MAX_TEXT_CHARS = 700
     MAX_IMAGES_PER_POST = 4
@@ -198,7 +198,7 @@ class IntentAnalysisService:
                         event="error",
                         payload=failure_payload,
                     )
-                    message = f"第 {batch_index}/{len(batches)} 批分析失败：{exc}"
+                    message = f"第 {batch_index}/{len(batches)} 批分析失败：{self._relay_error_hint(exc)}"
                     if isinstance(exc, ValueError):
                         raise ValueError(message) from exc
                     raise RuntimeError(message) from exc
@@ -270,6 +270,17 @@ class IntentAnalysisService:
     def _require_configured(self) -> None:
         if not self.client or not self.client.is_configured():
             raise RuntimeError("GPT intent probe analysis requires FALCON_GPT_BASE_URL, FALCON_GPT_ENDPOINT, and FALCON_GPT_API_KEY")
+
+    def _relay_error_hint(self, exc: Exception) -> str:
+        http_error = self._http_error_from_exception(exc)
+        endpoint = str(getattr(self.client, "endpoint", "") or "")
+        if (
+            isinstance(http_error, GPTHTTPError)
+            and http_error.status == 502
+            and endpoint.rstrip("/").endswith("/responses")
+        ):
+            return f"{exc}；当前 relay 的 Responses JSON/stream 通道异常，可在模型配置切换到 Chat Completions 后重试。"
+        return str(exc)
 
     def _write_execution_log(
         self,

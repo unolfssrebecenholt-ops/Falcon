@@ -5,9 +5,23 @@ from typing import Mapping, MutableMapping, Optional
 from urllib.parse import urlparse
 
 
-DEFAULT_GPT_ENDPOINT = "/v1/responses"
+DEFAULT_GPT_ENDPOINT = "/v1/chat/completions"
 DEFAULT_GPT_MODEL = "gpt-5.5"
-DEFAULT_GPT_TIMEOUT = "60"
+DEFAULT_GPT_TIMEOUT = "180"
+GPT_ENDPOINT_OPTIONS = {
+    "/v1/chat/completions": {
+        "label": "Chat Completions",
+        "summary": "兼容性更稳，使用流式接收并在后端拼完整 JSON。",
+        "mode": "chat",
+        "streaming": True,
+    },
+    "/v1/responses": {
+        "label": "Responses API",
+        "summary": "支持流式输出；部分中转站的 JSON/stream 通道可能返回 502。",
+        "mode": "responses",
+        "streaming": True,
+    },
+}
 
 GPT_ENV_KEYS = {
     "FALCON_GPT_BASE_URL",
@@ -22,6 +36,10 @@ GPT_ENV_KEYS = {
 class GPTConfigView:
     base_url: str
     endpoint: str
+    endpoint_label: str
+    endpoint_mode: str
+    endpoint_streaming: bool
+    endpoint_summary: str
     api_key: str
     model: str
     timeout: str
@@ -43,9 +61,15 @@ def load_gpt_config_view(
 
     api_key = value("FALCON_GPT_API_KEY")
     base_url = value("FALCON_GPT_BASE_URL")
+    endpoint = normalize_gpt_endpoint(value("FALCON_GPT_ENDPOINT", DEFAULT_GPT_ENDPOINT))
+    endpoint_meta = GPT_ENDPOINT_OPTIONS.get(endpoint, GPT_ENDPOINT_OPTIONS[DEFAULT_GPT_ENDPOINT])
     return GPTConfigView(
         base_url=base_url,
-        endpoint=value("FALCON_GPT_ENDPOINT", DEFAULT_GPT_ENDPOINT),
+        endpoint=endpoint,
+        endpoint_label=endpoint_meta["label"],
+        endpoint_mode=endpoint_meta["mode"],
+        endpoint_streaming=bool(endpoint_meta["streaming"]),
+        endpoint_summary=endpoint_meta["summary"],
         api_key=api_key,
         model=value("FALCON_GPT_MODEL", DEFAULT_GPT_MODEL),
         timeout=value("FALCON_GPT_TIMEOUT", DEFAULT_GPT_TIMEOUT),
@@ -61,10 +85,12 @@ def save_gpt_config(
     *,
     base_url: str,
     api_key: str,
+    endpoint: str = DEFAULT_GPT_ENDPOINT,
     environment: Optional[MutableMapping[str, str]] = None,
 ) -> None:
     base_url = normalize_base_url(base_url)
     api_key = _clean_env_value(api_key, "FALCON_GPT_API_KEY")
+    endpoint = normalize_gpt_endpoint(endpoint)
     if not base_url:
         raise ValueError("GPT base URL is required")
     if not api_key:
@@ -72,7 +98,7 @@ def save_gpt_config(
 
     values = {
         "FALCON_GPT_BASE_URL": base_url,
-        "FALCON_GPT_ENDPOINT": DEFAULT_GPT_ENDPOINT,
+        "FALCON_GPT_ENDPOINT": endpoint,
         "FALCON_GPT_API_KEY": api_key,
         "FALCON_GPT_MODEL": DEFAULT_GPT_MODEL,
         "FALCON_GPT_TIMEOUT": DEFAULT_GPT_TIMEOUT,
@@ -91,6 +117,14 @@ def normalize_base_url(value: str) -> str:
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         raise ValueError("GPT base URL must start with http:// or https://")
     return cleaned
+
+
+def normalize_gpt_endpoint(value: str) -> str:
+    endpoint = _clean_env_value(value, "FALCON_GPT_ENDPOINT") or DEFAULT_GPT_ENDPOINT
+    if endpoint not in GPT_ENDPOINT_OPTIONS:
+        allowed = "、".join(GPT_ENDPOINT_OPTIONS)
+        raise ValueError(f"GPT endpoint must be one of: {allowed}")
+    return endpoint
 
 
 def read_env_values(path: Path) -> dict[str, str]:

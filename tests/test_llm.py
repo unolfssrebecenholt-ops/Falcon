@@ -54,12 +54,12 @@ def sse_event(payload):
 
 
 class GPT55ClientTest(unittest.TestCase):
-    def test_complete_json_uses_responses_stream_by_default(self):
+    def test_complete_json_uses_chat_completions_by_default(self):
         response = FakeResponse(
             lines=[
-                sse_event({"type": "response.output_text.delta", "delta": '{"summary":"'}),
-                sse_event({"type": "response.output_text.delta", "delta": "可以执行"}),
-                sse_event({"type": "response.output_text.delta", "delta": '"}'}),
+                sse_event({"choices": [{"delta": {"role": "assistant"}}]}),
+                sse_event({"choices": [{"delta": {"content": "```json\n{\"summary\":\""}}]}),
+                sse_event({"choices": [{"delta": {"content": "可以执行\"}\n```"}}]}),
                 b"data: [DONE]\n\n",
             ]
         )
@@ -71,8 +71,41 @@ class GPT55ClientTest(unittest.TestCase):
         self.assertEqual(result, {"summary": "可以执行"})
         request, timeout = opener.requests[0]
         body = json.loads(request.data.decode("utf-8"))
+        self.assertEqual(request.full_url, "https://relay.test/v1/chat/completions")
+        self.assertEqual(timeout, 180)
+        self.assertEqual(body["model"], "gpt-5.5")
+        self.assertEqual(body["messages"][0], {"role": "system", "content": "system"})
+        self.assertEqual(body["messages"][1], {"role": "user", "content": "user"})
+        self.assertEqual(body["response_format"]["type"], "json_object")
+        self.assertTrue(body["stream"])
+        self.assertEqual(request.get_header("Authorization"), "Bearer secret")
+        self.assertEqual(request.get_header("Accept"), "text/event-stream")
+        self.assertEqual(request.get_header("User-agent"), "Falcon/0.1 OpenAI-Compatible-Client")
+
+    def test_complete_json_uses_responses_stream_when_endpoint_selected(self):
+        response = FakeResponse(
+            lines=[
+                sse_event({"type": "response.output_text.delta", "delta": '{"summary":"'}),
+                sse_event({"type": "response.output_text.delta", "delta": "可以执行"}),
+                sse_event({"type": "response.output_text.delta", "delta": '"}'}),
+                b"data: [DONE]\n\n",
+            ]
+        )
+        opener = FakeOpener(response)
+        client = GPT55Client(
+            base_url="https://relay.test",
+            endpoint="/v1/responses",
+            api_key="secret",
+            opener=opener,
+        )
+
+        result = client.complete_json("system", "user")
+
+        self.assertEqual(result, {"summary": "可以执行"})
+        request, timeout = opener.requests[0]
+        body = json.loads(request.data.decode("utf-8"))
         self.assertEqual(request.full_url, "https://relay.test/v1/responses")
-        self.assertEqual(timeout, 60)
+        self.assertEqual(timeout, 180)
         self.assertTrue(body["stream"])
         self.assertEqual(body["model"], "gpt-5.5")
         self.assertEqual(body["instructions"], "system")
@@ -89,7 +122,12 @@ class GPT55ClientTest(unittest.TestCase):
                 sse_event({"type": "response.output_text.done", "text": '{"done":true}'}),
             ]
         )
-        client = GPT55Client(base_url="https://relay.test", api_key="secret", opener=FakeOpener(response))
+        client = GPT55Client(
+            base_url="https://relay.test",
+            endpoint="/v1/responses",
+            api_key="secret",
+            opener=FakeOpener(response),
+        )
 
         self.assertEqual(client.complete_json("system", "user"), {"done": True})
 
@@ -102,7 +140,12 @@ class GPT55ClientTest(unittest.TestCase):
                 b"data: [DONE]\n\n",
             ]
         )
-        client = GPT55Client(base_url="https://relay.test", api_key="secret", opener=FakeOpener(response))
+        client = GPT55Client(
+            base_url="https://relay.test",
+            endpoint="/v1/responses",
+            api_key="secret",
+            opener=FakeOpener(response),
+        )
 
         events = list(client.stream_json("system", "user"))
 
@@ -127,14 +170,24 @@ class GPT55ClientTest(unittest.TestCase):
                 )
             ]
         )
-        client = GPT55Client(base_url="https://relay.test", api_key="secret", opener=FakeOpener(response))
+        client = GPT55Client(
+            base_url="https://relay.test",
+            endpoint="/v1/responses",
+            api_key="secret",
+            opener=FakeOpener(response),
+        )
 
         with self.assertRaisesRegex(RuntimeError, "relay stream failed"):
             client.complete_json("system", "user")
 
     def test_complete_json_wraps_http_error_with_status_and_body(self):
         opener = FailingHTTPOpener()
-        client = GPT55Client(base_url="https://relay.test", api_key="secret", opener=opener)
+        client = GPT55Client(
+            base_url="https://relay.test",
+            endpoint="/v1/responses",
+            api_key="secret",
+            opener=opener,
+        )
 
         with self.assertRaisesRegex(GPTHTTPError, "HTTP 502") as caught:
             client.complete_json("system", "user")
@@ -152,7 +205,12 @@ class GPT55ClientTest(unittest.TestCase):
                 b"data: [DONE]\n\n",
             ]
         )
-        client = GPT55Client(base_url="https://relay.test", api_key="secret", opener=FakeOpener(response))
+        client = GPT55Client(
+            base_url="https://relay.test",
+            endpoint="/v1/responses",
+            api_key="secret",
+            opener=FakeOpener(response),
+        )
 
         with self.assertRaises(GPTResponseParseError) as caught:
             client.complete_json("system", "user")
@@ -160,19 +218,13 @@ class GPT55ClientTest(unittest.TestCase):
         self.assertIn('"matches"', caught.exception.content)
         self.assertIn('"excerpt"', caught.exception.content)
 
-    def test_chat_completions_endpoint_remains_supported(self):
+    def test_chat_completions_endpoint_can_be_selected_explicitly(self):
         response = FakeResponse(
-            body=json.dumps(
-                {
-                    "choices": [
-                        {
-                            "message": {
-                                "content": "```json\n{\"legacy\": true}\n```",
-                            }
-                        }
-                    ]
-                }
-            ).encode("utf-8")
+            lines=[
+                sse_event({"choices": [{"delta": {"content": "```json\n{\"legacy\":"}}]}),
+                sse_event({"choices": [{"delta": {"content": " true}\n```"}}]}),
+                b"data: [DONE]\n\n",
+            ]
         )
         opener = FakeOpener(response)
         client = GPT55Client(
@@ -190,7 +242,43 @@ class GPT55ClientTest(unittest.TestCase):
         self.assertEqual(request.full_url, "https://relay.test/v1/chat/completions")
         self.assertEqual(body["messages"][0]["role"], "system")
         self.assertEqual(body["response_format"]["type"], "json_object")
-        self.assertEqual(request.get_header("Accept"), "application/json")
+        self.assertTrue(body["stream"])
+        self.assertEqual(request.get_header("Accept"), "text/event-stream")
+
+    def test_stream_json_yields_chat_completions_delta_then_done_payload(self):
+        response = FakeResponse(
+            lines=[
+                sse_event({"choices": [{"delta": {"role": "assistant"}}]}),
+                sse_event({"choices": [{"delta": {"content": "{\"summary\":\""}}]}),
+                sse_event({"choices": [{"delta": {"content": "流式"}}]}),
+                sse_event({"choices": [{"delta": {"content": "\"}"}}]}),
+                b"data: [DONE]\n\n",
+            ]
+        )
+        opener = FakeOpener(response)
+        client = GPT55Client(
+            base_url="https://relay.test",
+            endpoint="/v1/chat/completions",
+            api_key="secret",
+            opener=opener,
+        )
+
+        events = list(client.stream_json("system", "user"))
+
+        self.assertEqual(
+            events,
+            [
+                {"type": "delta", "text": "{\"summary\":\""},
+                {"type": "delta", "text": "流式"},
+                {"type": "delta", "text": "\"}"},
+                {"type": "done", "payload": {"summary": "流式"}},
+            ],
+        )
+        request, _timeout = opener.requests[0]
+        body = json.loads(request.data.decode("utf-8"))
+        self.assertEqual(request.full_url, "https://relay.test/v1/chat/completions")
+        self.assertTrue(body["stream"])
+        self.assertEqual(request.get_header("Accept"), "text/event-stream")
 
     def test_complete_json_multimodal_uses_responses_image_parts(self):
         response = FakeResponse(
@@ -200,7 +288,12 @@ class GPT55ClientTest(unittest.TestCase):
             ]
         )
         opener = FakeOpener(response)
-        client = GPT55Client(base_url="https://relay.test", api_key="secret", opener=opener)
+        client = GPT55Client(
+            base_url="https://relay.test",
+            endpoint="/v1/responses",
+            api_key="secret",
+            opener=opener,
+        )
 
         result = client.complete_json_multimodal(
             "system",
@@ -228,17 +321,11 @@ class GPT55ClientTest(unittest.TestCase):
 
     def test_complete_json_multimodal_uses_chat_image_parts(self):
         response = FakeResponse(
-            body=json.dumps(
-                {
-                    "choices": [
-                        {
-                            "message": {
-                                "content": '{"ok": true}',
-                            }
-                        }
-                    ]
-                }
-            ).encode("utf-8")
+            lines=[
+                sse_event({"choices": [{"delta": {"content": "{\"ok\":"}}]}),
+                sse_event({"choices": [{"delta": {"content": " true}"}}]}),
+                b"data: [DONE]\n\n",
+            ]
         )
         opener = FakeOpener(response)
         client = GPT55Client(
@@ -266,6 +353,7 @@ class GPT55ClientTest(unittest.TestCase):
         body = json.loads(request.data.decode("utf-8"))
         content = body["messages"][1]["content"]
         self.assertEqual(body["messages"][0], {"role": "system", "content": "system"})
+        self.assertTrue(body["stream"])
         self.assertEqual(content[0], {"type": "text", "text": "user"})
         self.assertEqual(content[1]["type"], "text")
         self.assertIn("asset_id=34", content[1]["text"])

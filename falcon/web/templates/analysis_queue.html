@@ -20,6 +20,7 @@
 <section class="analysis-queue-metrics" aria-label="分析队列概况">
   <div><span>任务</span><strong>{{ queue_stats.total }}</strong><em>当前列表</em></div>
   <div><span>待执行</span><strong>{{ queue_stats.probes_ready }}</strong><em>探针已就绪</em></div>
+  <div><span>可执行</span><strong>{{ queue_stats.executable }}</strong><em>含失败重试</em></div>
   <div><span>已完成</span><strong>{{ queue_stats.completed }}</strong><em>完成分析</em></div>
   <div><span>命中</span><strong>{{ queue_stats.match_count }}</strong><em>证据记录</em></div>
 </section>
@@ -28,6 +29,7 @@
   <span>{{ selected_platform|platform_label if selected_platform else "全部平台" }}</span>
   <span>{{ selected_status|intent_task_status if selected_status else "全部状态" }}</span>
   <span>{{ queue_stats.probes_ready }} 个待执行</span>
+  <span>{{ queue_stats.failed }} 个失败可复查</span>
 </section>
 
 {% if queue_notice and queue_notice.total %}
@@ -64,7 +66,7 @@
   </form>
   <div class="analysis-queue-readiness">
     <span>可执行</span>
-    <strong>{{ queue_stats.probes_ready }} / {{ queue_stats.total }}</strong>
+    <strong>{{ queue_stats.executable }} / {{ queue_stats.total }}</strong>
   </div>
 </section>
 
@@ -134,7 +136,7 @@
     <div class="analysis-queue-actions">
       <div class="analysis-queue-run-control">
         <form method="post" action="/analysis/tasks/{{ task.task_id }}/execute?return_to=queue{% if selected_platform %}&return_platform={{ selected_platform }}{% endif %}{% if selected_status %}&return_status={{ selected_status }}{% endif %}" data-analysis-execute-form data-submitting-label="正在执行任务" data-pending-target="analysis-task-feedback-{{ task.task_id }}" data-progress-target="analysis-task-progress-{{ task.task_id }}">
-          <button class="button primary analysis-queue-execute-button" type="submit" {% if task.status != "probes_ready" or not item.probe_count %}disabled{% endif %}>执行特定任务</button>
+          <button class="button primary analysis-queue-execute-button" type="submit" {% if not item.can_execute %}disabled{% endif %}>{{ "重新执行任务" if task.status == "failed" else "执行特定任务" }}</button>
         </form>
         <p id="analysis-task-feedback-{{ task.task_id }}" class="analysis-queue-pending-feedback" aria-live="polite" hidden>已接收执行请求，Falcon 正在匹配帖子和评论。</p>
       </div>

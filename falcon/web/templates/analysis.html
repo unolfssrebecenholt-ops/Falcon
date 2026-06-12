@@ -19,7 +19,7 @@
   <div><span>已评分</span><strong>{{ stats.scored_count }}</strong></div>
   <div><span>高意图</span><strong>{{ stats.high_intent_count }}</strong></div>
   <div><span>关键词</span><strong>{{ stats.keyword_count }}</strong></div>
-  <div><span>模型</span><strong>GPT-5.5</strong></div>
+  <div><span>模型</span><strong>{{ gpt_config.endpoint_label }}</strong></div>
 </section>
 
 <section class="analysis-command-shell" aria-label="分析工作台">
@@ -36,7 +36,7 @@
     <div id="analysis-probe-loading" class="analysis-probe-loading" data-progress-version="analysis-loading-progress-v2" hidden>
       <div class="analysis-loading-head">
         <div class="analysis-loading-copy">
-          <span>GPT-5.5 stream</span>
+          <span>{{ "GPT-5.5 stream" if gpt_config.endpoint_streaming else "GPT-5.5 chat" }}</span>
           <strong id="analysis-loading-title">正在准备探针工作区</strong>
           <p id="analysis-loading-message">Falcon 正在读取选中的数据包、分析意图和评论上下文。</p>
         </div>
@@ -244,6 +244,7 @@
   const createStepOrder = ["sources", "probes", "editor"];
   const createStepProgress = { sources: 30, probes: 88, editor: 100 };
   const createStepLabels = { sources: "接入中", probes: "生成中", editor: "写入中", error: "需检查" };
+  const gptEndpointStreaming = {{ 'true' if gpt_config.endpoint_streaming else 'false' }};
   let currentProgress = 0;
   let streamedTextLength = 0;
 
@@ -432,7 +433,12 @@
   };
 
   const streamGeneratedProbes = async (streamUrl, taskUrl) => {
-    setLoadingState("正在建立 GPT-5.5 流", "任务已创建，正在打开探针生成通道。", "sources", 34);
+    setLoadingState(
+      gptEndpointStreaming ? "正在建立 GPT-5.5 流" : "正在等待 GPT-5.5 完整结果",
+      gptEndpointStreaming ? "任务已创建，正在打开探针生成通道。" : "当前通道会等待完整 JSON 返回，完成后一次性写入探针。",
+      "sources",
+      34
+    );
     const response = await fetch(streamUrl, {
       method: "POST",
       headers: { Accept: "text/event-stream" },
@@ -506,7 +512,7 @@
           window.location.href = payload.task_url || "/analysis";
           return;
         }
-        setLoadingState("已创建探针任务", "本地任务记录已保存，正在连接 GPT-5.5。", "sources", 24);
+        setLoadingState("已创建探针任务", gptEndpointStreaming ? "本地任务记录已保存，正在连接 GPT-5.5。" : "本地任务记录已保存，正在等待完整探针结果。", "sources", 24);
         const completed = await streamGeneratedProbes(payload.stream_url, payload.task_url);
         if (!completed) {
           window.location.href = payload.task_url;

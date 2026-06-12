@@ -58,7 +58,7 @@
   <div id="probe-stream-panel" class="probe-stream-panel" hidden>
     <div class="probe-stream-top">
       <div>
-        <span>GPT-5.5 stream</span>
+        <span>{{ "GPT-5.5 stream" if gpt_config.endpoint_streaming else "GPT-5.5 chat" }}</span>
         <strong id="probe-stream-title">准备生成</strong>
       </div>
       <em id="probe-stream-state">standby</em>
@@ -164,6 +164,7 @@
   const output = document.getElementById("probe-stream-output");
   const error = document.getElementById("probe-stream-error");
   const steps = Array.from(document.querySelectorAll(".probe-stream-steps [data-step]"));
+  const gptEndpointStreaming = {{ 'true' if gpt_config.endpoint_streaming else 'false' }};
 
   const activateStep = (name) => {
     const order = ["preparing", "generating", "saving"];
@@ -230,7 +231,7 @@
     error.hidden = true;
     output.textContent = "";
     activateStep("preparing");
-    setStatus("正在准备意向、平台和数据包上下文。", "preparing");
+    setStatus(gptEndpointStreaming ? "正在准备意向、平台和数据包上下文。" : "正在等待 GPT-5.5 返回完整探针结果。", "preparing");
     if (button) {
       button.disabled = true;
       button.textContent = "生成中";
