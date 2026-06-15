@@ -4505,6 +4505,8 @@ class WebAppTest(unittest.TestCase):
             asset_root = tmp_path / "runtime" / "collector" / "xhs-analysis-results" / "assets"
             asset_root.mkdir(parents=True)
             (asset_root / "cover.jpg").write_bytes(b"fake image")
+            (asset_root / "box.jpg").write_bytes(b"fake image 2")
+            (asset_root / "room.jpg").write_bytes(b"fake image 3")
             repo = FalconRepository(db_path)
             repo.init_schema()
             repo.create_collection_run(
@@ -4528,21 +4530,58 @@ class WebAppTest(unittest.TestCase):
                     detail_fingerprint="analysis-results-post",
                 )
             )
-            comment_id = repo.save_collected_comment(
-                CollectedComment(
-                    post_id=post_id,
-                    run_id="xhs-analysis-results",
-                    commenter="reader",
-                    content="如果能扫码记录收纳箱里的东西就好了。",
+            comment_ids = []
+            for index, content in enumerate(
+                [
+                    "如果能扫码记录收纳箱里的东西就好了。",
+                    "我家也经常找不到换季衣服。",
+                    "最好能按房间自动分类。",
+                    "价格不要太贵就会想试试。",
+                    "已经用表格记过一次，后来维护太麻烦。",
+                    "朋友推荐过类似工具，但图片识别不准。",
+                ],
+                start=1,
+            ):
+                comment_ids.append(
+                    repo.save_collected_comment(
+                        CollectedComment(
+                            post_id=post_id,
+                            run_id="xhs-analysis-results",
+                            commenter=f"reader-{index}",
+                            content=content,
+                            comment_rank=str(index),
+                            comment_type="reply" if index == 3 else "comment",
+                            reply_to="reader-1" if index == 3 else "",
+                        )
+                    )
                 )
-            )
-            asset_id = repo.save_media_asset(
+            comment_id = comment_ids[0]
+            second_comment_id = comment_ids[2]
+            first_asset_id = repo.save_media_asset(
                 MediaAsset(
                     run_id="xhs-analysis-results",
                     post_id=post_id,
                     path="runtime/collector/xhs-analysis-results/assets/cover.jpg",
                     asset_type="image",
-                    sha256="imagehash",
+                    sha256="imagehash-1",
+                )
+            )
+            second_asset_id = repo.save_media_asset(
+                MediaAsset(
+                    run_id="xhs-analysis-results",
+                    post_id=post_id,
+                    path="runtime/collector/xhs-analysis-results/assets/box.jpg",
+                    asset_type="image",
+                    sha256="imagehash-2",
+                )
+            )
+            repo.save_media_asset(
+                MediaAsset(
+                    run_id="xhs-analysis-results",
+                    post_id=post_id,
+                    path="runtime/collector/xhs-analysis-results/assets/room.jpg",
+                    asset_type="image",
+                    sha256="imagehash-3",
                 )
             )
             task_id = repo.create_intent_analysis_task(
@@ -4609,11 +4648,26 @@ class WebAppTest(unittest.TestCase):
                     probe_key="probe-1",
                     probe_title="收纳数字化需求",
                     post_id=post_id,
-                    asset_id=asset_id,
+                    asset_id=first_asset_id,
                     level="image",
                     score=90,
                     reason="图片里有收纳箱和清单界面。",
                     excerpt="图片显示收纳箱清单",
+                    summary="",
+                )
+            )
+            repo.save_intent_analysis_match(
+                IntentAnalysisMatch(
+                    task_id=task_id,
+                    probe_id=first_probe_id,
+                    probe_key="probe-1",
+                    probe_title="收纳数字化需求",
+                    post_id=post_id,
+                    asset_id=second_asset_id,
+                    level="image",
+                    score=87,
+                    reason="第二张图展示可贴标签的收纳箱。",
+                    excerpt="图片显示贴标签的收纳箱",
                     summary="",
                 )
             )
@@ -4629,6 +4683,21 @@ class WebAppTest(unittest.TestCase):
                     score=88,
                     reason="评论提出扫码记录收纳箱内容。",
                     excerpt="扫码记录收纳箱里的东西",
+                    summary="",
+                )
+            )
+            repo.save_intent_analysis_match(
+                IntentAnalysisMatch(
+                    task_id=task_id,
+                    probe_id=first_probe_id,
+                    probe_key="probe-1",
+                    probe_title="收纳数字化需求",
+                    post_id=post_id,
+                    comment_id=second_comment_id,
+                    level="comment",
+                    score=84,
+                    reason="评论提出按房间分类的使用方式。",
+                    excerpt="按房间自动分类",
                     summary="",
                 )
             )
@@ -4657,7 +4726,7 @@ class WebAppTest(unittest.TestCase):
             self.assertEqual(results.status_code, 200)
             self.assertIn("执行结果 #%d" % task_id, results.text)
             self.assertIn("证据", results.text)
-            self.assertIn("内容 2 / 图片 1 / 评论 1", results.text)
+            self.assertIn("命中内容 2 / 命中图片 2 / 命中评论 2", results.text)
             self.assertIn('aria-label="探针范围选择"', results.text)
             self.assertIn('class="analysis-result-index-list"', results.text)
             self.assertIn('data-probe-filter="result-probe-1"', results.text)
@@ -4669,12 +4738,14 @@ class WebAppTest(unittest.TestCase):
             self.assertIn('id="result-probe-1"\n      class="analysis-probe-result"\n      data-probe-panel\n      aria-hidden="true"\n      hidden', results.text)
             self.assertIn('id="result-probe-2"\n      class="analysis-probe-result"\n      data-probe-panel\n      aria-hidden="false"', results.text)
             self.assertIn('id="result-probe-3"\n      class="analysis-probe-result"\n      data-probe-panel\n      aria-hidden="true"\n      hidden', results.text)
-            self.assertIn('class="analysis-result-card">', results.text)
+            self.assertIn('class="analysis-result-card" data-result-card>', results.text)
             self.assertIn("图片缩略图", results.text)
             self.assertIn("命中图片", results.text)
-            self.assertIn("帖子内容", results.text)
-            self.assertIn("帖子图片", results.text)
-            self.assertIn("帖子评论", results.text)
+            self.assertIn("命中内容", results.text)
+            self.assertIn("命中评论", results.text)
+            self.assertNotIn("帖子内容", results.text)
+            self.assertNotIn("帖子图片", results.text)
+            self.assertNotIn("帖子评论", results.text)
             self.assertIn("谁需要物品归纳的小程序", results.text)
             self.assertIn("无命中探针", results.text)
             self.assertIn("收纳数字化需求", results.text)
@@ -4684,12 +4755,33 @@ class WebAppTest(unittest.TestCase):
             self.assertIn(f'id="result-probe-3-post-{post_id}" class="analysis-result-card"', results.text)
             self.assertIn("这个探针暂无命中帖子", results.text)
             self.assertIn("selectProbe(button.dataset.probeFilter, true)", results.text)
-            self.assertIn("<mark>想按房间和用途做一个清单。</mark>", results.text)
+            self.assertIn('root.querySelectorAll("[data-probe-panel]").forEach((panel) => {', results.text)
+            self.assertIn("otherCard.open = false", results.text)
+            self.assertIn('data-image-switcher', results.text)
+            self.assertIn(f'data-image-thumb="{first_asset_id}"', results.text)
+            self.assertIn(f'data-image-thumb="{second_asset_id}"', results.text)
+            self.assertIn(f'data-image-evidence="{first_asset_id}"', results.text)
+            self.assertIn(f'data-image-evidence="{second_asset_id}"', results.text)
+            self.assertIn('aria-selected="true"', results.text)
+            self.assertIn("selectImage(thumb.dataset.imageThumb)", results.text)
+            self.assertIn("图片显示收纳箱清单", results.text)
+            self.assertIn("图片显示贴标签的收纳箱", results.text)
+            self.assertIn("第二张图展示可贴标签的收纳箱。", results.text)
+            self.assertIn("用户希望用工具管理家庭物品。", results.text)
+            self.assertIn("摘录：想按房间和用途做一个清单。", results.text)
             self.assertIn("<mark>扫码记录收纳箱里的东西</mark>", results.text)
-            self.assertIn("想按房间和用途做一个清单。", results.text)
+            self.assertIn("<mark>按房间自动分类</mark>", results.text)
             self.assertIn("扫码记录收纳箱里的东西", results.text)
+            self.assertIn("我家也经常找不到换季衣服。", results.text)
+            self.assertIn("价格不要太贵就会想试试。", results.text)
+            self.assertIn("朋友推荐过类似工具，但图片识别不准。", results.text)
+            self.assertIn("2 条命中 / 6 条评论", results.text)
+            self.assertIn('class="analysis-result-comment is-hit"', results.text)
+            self.assertIn("回复 reader-1", results.text)
             self.assertIn("评论提出扫码记录收纳箱内容。", results.text)
-            self.assertIn(f'src="/collector/runs/xhs-analysis-results/assets/{asset_id}"', results.text)
+            self.assertIn("评论提出按房间分类的使用方式。", results.text)
+            self.assertIn(f'src="/collector/runs/xhs-analysis-results/assets/{first_asset_id}"', results.text)
+            self.assertIn(f'src="/collector/runs/xhs-analysis-results/assets/{second_asset_id}"', results.text)
             self.assertIn(f'href="/collector/runs/xhs-analysis-results/posts/{post_id}"', results.text)
             self.assertIn('href="/analysis/tasks/%d"' % task_id, results.text)
 

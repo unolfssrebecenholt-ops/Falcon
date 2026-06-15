@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Falcon 控制台{% endblock %}</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23192330'/%3E%3Cpath d='M9 23V8h14v4h-9v3h8v4h-8v4z' fill='white'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="{{ url_for('static', path='/app.css') }}?v=analysis-queue-retry-v2">
+  <link rel="stylesheet" href="{{ url_for('static', path='/app.css') }}?v=analysis-results-comments-fix-v1">
 </head>
 <body data-page-view="{{ page_view|default(active|default('dashboard')) }}">
   {% set nav_labels = {

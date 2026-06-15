@@ -189,9 +189,9 @@ def basename_label(value: str) -> str:
 
 def match_level_label(value: str) -> str:
     return {
-        "post": "帖子内容",
-        "image": "帖子图片",
-        "comment": "帖子评论",
+        "post": "命中内容",
+        "image": "命中图片",
+        "comment": "命中评论",
     }.get(str(value or ""), str(value or "-"))
 
 
@@ -1134,14 +1134,10 @@ def create_app(
 
         def comments_for(post_id: int):
             if post_id not in comments_cache:
-                comments_cache[post_id] = {
-                    comment.comment_id: comment
-                    for comment in repository.list_collected_comments(post_id=post_id)
-                    if comment.comment_id is not None
-                }
+                comments_cache[post_id] = repository.list_collected_comments(post_id=post_id)
             return comments_cache[post_id]
 
-        def image_items_for(post_id: int, hit_asset_ids: set[int]):
+        def image_items_for(post_id: int, image_matches):
             if post_id not in assets_cache:
                 post = post_for(post_id)
                 assets = []
@@ -1151,9 +1147,25 @@ def create_app(
                         if item["kind"] == "image":
                             assets.append(item)
                 assets_cache[post_id] = assets
+            matches_by_asset = defaultdict(list)
+            first_hit_asset_id = None
+            for match in image_matches:
+                if match.asset_id is None:
+                    continue
+                matches_by_asset[match.asset_id].append(match)
+                if first_hit_asset_id is None:
+                    first_hit_asset_id = match.asset_id
             items = []
             for item in assets_cache[post_id]:
-                items.append({**item, "is_hit": item.get("id") in hit_asset_ids})
+                asset_matches = matches_by_asset.get(item.get("id"), [])
+                items.append(
+                    {
+                        **item,
+                        "is_hit": bool(asset_matches),
+                        "is_selected": item.get("id") == first_hit_asset_id,
+                        "matches": asset_matches,
+                    }
+                )
             return items
 
         def highlighted_segments(text: str, match_items):
@@ -1206,8 +1218,14 @@ def create_app(
                 content_matches = [match for match in probe_post_matches if match.level == "post"]
                 image_matches = [match for match in probe_post_matches if match.level == "image"]
                 comment_matches = [match for match in probe_post_matches if match.level == "comment"]
-                comments_by_id = comments_for(post_id)
-                hit_asset_ids = {match.asset_id for match in image_matches if match.asset_id is not None}
+                comments = comments_for(post_id)
+                comments_by_id = {
+                    comment.comment_id: comment for comment in comments if comment.comment_id is not None
+                }
+                comment_matches_by_id = defaultdict(list)
+                for match in comment_matches:
+                    if match.comment_id is not None:
+                        comment_matches_by_id[match.comment_id].append(match)
                 hit_comments = []
                 for match in comment_matches:
                     comment = comments_by_id.get(match.comment_id)
@@ -1221,6 +1239,20 @@ def create_app(
                             "fallbacks": fallback_matches(comment.content, [match]),
                         }
                     )
+                comment_items = []
+                for comment in comments:
+                    matches_for_comment = comment_matches_by_id.get(comment.comment_id, [])
+                    primary_match = max(matches_for_comment, key=lambda match: match.score) if matches_for_comment else None
+                    comment_items.append(
+                        {
+                            "comment": comment,
+                            "is_hit": primary_match is not None,
+                            "match": primary_match,
+                            "segments": highlighted_segments(comment.content, matches_for_comment),
+                            "fallbacks": fallback_matches(comment.content, matches_for_comment),
+                        }
+                    )
+                image_items = image_items_for(post_id, image_matches)
                 hit_levels = [
                     level
                     for level in ("post", "image", "comment")
@@ -1234,8 +1266,11 @@ def create_app(
                         "image_matches": image_matches,
                         "comment_matches": comment_matches,
                         "hit_comments": hit_comments,
+                        "comment_items": comment_items,
+                        "hit_comment_count": sum(1 for comment in comment_items if comment["is_hit"]),
                         "hit_levels": hit_levels,
-                        "image_items": image_items_for(post_id, hit_asset_ids),
+                        "image_items": image_items,
+                        "hit_image_count": sum(1 for image in image_items if image["is_hit"]),
                         "content_segments": highlighted_segments(post.content if post else "", content_matches),
                         "content_fallbacks": fallback_matches(post.content if post else "", content_matches),
                         "max_score": max((match.score for match in probe_post_matches), default=0),

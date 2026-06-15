@@ -22,7 +22,7 @@
   <div>
     <span>证据</span>
     <strong>{{ result_stats.total }}</strong>
-    <em>内容 {{ result_stats.post }} / 图片 {{ result_stats.image }} / 评论 {{ result_stats.comment }}</em>
+    <em>命中内容 {{ result_stats.post }} / 命中图片 {{ result_stats.image }} / 命中评论 {{ result_stats.comment }}</em>
   </div>
   <div>
     <span>命中帖子</span>
@@ -68,7 +68,7 @@
             <span>{{ group.probe.title }}</span>
             <small>当前</small>
           </strong>
-          <em>{{ group.stats.posts }} 帖 · 内容 {{ group.stats.post }} / 图片 {{ group.stats.image }} / 评论 {{ group.stats.comment }}</em>
+          <em>{{ group.stats.posts }} 帖 · 命中内容 {{ group.stats.post }} / 命中图片 {{ group.stats.image }} / 命中评论 {{ group.stats.comment }}</em>
         </button>
         {% else %}
         <span class="analysis-result-empty-token">暂无探针</span>
@@ -112,16 +112,16 @@
           <p>{{ group.probe.description }}</p>
         </div>
         <div class="analysis-probe-result-counts" aria-label="探针命中统计">
-          <span>内容 <strong>{{ group.stats.post }}</strong></span>
-          <span>图片 <strong>{{ group.stats.image }}</strong></span>
-          <span>评论 <strong>{{ group.stats.comment }}</strong></span>
+          <span>命中内容 <strong>{{ group.stats.post }}</strong></span>
+          <span>命中图片 <strong>{{ group.stats.image }}</strong></span>
+          <span>命中评论 <strong>{{ group.stats.comment }}</strong></span>
         </div>
       </div>
 
       <div class="analysis-probe-post-list">
         {% for item in group.posts %}
         {% set post = item.post %}
-        <details id="result-probe-{{ probe_loop_index }}-post-{{ post.post_id if post else loop.index }}" class="analysis-result-card">
+        <details id="result-probe-{{ probe_loop_index }}-post-{{ post.post_id if post else loop.index }}" class="analysis-result-card" data-result-card>
           <summary class="analysis-result-card-summary">
             <div>
               <div class="analysis-result-card-meta">
@@ -141,110 +141,161 @@
             <div class="analysis-result-open-indicator">
               <strong>最高分 {{ item.max_score }}</strong>
               <span>展开</span>
+              {% if post %}
+              <div class="analysis-result-summary-actions">
+                <a class="button" href="/collector/runs/{{ post.run_id }}/posts/{{ post.post_id }}">查看原帖</a>
+                {% if post.url %}
+                <a class="button ghost" href="{{ post.url }}" target="_blank" rel="noreferrer">打开来源</a>
+                {% endif %}
+              </div>
+              {% endif %}
             </div>
           </summary>
 
           <div class="analysis-result-card-body">
-            <div class="analysis-result-card-actions">
-              {% if post %}
-              <a class="button" href="/collector/runs/{{ post.run_id }}/posts/{{ post.post_id }}">查看原帖</a>
-              {% if post.url %}
-              <a class="button ghost" href="{{ post.url }}" target="_blank" rel="noreferrer">打开来源</a>
-              {% endif %}
-              {% endif %}
-            </div>
-
-            <section class="analysis-result-section analysis-result-media-section" aria-label="帖子图片">
+            <section class="analysis-result-section analysis-result-media-section analysis-result-section-image" aria-label="图片命中分析">
               <div class="analysis-result-section-head">
                 <h3>图片缩略图</h3>
-                <span>{{ item.image_matches|length }} 张命中</span>
+                <span>{{ item.hit_image_count }} 张命中</span>
               </div>
-              <div class="analysis-result-thumb-grid">
-                {% for image in item.image_items %}
-                <figure class="analysis-result-thumb {{ 'is-hit' if image.is_hit }}">
-                  {% if image.src %}
-                  <img src="{{ image.src }}" alt="帖子图片 {{ loop.index }}">
+              <div class="analysis-result-image-switcher" data-image-switcher>
+                <div class="analysis-result-thumb-grid">
+                  {% for image in item.image_items %}
+                    {% if image.is_hit %}
+                    <button
+                      type="button"
+                      class="analysis-result-thumb is-hit {{ 'is-selected' if image.is_selected }}"
+                      data-image-thumb="{{ image.id }}"
+                      aria-controls="image-evidence-{{ probe_loop_index }}-{{ post.post_id if post else loop.index }}-{{ image.id }}"
+                      aria-selected="{{ 'true' if image.is_selected else 'false' }}"
+                    >
+                      {% if image.src %}
+                      <img src="{{ image.src }}" alt="图片 {{ loop.index }}">
+                      {% else %}
+                      <span class="analysis-result-thumb-missing">缺失</span>
+                      {% endif %}
+                      <span class="analysis-result-thumb-caption">命中图片</span>
+                    </button>
+                    {% else %}
+                    <figure class="analysis-result-thumb" aria-disabled="true">
+                      {% if image.src %}
+                      <img src="{{ image.src }}" alt="图片 {{ loop.index }}">
+                      {% else %}
+                      <span class="analysis-result-thumb-missing">缺失</span>
+                      {% endif %}
+                    </figure>
+                    {% endif %}
                   {% else %}
-                  <div class="analysis-result-thumb-missing">缺失</div>
-                  {% endif %}
-                  {% if image.is_hit %}
-                  <figcaption>命中图片</figcaption>
-                  {% endif %}
-                </figure>
-                {% else %}
-                <p class="analysis-result-section-empty">无图片</p>
-                {% endfor %}
-              </div>
-              {% if item.image_matches %}
-              <div class="analysis-result-evidence-list compact">
-                {% for match in item.image_matches %}
-                <section class="analysis-result-evidence evidence-image">
-                  <div class="analysis-result-evidence-top">
-                    <span>{{ match.level|match_level }}</span>
-                    <strong>asset #{{ match.asset_id }}</strong>
-                    <em>分数 {{ match.score }}</em>
+                  <p class="analysis-result-section-empty">无图片</p>
+                  {% endfor %}
+                </div>
+                {% if item.image_matches %}
+                <div class="analysis-result-image-evidence-panels">
+                  {% for image in item.image_items %}
+                    {% if image.is_hit %}
+                    <div
+                      id="image-evidence-{{ probe_loop_index }}-{{ post.post_id if post else loop.index }}-{{ image.id }}"
+                      class="analysis-result-image-evidence-panel"
+                      data-image-evidence="{{ image.id }}"
+                      aria-hidden="{{ 'false' if image.is_selected else 'true' }}"
+                      {% if not image.is_selected %}hidden{% endif %}
+                    >
+                      <div class="analysis-result-evidence-list compact">
+                        {% for match in image.matches %}
+                        <section class="analysis-result-evidence evidence-image">
+                          <div class="analysis-result-evidence-top">
+                            <span>{{ match.level|match_level }}</span>
+                            <strong>asset #{{ match.asset_id }}</strong>
+                            <em>分数 {{ match.score }}</em>
+                          </div>
+                          <blockquote>{{ match.excerpt }}</blockquote>
+                          <p class="analysis-result-reason">{{ match.reason }}</p>
+                        </section>
+                        {% endfor %}
+                      </div>
+                    </div>
+                    {% endif %}
+                  {% endfor %}
+                  {% if not item.hit_image_count %}
+                  <div class="analysis-result-evidence-list compact">
+                    {% for match in item.image_matches %}
+                    <section class="analysis-result-evidence evidence-image">
+                      <div class="analysis-result-evidence-top">
+                        <span>{{ match.level|match_level }}</span>
+                        <strong>asset #{{ match.asset_id or "-" }}</strong>
+                        <em>分数 {{ match.score }}</em>
+                      </div>
+                      <blockquote>{{ match.excerpt }}</blockquote>
+                      <p class="analysis-result-reason">{{ match.reason }}</p>
+                    </section>
+                    {% endfor %}
                   </div>
-                  <blockquote>{{ match.excerpt }}</blockquote>
-                  <p class="analysis-result-reason">{{ match.reason }}</p>
-                </section>
-                {% endfor %}
+                  {% endif %}
+                </div>
+                {% else %}
+                <p class="analysis-result-section-empty">没有命中图片。</p>
+                {% endif %}
               </div>
-              {% endif %}
             </section>
 
-            <section class="analysis-result-section" aria-label="帖子正文">
+            <section class="analysis-result-section analysis-result-section-content" aria-label="内容命中分析">
               <div class="analysis-result-section-head">
                 <h3>内容</h3>
                 <span>{{ item.content_matches|length }} 条内容命中</span>
               </div>
-              <div class="analysis-result-content-box">
-                {% if post and item.content_segments %}
-                <p>
-                  {% for segment in item.content_segments %}{% if segment.hit %}<mark>{{ segment.text }}</mark>{% else %}{{ segment.text }}{% endif %}{% endfor %}
-                </p>
-                {% else %}
-                <p>暂无正文。</p>
-                {% endif %}
-              </div>
-              {% if item.content_fallbacks %}
+              {% if item.content_matches %}
               <div class="analysis-result-evidence-list compact">
-                {% for match in item.content_fallbacks %}
+                {% for match in item.content_matches %}
                 <section class="analysis-result-evidence evidence-post">
                   <div class="analysis-result-evidence-top">
                     <span>{{ match.level|match_level }}</span>
                     <strong>{{ match.probe_title or match.probe_key }}</strong>
                     <em>分数 {{ match.score }}</em>
                   </div>
-                  <blockquote>{{ match.excerpt }}</blockquote>
+                  <blockquote>{{ match.summary or match.excerpt }}</blockquote>
+                  {% if match.summary and match.excerpt %}
+                  <p class="analysis-result-excerpt">摘录：{{ match.excerpt }}</p>
+                  {% endif %}
                   <p class="analysis-result-reason">{{ match.reason }}</p>
                 </section>
                 {% endfor %}
               </div>
+              {% else %}
+              <p class="analysis-result-section-empty">没有命中内容。</p>
               {% endif %}
             </section>
 
-            <section class="analysis-result-section" aria-label="命中评论">
+            <section class="analysis-result-section analysis-result-section-comments" aria-label="评论列表与命中分析">
               <div class="analysis-result-section-head">
                 <h3>评论</h3>
-                <span>{{ item.hit_comments|length }} 条命中评论</span>
+                <span>{{ item.hit_comment_count }} 条命中 / {{ item.comment_items|length }} 条评论</span>
               </div>
               <div class="analysis-result-comment-list">
-                {% for hit in item.hit_comments %}
-                <article class="analysis-result-comment">
+                {% for comment_item in item.comment_items %}
+                {% set comment = comment_item.comment %}
+                <article
+                  class="analysis-result-comment {{ 'is-hit' if comment_item.is_hit }}"
+                  {% if comment_item.match %}title="{{ comment_item.match.reason }}"{% endif %}
+                >
                   <div class="analysis-result-comment-meta">
-                    <strong>{{ hit.comment.commenter or "评论用户" }}</strong>
-                    <span>分数 {{ hit.match.score }}</span>
+                    <strong>
+                      {% if comment_item.is_hit %}<span class="analysis-result-comment-hit-badge">命中</span>{% endif %}
+                      {{ comment.commenter or "评论用户" }}
+                    </strong>
+                    <span>
+                      {% if comment_item.match %}
+                      分数 {{ comment_item.match.score }}
+                      {% elif comment.comment_rank %}
+                      第 {{ comment.comment_rank }} 条
+                      {% else %}
+                      评论
+                      {% endif %}
+                    </span>
                   </div>
-                  <p>
-                    {% for segment in hit.segments %}{% if segment.hit %}<mark>{{ segment.text }}</mark>{% else %}{{ segment.text }}{% endif %}{% endfor %}
-                  </p>
-                  {% if hit.fallbacks %}
-                  <blockquote>{{ hit.match.excerpt }}</blockquote>
-                  {% endif %}
-                  <small>{{ hit.match.reason }}</small>
+                  <p>{% if comment.comment_type == "reply" %}<span class="analysis-result-comment-inline-tag">回复{% if comment.reply_to %} {{ comment.reply_to }}{% endif %}</span>{% endif %}{% for segment in comment_item.segments %}{% if segment.hit %}<mark>{{ segment.text }}</mark>{% else %}{{ segment.text }}{% endif %}{% endfor %}</p>
                 </article>
                 {% else %}
-                <p class="analysis-result-section-empty">没有评论命中。</p>
+                <p class="analysis-result-section-empty">没有采集到评论。</p>
                 {% endfor %}
               </div>
             </section>
@@ -306,6 +357,55 @@
 
   buttons.forEach((button) => {
     button.addEventListener("click", () => selectProbe(button.dataset.probeFilter, true));
+  });
+
+  root.querySelectorAll(".analysis-result-summary-actions a").forEach((link) => {
+    link.addEventListener("click", (event) => event.stopPropagation());
+  });
+
+  root.querySelectorAll("[data-probe-panel]").forEach((panel) => {
+    const cards = Array.from(panel.querySelectorAll("[data-result-card]"));
+    cards.forEach((card) => {
+      card.addEventListener("toggle", () => {
+        if (!card.open) return;
+        cards.forEach((otherCard) => {
+          if (otherCard !== card) {
+            otherCard.open = false;
+          }
+        });
+      });
+    });
+  });
+
+  root.querySelectorAll("[data-image-switcher]").forEach((switcher) => {
+    const thumbs = Array.from(switcher.querySelectorAll("[data-image-thumb]"));
+    const evidencePanels = Array.from(switcher.querySelectorAll("[data-image-evidence]"));
+    if (!thumbs.length || !evidencePanels.length) return;
+
+    function selectImage(assetId) {
+      const targetId = assetId || thumbs[0].dataset.imageThumb;
+
+      thumbs.forEach((thumb) => {
+        const selected = thumb.dataset.imageThumb === targetId;
+        thumb.classList.toggle("is-selected", selected);
+        thumb.setAttribute("aria-selected", selected ? "true" : "false");
+      });
+
+      evidencePanels.forEach((panel) => {
+        const selected = panel.dataset.imageEvidence === targetId;
+        panel.hidden = !selected;
+        panel.setAttribute("aria-hidden", selected ? "false" : "true");
+      });
+    }
+
+    const selectedThumb = thumbs.find((thumb) => thumb.getAttribute("aria-selected") === "true") || thumbs[0];
+    selectImage(selectedThumb.dataset.imageThumb);
+    thumbs.forEach((thumb) => {
+      thumb.addEventListener("click", (event) => {
+        event.preventDefault();
+        selectImage(thumb.dataset.imageThumb);
+      });
+    });
   });
 
   window.addEventListener("hashchange", () => {
