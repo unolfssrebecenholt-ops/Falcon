@@ -20,6 +20,7 @@
 <section class="analysis-queue-metrics" aria-label="分析队列概况">
   <div><span>任务</span><strong>{{ queue_stats.total }}</strong><em>当前列表</em></div>
   <div><span>待执行</span><strong>{{ queue_stats.probes_ready }}</strong><em>探针已就绪</em></div>
+  <div><span>分析中</span><strong>{{ queue_stats.analyzing }}</strong><em>GPT-5.5 匹配中</em></div>
   <div><span>可执行</span><strong>{{ queue_stats.executable }}</strong><em>含失败重试</em></div>
   <div><span>已完成</span><strong>{{ queue_stats.completed }}</strong><em>完成分析</em></div>
   <div><span>命中</span><strong>{{ queue_stats.match_count }}</strong><em>证据记录</em></div>
@@ -29,6 +30,7 @@
   <span>{{ selected_platform|platform_label if selected_platform else "全部平台" }}</span>
   <span>{{ selected_status|intent_task_status if selected_status else "全部状态" }}</span>
   <span>{{ queue_stats.probes_ready }} 个待执行</span>
+  <span>{{ queue_stats.analyzing }} 个分析中</span>
   <span>{{ queue_stats.failed }} 个失败可复查</span>
 </section>
 
@@ -73,7 +75,7 @@
 <section class="analysis-queue-list" aria-label="分析任务">
   {% for item in queue_items %}
   {% set task = item.task %}
-  <article class="analysis-queue-item status-{{ task.status }}">
+  <article class="analysis-queue-item status-{{ task.status }}{% if task.status == 'analyzing' %} is-executing{% endif %}"{% if task.status == 'analyzing' %} aria-busy="true"{% endif %}>
     <div class="analysis-queue-main">
       <div class="analysis-queue-topline">
         <span class="analysis-task-id">#{{ task.task_id }}</span>
@@ -138,7 +140,7 @@
         <form method="post" action="/analysis/tasks/{{ task.task_id }}/execute?return_to=queue{% if selected_platform %}&return_platform={{ selected_platform }}{% endif %}{% if selected_status %}&return_status={{ selected_status }}{% endif %}" data-analysis-execute-form data-submitting-label="正在执行任务" data-pending-target="analysis-task-feedback-{{ task.task_id }}" data-progress-target="analysis-task-progress-{{ task.task_id }}">
           <button class="button primary analysis-queue-execute-button" type="submit" {% if not item.can_execute %}disabled{% endif %}>{{ "重新执行任务" if task.status == "failed" else "执行特定任务" }}</button>
         </form>
-        <p id="analysis-task-feedback-{{ task.task_id }}" class="analysis-queue-pending-feedback" aria-live="polite" hidden>已接收执行请求，Falcon 正在匹配帖子和评论。</p>
+        <p id="analysis-task-feedback-{{ task.task_id }}" class="analysis-queue-pending-feedback" aria-live="polite"{% if task.status != 'analyzing' %} hidden{% endif %}>Falcon 正在匹配帖子和评论。</p>
       </div>
       <div class="analysis-queue-secondary-actions">
         <a class="button" href="/analysis/tasks/{{ task.task_id }}">查看详情</a>

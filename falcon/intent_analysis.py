@@ -4,6 +4,7 @@ import mimetypes
 from pathlib import Path
 from typing import Dict, Iterable, Iterator, List, Optional
 
+from .config import DEFAULT_RUNTIME_ANALYSIS_PROBE_COUNT, normalize_runtime_setting
 from .db import FalconRepository
 from .llm import GPT55Client, GPTHTTPError, GPTResponseParseError
 from .models import IntentAnalysisMatch, IntentAnalysisProbe, utc_now_iso
@@ -12,14 +13,25 @@ from .models import IntentAnalysisMatch, IntentAnalysisProbe, utc_now_iso
 class IntentAnalysisService:
     """GPT-5.5 powered semantic probe analysis over collected posts."""
 
+    DEFAULT_PROBE_GENERATION_COUNT = DEFAULT_RUNTIME_ANALYSIS_PROBE_COUNT
     POSTS_PER_BATCH = 2
     MAX_COMMENTS_PER_POST = 12
     MAX_TEXT_CHARS = 700
     MAX_IMAGES_PER_POST = 4
 
-    def __init__(self, repo: FalconRepository, client: Optional[GPT55Client] = None):
+    def __init__(
+        self,
+        repo: FalconRepository,
+        client: Optional[GPT55Client] = None,
+        probe_generation_count: Optional[int] = None,
+    ):
         self.repo = repo
         self.client = client or GPT55Client.from_env()
+        self.probe_generation_count = (
+            self.DEFAULT_PROBE_GENERATION_COUNT
+            if probe_generation_count is None
+            else normalize_runtime_setting("analysis_probe_count", probe_generation_count)
+        )
         if hasattr(self.client, "model"):
             self.client.model = "gpt-5.5"
         self.log_root = Path.cwd() / "runtime" / "analysis"
@@ -62,12 +74,16 @@ class IntentAnalysisService:
 
             if payload is None:
                 raise ValueError("GPT probe generation did not return a JSON object")
-            yield {"type": "status", "message": "正在校验 5 个探针并写入本地数据库。", "progress": 92}
+            yield {
+                "type": "status",
+                "message": f"正在校验 {self.probe_generation_count} 个探针并写入本地数据库。",
+                "progress": 92,
+            }
             probes = self._save_probe_payload(task_id, payload)
             self.repo.update_intent_analysis_task(task_id, status="probes_ready", failed_reason="")
             yield {
                 "type": "done",
-                "message": "5 个探针已生成，可以继续编辑或执行分析。",
+                "message": f"{self.probe_generation_count} 个探针已生成，可以继续编辑或执行分析。",
                 "probes": probes,
                 "count": len(probes),
             }
@@ -79,8 +95,8 @@ class IntentAnalysisService:
         return (
             (
                 "你是 Falcon 的意向探针规划器。只返回 JSON。"
-                "根据用户输入生成 5 个语义探针，用于判断采集帖子和评论是否符合分析意图。"
-                "必须生成 5 个探针，不要 markdown。"
+                f"根据用户输入生成 {self.probe_generation_count} 个语义探针，用于判断采集帖子和评论是否符合分析意图。"
+                f"必须生成 {self.probe_generation_count} 个探针，不要 markdown。"
             ),
             json.dumps(
                 {
@@ -127,9 +143,10 @@ class IntentAnalysisService:
         if task is None:
             raise ValueError("Intent analysis task not found")
         try:
+            self.repo.update_intent_analysis_task(task_id, status="analyzing", failed_reason="")
             probes = self.repo.list_intent_analysis_probes(task_id)
-            if not 1 <= len(probes) <= 12:
-                raise ValueError("Intent analysis requires 1 to 12 probes")
+            if len(probes) < 1:
+                raise ValueError("Intent analysis requires at least 1 probe")
             package = self.repo.build_intent_analysis_package(task_id)
             if not package:
                 raise ValueError("Intent analysis data package has no collected posts")
@@ -347,8 +364,10 @@ class IntentAnalysisService:
 
     def _validate_probe_payload(self, payload: Dict[str, object]) -> List[Dict[str, object]]:
         probes = payload.get("probes")
-        if not isinstance(probes, list) or len(probes) != 5:
-            raise ValueError("GPT probe generation must return exactly 5 probes")
+        if not isinstance(probes, list) or len(probes) != self.probe_generation_count:
+            raise ValueError(
+                f"GPT probe generation must return exactly {self.probe_generation_count} probes"
+            )
         normalized = []
         for item in probes:
             if not isinstance(item, dict):

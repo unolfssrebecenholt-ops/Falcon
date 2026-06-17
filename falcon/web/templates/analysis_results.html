@@ -126,7 +126,7 @@
             <div>
               <div class="analysis-result-card-meta">
                 <span>{{ post.platform|platform_label if post else task.platform|platform_label }}</span>
-                <span>{{ post.keyword if post and post.keyword else "无关键词" }}</span>
+                <span class="source-keyword-label{% if not post or not post.keyword %} is-empty{% endif %}">关键词 · {{ post.keyword if post and post.keyword else "无关键词" }}</span>
                 {% for level in item.hit_levels %}
                 <span class="hit-source hit-source-{{ level }}">{{ level|match_level }}</span>
                 {% endfor %}
@@ -244,11 +244,17 @@
                 <span>{{ item.content_matches|length }} 条内容命中</span>
               </div>
               {% if item.content_matches %}
+              {% if item.content_segments %}
+              <div class="analysis-result-post-text">
+                <strong>原帖正文</strong>
+                <p>{% for segment in item.content_segments %}{% if segment.hit %}<mark>{{ segment.text }}</mark>{% else %}{{ segment.text }}{% endif %}{% endfor %}</p>
+              </div>
+              {% endif %}
               <div class="analysis-result-evidence-list compact">
                 {% for match in item.content_matches %}
-                <section class="analysis-result-evidence evidence-post">
-                  <div class="analysis-result-evidence-top">
-                    <span>{{ match.level|match_level }}</span>
+                <section class="analysis-result-evidence evidence-post analysis-result-insight">
+                  <div class="analysis-result-insight-head">
+                    <span>分析结果</span>
                     <strong>{{ match.probe_title or match.probe_key }}</strong>
                     <em>分数 {{ match.score }}</em>
                   </div>

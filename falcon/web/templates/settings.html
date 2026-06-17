@@ -7,21 +7,91 @@
     <h1>设置</h1>
     <p>集中管理 Falcon 的采集基础资料、日报阅读和本机模型中转配置。</p>
   </div>
+  <div class="action-row">
+    <button class="button primary has-icon" type="submit" form="runtime-settings-form">
+      <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><path d="M17 21v-8H7v8"></path><path d="M7 3v5h8"></path></svg>
+      应用配置
+    </button>
+  </div>
 </header>
 
+{% if settings_notice %}
+<p class="{{ settings_notice.kind }}">{{ settings_notice.message }}</p>
+{% endif %}
+
 <section class="settings-directory" aria-label="设置目录">
-  <div class="settings-card-grid">
-    {% for card in settings_cards %}
-    <a class="settings-card" href="{{ card.href }}">
-      <span class="settings-card-code">{{ card.code }}</span>
-      <strong>{{ card.title }}</strong>
-      <p>{{ card.summary }}</p>
-      <span class="settings-card-foot">
-        <span>{{ card.meta }}</span>
-        <span>{{ card.action }}</span>
-      </span>
-    </a>
+  <form id="runtime-settings-form" method="post" action="/settings/apply" class="settings-primary-stack settings-layer-form" aria-label="分层配置">
+    {% for group in settings_groups if group["kind"] == "layer" %}
+  <section class="settings-group" aria-labelledby="settings-group-{{ loop.index }}">
+    <div class="settings-group-head">
+      <span class="settings-group-index">{{ group["code"] }}</span>
+      <div>
+        <h2 id="settings-group-{{ loop.index }}">{{ group["title"] }}</h2>
+        <p>{{ group["summary"] }}</p>
+      </div>
+    </div>
+
+    {% if group["items"] %}
+    <div class="settings-value-grid">
+      {% for item in group["items"] %}
+      <label class="settings-value-item">
+        <span>{{ item.label }}</span>
+        <input
+          name="{{ item.name }}"
+          type="number"
+          min="{{ item.min }}"
+          step="1"
+          value="{{ item.value }}"
+          inputmode="numeric"
+          aria-label="{{ item.label }}"
+        >
+        <em>{{ item.meta }}</em>
+      </label>
+      {% endfor %}
+    </div>
+    {% elif group["empty"] %}
+    <div class="settings-empty-state">{{ group["empty"] }}</div>
+    {% endif %}
+
+  </section>
     {% endfor %}
-  </div>
+  </form>
+
+  <aside class="settings-side-panel" aria-label="通用配置">
+    <div class="settings-side-summary">
+      <span>默认策略</span>
+      <strong>{{ settings_snapshot.collector_posts }} 帖 · {{ settings_snapshot.collector_comments }} 评论 · {{ settings_snapshot.probe_count }} 探针</strong>
+      <p>应用后会写入本地 .env，并作为后续采集任务和探针生成的默认值。</p>
+    </div>
+
+    {% for group in settings_groups if group["kind"] == "common" %}
+    <section class="settings-group settings-group-common" aria-labelledby="settings-group-common">
+      <div class="settings-group-head">
+        <span class="settings-group-index">{{ group["code"] }}</span>
+        <div>
+          <h2 id="settings-group-common">{{ group["title"] }}</h2>
+          <p>{{ group["summary"] }}</p>
+        </div>
+      </div>
+
+      {% if group["cards"] %}
+    <div class="settings-card-grid">
+      {% for card in group["cards"] %}
+      <a class="settings-card" href="{{ card.href }}">
+        <span class="settings-card-code">{{ card.code }}</span>
+        <strong>{{ card.title }}</strong>
+        <p>{{ card.summary }}</p>
+        <span class="settings-card-foot">
+          <span>{{ card.meta }}</span>
+          <span>{{ card.action }}</span>
+        </span>
+      </a>
+      {% endfor %}
+    </div>
+    {% endif %}
+      <div class="settings-common-note">这些入口继续作为 Falcon 的基础资料、日报和模型中转配置中心。</div>
+  </section>
+    {% endfor %}
+  </aside>
 </section>
 {% endblock %}

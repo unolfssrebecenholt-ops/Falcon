@@ -14,8 +14,21 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Stre
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from ..collector import CollectorService, clean_metric_count, safe_collector_identifier
-from ..config import GPT_ENDPOINT_OPTIONS, load_gpt_config_view, save_gpt_config
+from ..collector import (
+    DEFAULT_COLLECTOR_MAX_COMMENTS_PER_POST,
+    DEFAULT_COLLECTOR_MAX_POSTS,
+    CollectorService,
+    clean_metric_count,
+    safe_collector_identifier,
+)
+from ..config import (
+    GPT_ENDPOINT_OPTIONS,
+    RUNTIME_SETTINGS_MINIMUMS,
+    load_gpt_config_view,
+    load_runtime_settings_view,
+    save_gpt_config,
+    save_runtime_settings,
+)
 from ..db import FalconRepository
 from ..doctor import build_doctor_report, checks_for_web
 from ..intent_analysis import IntentAnalysisService
@@ -108,10 +121,11 @@ INTENT_TASK_STATUS_LABELS = {
     "draft": "草稿",
     "generating_probes": "生成探针中",
     "probes_ready": "探针待执行",
+    "analyzing": "分析中",
     "completed": "已完成",
     "failed": "失败",
 }
-ANALYSIS_QUEUE_STATUSES = {"probes_ready", "completed", "failed"}
+ANALYSIS_QUEUE_STATUSES = {"probes_ready", "analyzing", "completed", "failed"}
 ASSET_TYPE_LABELS = {
     "image": "图片",
     "video": "视频",
@@ -506,7 +520,11 @@ def create_app(
     def intent_analysis_service(repository: FalconRepository):
         if app.state.intent_analysis_service_factory is not None:
             return app.state.intent_analysis_service_factory(repository)
-        return IntentAnalysisService(repository)
+        runtime_settings = load_runtime_settings_view(app.state.env_path)
+        return IntentAnalysisService(
+            repository,
+            probe_generation_count=runtime_settings.analysis_probe_count,
+        )
 
     def profile_safety_states(repository: FalconRepository) -> dict[tuple[str, str], dict]:
         service = collector_service(repository)
@@ -546,13 +564,14 @@ def create_app(
         default_profile = next((entry.profile for entry in profile_entries if entry.profile == "default"), "")
         if not default_profile and profile_entries:
             default_profile = profile_entries[0].profile
+        runtime_settings = load_runtime_settings_view(app.state.env_path)
         return {
             "profile_options": profile_entries,
             "defaults": {
                 "platform": "xiaohongshu",
                 "profile": default_profile,
-                "max_posts": 8,
-                "max_comments_per_post": 5,
+                "max_posts": runtime_settings.collector_max_posts,
+                "max_comments_per_post": runtime_settings.collector_max_comments_per_post,
             },
         }
 
@@ -1175,10 +1194,11 @@ def create_app(
                 excerpt = str(match.excerpt or "").strip()
                 if not excerpt:
                     continue
-                start = value.find(excerpt)
-                if start < 0:
-                    continue
-                spans.append((start, start + len(excerpt)))
+                for part in excerpt_match_parts(excerpt):
+                    start = value.find(part)
+                    if start < 0:
+                        continue
+                    spans.append((start, start + len(part)))
             if not spans:
                 return [{"text": value, "hit": False}] if value else []
             spans.sort()
@@ -1199,12 +1219,21 @@ def create_app(
                 parts.append({"text": value[cursor:], "hit": False})
             return parts
 
+        def excerpt_match_parts(excerpt: str) -> List[str]:
+            value = str(excerpt or "").strip()
+            if not value:
+                return []
+            parts = [value]
+            if "..." in value or "…" in value:
+                parts = [part.strip() for part in re.split(r"\.{3,}|…+", value) if part.strip()]
+            return [part for part in parts if len(part) >= 4]
+
         def fallback_matches(text: str, match_items):
             value = str(text or "")
             fallbacks = []
             for match in match_items:
                 excerpt = str(match.excerpt or "").strip()
-                if excerpt and excerpt not in value:
+                if excerpt and not any(part in value for part in excerpt_match_parts(excerpt)):
                     fallbacks.append(match)
             return fallbacks
 
@@ -1253,6 +1282,8 @@ def create_app(
                         }
                     )
                 image_items = image_items_for(post_id, image_matches)
+                content_segments = highlighted_segments(post.content if post else "", content_matches)
+                content_fallbacks = fallback_matches(post.content if post else "", content_matches)
                 hit_levels = [
                     level
                     for level in ("post", "image", "comment")
@@ -1271,8 +1302,9 @@ def create_app(
                         "hit_levels": hit_levels,
                         "image_items": image_items,
                         "hit_image_count": sum(1 for image in image_items if image["is_hit"]),
-                        "content_segments": highlighted_segments(post.content if post else "", content_matches),
-                        "content_fallbacks": fallback_matches(post.content if post else "", content_matches),
+                        "content_segments": content_segments,
+                        "content_fallbacks": content_fallbacks,
+                        "content_has_highlight": any(segment.get("hit") for segment in content_segments),
                         "max_score": max((match.score for match in probe_post_matches), default=0),
                     }
                 )
@@ -1340,6 +1372,7 @@ def create_app(
             "total": len(tasks),
             "draft": 0,
             "probes_ready": 0,
+            "analyzing": 0,
             "executable": 0,
             "completed": 0,
             "failed": 0,
@@ -1475,41 +1508,126 @@ def create_app(
         return RedirectResponse("/", status_code=303)
 
     @app.get("/settings")
-    def settings_page(request: Request):
+    def settings_page(request: Request, status: str = ""):
+        runtime_settings = load_runtime_settings_view(app.state.env_path)
+        common_cards = [
+            {
+                "title": "关键词池",
+                "code": "PLAN",
+                "href": "/keywords",
+                "summary": "维护采集主题、关键词、场景权重和每日采样量。",
+                "meta": "本地 CSV",
+                "action": "管理关键词",
+            },
+            {
+                "title": "日报",
+                "code": "DOC",
+                "href": "/report",
+                "summary": "阅读本地生成的日报，复核样本摘要和当日证据。",
+                "meta": "Markdown",
+                "action": "打开日报",
+            },
+            {
+                "title": "模型配置",
+                "code": "GPT",
+                "href": "/settings/gpt",
+                "summary": "配置 GPT-5.5 中转站地址和本机 API key。",
+                "meta": ".env",
+                "action": "配置模型",
+            },
+        ]
         return templates.TemplateResponse(
             request,
             "settings.html",
             {
                 "active": "settings",
                 "page_view": "settings",
-                "settings_cards": [
+                "settings_notice": _runtime_settings_notice(status),
+                "settings_snapshot": {
+                    "collector_posts": runtime_settings.collector_max_posts,
+                    "collector_comments": runtime_settings.collector_max_comments_per_post,
+                    "probe_count": runtime_settings.analysis_probe_count,
+                },
+                "settings_groups": [
                     {
-                        "title": "关键词池",
-                        "code": "PLAN",
-                        "href": "/keywords",
-                        "summary": "维护采集主题、关键词、场景权重和每日采样量。",
-                        "meta": "本地 CSV",
-                        "action": "管理关键词",
+                        "kind": "layer",
+                        "code": "01",
+                        "title": "采集层",
+                        "summary": "控制浏览器采集任务的默认采样规模。",
+                        "items": [
+                            {
+                                "label": "最大采集帖子数",
+                                "name": "collector_max_posts",
+                                "value": runtime_settings.collector_max_posts,
+                                "min": RUNTIME_SETTINGS_MINIMUMS["collector_max_posts"],
+                                "meta": "每个关键词 run",
+                            },
+                            {
+                                "label": "最大采集评论数",
+                                "name": "collector_max_comments_per_post",
+                                "value": runtime_settings.collector_max_comments_per_post,
+                                "min": RUNTIME_SETTINGS_MINIMUMS["collector_max_comments_per_post"],
+                                "meta": "每帖评论上限",
+                            },
+                        ],
+                        "cards": [],
                     },
                     {
-                        "title": "日报",
-                        "code": "DOC",
-                        "href": "/report",
-                        "summary": "阅读本地生成的日报，复核样本摘要和当日证据。",
-                        "meta": "Markdown",
-                        "action": "打开日报",
+                        "kind": "layer",
+                        "code": "02",
+                        "title": "分析层",
+                        "summary": "控制意向分析开始前自动生成的探针规模。",
+                        "items": [
+                            {
+                                "label": "一次性生成探针个数",
+                                "name": "analysis_probe_count",
+                                "value": runtime_settings.analysis_probe_count,
+                                "min": RUNTIME_SETTINGS_MINIMUMS["analysis_probe_count"],
+                                "meta": "新建分析任务默认值",
+                            },
+                        ],
+                        "cards": [],
                     },
                     {
-                        "title": "模型配置",
-                        "code": "GPT",
-                        "href": "/settings/gpt",
-                        "summary": "配置 GPT-5.5 中转站地址和本机 API key。",
-                        "meta": ".env",
-                        "action": "配置模型",
+                        "kind": "layer",
+                        "code": "03",
+                        "title": "执行层",
+                        "summary": "执行前确认、任务派发和触达策略将放在这里。",
+                        "items": [],
+                        "cards": [],
+                        "empty": "暂未配置执行层参数。",
+                    },
+                    {
+                        "kind": "common",
+                        "code": "04",
+                        "title": "通用配置",
+                        "summary": "保留现有基础工具入口。",
+                        "items": [],
+                        "cards": common_cards,
                     },
                 ],
             },
         )
+
+    @app.post("/settings/apply")
+    def apply_runtime_settings(
+        collector_max_posts: int = Form(DEFAULT_COLLECTOR_MAX_POSTS),
+        collector_max_comments_per_post: int = Form(DEFAULT_COLLECTOR_MAX_COMMENTS_PER_POST),
+        analysis_probe_count: int = Form(IntentAnalysisService.DEFAULT_PROBE_GENERATION_COUNT),
+    ):
+        try:
+            save_runtime_settings(
+                app.state.env_path,
+                collector_max_posts=collector_max_posts,
+                collector_max_comments_per_post=collector_max_comments_per_post,
+                analysis_probe_count=analysis_probe_count,
+            )
+        except ValueError as exc:
+            return RedirectResponse(
+                "/settings?" + urlencode({"status": f"error:{exc}"}),
+                status_code=303,
+            )
+        return RedirectResponse("/settings?status=saved", status_code=303)
 
     @app.get("/report")
     def report_page(request: Request, path: str = "reports/daily-report.md"):
@@ -1812,8 +1930,8 @@ def create_app(
         profile: str = Form(...),
         keyword: str = Form(""),
         keywords: str = Form(""),
-        max_posts: int = Form(8),
-        max_comments_per_post: int = Form(5),
+        max_posts: int = Form(DEFAULT_COLLECTOR_MAX_POSTS),
+        max_comments_per_post: int = Form(DEFAULT_COLLECTOR_MAX_COMMENTS_PER_POST),
     ):
         clean_platform = platform.strip() or "xiaohongshu"
         allowed_platforms = {item["key"] for item in _collector_platforms()}
@@ -1842,8 +1960,8 @@ def create_app(
                 status="queued",
                 progress=0,
                 current_step="等待浏览器采集调度",
-                max_posts=min(30, max(1, max_posts)),
-                max_comments_per_post=min(50, max(0, max_comments_per_post)),
+                max_posts=max(1, max_posts),
+                max_comments_per_post=max(0, max_comments_per_post),
             )
             repository.create_collection_run(run)
             service.prepare_run_request(run, headed=True, dry_run=False)
@@ -2237,6 +2355,7 @@ def create_app(
     @app.get("/analysis")
     def analysis_page(request: Request, platform: str = "xiaohongshu", reuse_task_id: Optional[int] = None):
         repository = repo()
+        runtime_settings = load_runtime_settings_view(app.state.env_path)
         scored_items = repository.list_scored_items(limit=100)
         keyword_stats = _keyword_stats(scored_items)
         high_intent = [item for item in scored_items if int(item.get("intent_score") or 0) >= 80]
@@ -2253,6 +2372,7 @@ def create_app(
                 "quality_pool": quality_pool,
                 "last_run": app.state.last_run,
                 "gpt_config": load_gpt_config_view(app.state.env_path),
+                "default_probe_generation_count": runtime_settings.analysis_probe_count,
                 **platform_context,
                 "stats": {
                     "scored_count": len(scored_items),
@@ -2410,6 +2530,7 @@ def create_app(
     @app.get("/analysis/tasks/{task_id}")
     def intent_analysis_task_page(request: Request, task_id: int):
         repository = repo()
+        runtime_settings = load_runtime_settings_view(app.state.env_path)
         return templates.TemplateResponse(
             request,
             "analysis_task.html",
@@ -2417,6 +2538,7 @@ def create_app(
                 "active": "analysis",
                 "page_view": "analysis_task",
                 "gpt_config": load_gpt_config_view(app.state.env_path),
+                "default_probe_generation_count": runtime_settings.analysis_probe_count,
                 **intent_task_detail_context(repository, task_id),
             },
         )
@@ -2812,4 +2934,14 @@ def _settings_notice(status: str) -> dict:
         return {"kind": "notice", "message": "GPT-5.5 配置已保存到本地 .env。"}
     if status.startswith("error:"):
         return {"kind": "alert", "message": status.split(":", 1)[1] or "配置保存失败。"}
+    return {}
+
+
+def _runtime_settings_notice(status: str) -> dict:
+    if not status:
+        return {}
+    if status == "saved":
+        return {"kind": "notice", "message": "分层运行配置已应用，后续采集任务和探针生成会使用新默认值。"}
+    if status.startswith("error:"):
+        return {"kind": "alert", "message": status.split(":", 1)[1] or "配置应用失败。"}
     return {}

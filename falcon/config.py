@@ -30,6 +30,20 @@ GPT_ENV_KEYS = {
     "FALCON_GPT_MODEL",
     "FALCON_GPT_TIMEOUT",
 }
+DEFAULT_RUNTIME_COLLECTOR_MAX_POSTS = 8
+DEFAULT_RUNTIME_COLLECTOR_MAX_COMMENTS_PER_POST = 5
+DEFAULT_RUNTIME_ANALYSIS_PROBE_COUNT = 8
+RUNTIME_SETTINGS_MINIMUMS = {
+    "collector_max_posts": 1,
+    "collector_max_comments_per_post": 0,
+    "analysis_probe_count": 1,
+}
+
+RUNTIME_SETTINGS_ENV_KEYS = {
+    "FALCON_COLLECTOR_MAX_POSTS",
+    "FALCON_COLLECTOR_MAX_COMMENTS_PER_POST",
+    "FALCON_ANALYSIS_PROBE_COUNT",
+}
 
 
 @dataclass
@@ -45,6 +59,15 @@ class GPTConfigView:
     timeout: str
     masked_api_key: str
     configured: bool
+    env_path: Path
+    env_exists: bool
+
+
+@dataclass
+class RuntimeSettingsView:
+    collector_max_posts: int
+    collector_max_comments_per_post: int
+    analysis_probe_count: int
     env_path: Path
     env_exists: bool
 
@@ -80,6 +103,63 @@ def load_gpt_config_view(
     )
 
 
+def load_runtime_settings_view(
+    env_path: Path,
+    environment: Optional[Mapping[str, str]] = None,
+) -> RuntimeSettingsView:
+    environment = environment if environment is not None else os.environ
+    file_values = read_env_values(env_path)
+
+    def value(key: str, default: int) -> str:
+        return str(environment.get(key) or file_values.get(key) or default)
+
+    return RuntimeSettingsView(
+        collector_max_posts=normalize_runtime_setting(
+            "collector_max_posts",
+            value("FALCON_COLLECTOR_MAX_POSTS", DEFAULT_RUNTIME_COLLECTOR_MAX_POSTS),
+        ),
+        collector_max_comments_per_post=normalize_runtime_setting(
+            "collector_max_comments_per_post",
+            value("FALCON_COLLECTOR_MAX_COMMENTS_PER_POST", DEFAULT_RUNTIME_COLLECTOR_MAX_COMMENTS_PER_POST),
+        ),
+        analysis_probe_count=normalize_runtime_setting(
+            "analysis_probe_count",
+            value("FALCON_ANALYSIS_PROBE_COUNT", DEFAULT_RUNTIME_ANALYSIS_PROBE_COUNT),
+        ),
+        env_path=env_path,
+        env_exists=env_path.exists(),
+    )
+
+
+def save_runtime_settings(
+    env_path: Path,
+    *,
+    collector_max_posts: object,
+    collector_max_comments_per_post: object,
+    analysis_probe_count: object,
+    environment: Optional[MutableMapping[str, str]] = None,
+) -> RuntimeSettingsView:
+    values = {
+        "FALCON_COLLECTOR_MAX_POSTS": str(
+            normalize_runtime_setting("collector_max_posts", collector_max_posts)
+        ),
+        "FALCON_COLLECTOR_MAX_COMMENTS_PER_POST": str(
+            normalize_runtime_setting(
+                "collector_max_comments_per_post",
+                collector_max_comments_per_post,
+            )
+        ),
+        "FALCON_ANALYSIS_PROBE_COUNT": str(
+            normalize_runtime_setting("analysis_probe_count", analysis_probe_count)
+        ),
+    }
+    write_env_values(env_path, values)
+    target_env = environment if environment is not None else os.environ
+    for key, value in values.items():
+        target_env[key] = value
+    return load_runtime_settings_view(env_path, environment=target_env)
+
+
 def save_gpt_config(
     env_path: Path,
     *,
@@ -107,6 +187,20 @@ def save_gpt_config(
     target_env = environment if environment is not None else os.environ
     for key, value in values.items():
         target_env[key] = value
+
+
+def normalize_runtime_setting(field_name: str, value: object) -> int:
+    if field_name not in RUNTIME_SETTINGS_MINIMUMS:
+        raise ValueError(f"Unknown runtime setting: {field_name}")
+    cleaned = _clean_env_value(str(value), field_name)
+    try:
+        number = int(cleaned)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{field_name} must be an integer") from exc
+    minimum = RUNTIME_SETTINGS_MINIMUMS[field_name]
+    if number < minimum:
+        raise ValueError(f"{field_name} must be greater than or equal to {minimum}")
+    return number
 
 
 def normalize_base_url(value: str) -> str:

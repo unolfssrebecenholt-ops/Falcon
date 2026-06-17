@@ -105,15 +105,15 @@
             <span>最大帖子数</span>
             <button class="help-dot" type="button" aria-label="最大帖子数参数说明" data-tip="限制详情页抓取数量。数值越大，采集时间和平台风控概率越高。">?</button>
           </div>
-          <input name="max_posts" type="number" min="1" max="30" value="{{ form_defaults.max_posts }}">
-          <span class="subtext">保守建议值：8；更大批量请拆分多次执行。</span>
+          <input name="max_posts" type="number" min="1" value="{{ form_defaults.max_posts }}">
+          <span class="subtext">保守建议值：8；数值越大，采集时间和风控概率越高。</span>
         </div>
         <div class="field compact-field">
           <div class="field-title">
             <span>每帖评论数</span>
             <button class="help-dot" type="button" aria-label="每帖评论数参数说明" data-tip="每个帖子最多保留的评论数量。填 0 表示只采集帖子主体。">?</button>
           </div>
-          <input name="max_comments_per_post" type="number" min="0" max="50" value="{{ form_defaults.max_comments_per_post }}">
+          <input name="max_comments_per_post" type="number" min="0" value="{{ form_defaults.max_comments_per_post }}">
           <span class="subtext">保守建议值：5；评论区只读取可见内容。</span>
         </div>
       </div>

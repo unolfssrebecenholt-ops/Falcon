@@ -1,4 +1,5 @@
 import json
+import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -23,7 +24,9 @@ class FakeIntentClient:
 
     def complete_json(self, system_prompt, user_prompt):
         self.calls.append((system_prompt, user_prompt))
-        if "生成 5 个" in system_prompt:
+        count_match = re.search(r"生成\s*(\d+)\s*个", system_prompt)
+        if count_match:
+            count = int(count_match.group(1))
             return {
                 "probes": [
                     {
@@ -32,7 +35,7 @@ class FakeIntentClient:
                         "positive_signals": [f"正向 {index}"],
                         "negative_signals": [f"排除 {index}"],
                     }
-                    for index in range(1, 6)
+                    for index in range(1, count + 1)
                 ]
             }
         return {
@@ -76,7 +79,7 @@ class StreamingIntentClient(FakeIntentClient):
                         "positive_signals": [f"流式正向 {index}"],
                         "negative_signals": [f"流式排除 {index}"],
                     }
-                    for index in range(1, 6)
+                    for index in range(1, 9)
                 ]
             },
         }
@@ -393,7 +396,7 @@ class IntentAnalysisRepositoryTest(unittest.TestCase):
 
 
 class IntentAnalysisServiceTest(unittest.TestCase):
-    def test_generates_five_gpt55_probes_for_user_intent(self):
+    def test_generates_eight_gpt55_probes_for_user_intent(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = FalconRepository(Path(tmp) / "falcon.sqlite3")
             repo.init_schema()
@@ -404,10 +407,29 @@ class IntentAnalysisServiceTest(unittest.TestCase):
             fake_client = FakeIntentClient()
             probes = IntentAnalysisService(repo, client=fake_client).generate_probes(task_id)
 
-            self.assertEqual(len(probes), 5)
-            self.assertEqual([probe.sort_order for probe in probes], [1, 2, 3, 4, 5])
+            self.assertEqual(len(probes), 8)
+            self.assertEqual([probe.sort_order for probe in probes], list(range(1, 9)))
             self.assertEqual(repo.get_intent_analysis_task(task_id).status, "probes_ready")
             self.assertIn("哪些人需要生图软件", fake_client.calls[0][1])
+
+    def test_generates_configured_probe_count_for_user_intent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = FalconRepository(Path(tmp) / "falcon.sqlite3")
+            repo.init_schema()
+            task_id = repo.create_intent_analysis_task(
+                IntentAnalysisTask(platform="xiaohongshu", user_intent="我想知道谁需要新品种草")
+            )
+
+            fake_client = FakeIntentClient()
+            probes = IntentAnalysisService(
+                repo,
+                client=fake_client,
+                probe_generation_count=7,
+            ).generate_probes(task_id)
+
+            self.assertEqual(len(probes), 7)
+            self.assertEqual([probe.sort_order for probe in probes], list(range(1, 8)))
+            self.assertIn("生成 7 个", fake_client.calls[0][0])
 
     def test_streams_probe_generation_events_and_saves_results(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -423,8 +445,8 @@ class IntentAnalysisServiceTest(unittest.TestCase):
             self.assertEqual(events[0]["type"], "status")
             self.assertEqual(events[1], {"type": "delta", "text": '{"probes":'})
             self.assertEqual(events[-1]["type"], "done")
-            self.assertEqual(events[-1]["count"], 5)
-            self.assertEqual(len(repo.list_intent_analysis_probes(task_id)), 5)
+            self.assertEqual(events[-1]["count"], 8)
+            self.assertEqual(len(repo.list_intent_analysis_probes(task_id)), 8)
             self.assertEqual(repo.list_intent_analysis_probes(task_id)[0].title, "流式探针 1")
             self.assertEqual(repo.get_intent_analysis_task(task_id).status, "probes_ready")
 
@@ -507,6 +529,52 @@ class IntentAnalysisServiceTest(unittest.TestCase):
             self.assertEqual(repo.get_intent_analysis_task(task_id).status, "completed")
             self.assertIn("生图软件市场观察", fake_client.calls[-1][1])
             self.assertIn("跪求好用的生图软件", fake_client.calls[-1][1])
+
+    def test_execute_marks_task_analyzing_before_calling_gpt(self):
+        class StatusCheckingClient(FakeIntentClient):
+            def complete_json(self, system_prompt, user_prompt):
+                self.calls.append((system_prompt, user_prompt))
+                self.status_seen = repo.get_intent_analysis_task(task_id).status
+                return {"matches": []}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = FalconRepository(Path(tmp) / "falcon.sqlite3")
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun("xhs-running-analysis", "xiaohongshu", "健身", "default", status="completed")
+            )
+            repo.save_collected_post(
+                CollectedPost(
+                    run_id="xhs-running-analysis",
+                    platform="xiaohongshu",
+                    keyword="健身",
+                    title="健身计划",
+                    content="想找健身方案。",
+                    url="local://xhs-running-analysis/post-1",
+                    detail_fingerprint="running-analysis-post",
+                )
+            )
+            task_id = repo.create_intent_analysis_task(
+                IntentAnalysisTask(platform="xiaohongshu", user_intent="分析健身需求", status="probes_ready")
+            )
+            repo.add_intent_analysis_sources(task_id, ["xhs-running-analysis"])
+            repo.save_intent_analysis_probe(
+                IntentAnalysisProbe(
+                    task_id=task_id,
+                    probe_key="probe-1",
+                    title="健身需求",
+                    description="识别健身方案需求",
+                    positive_signals="健身",
+                    negative_signals="无关",
+                    sort_order=1,
+                )
+            )
+            client = StatusCheckingClient()
+
+            IntentAnalysisService(repo, client=client).execute_task(task_id)
+
+            self.assertEqual(client.status_seen, "analyzing")
+            self.assertEqual(repo.get_intent_analysis_task(task_id).status, "completed")
 
     def test_executes_large_package_in_post_batches_without_global_truncation(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -927,7 +995,7 @@ class IntentAnalysisServiceTest(unittest.TestCase):
                 IntentAnalysisTask(platform="xiaohongshu", user_intent="market")
             )
 
-            with self.assertRaisesRegex(ValueError, "1 to 12"):
+            with self.assertRaisesRegex(ValueError, "at least 1 probe"):
                 IntentAnalysisService(repo, client=UnconfiguredIntentClient()).execute_task(task_id)
 
             self.assertEqual(repo.get_intent_analysis_task(task_id).status, "failed")

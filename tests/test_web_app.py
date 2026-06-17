@@ -35,6 +35,9 @@ GPT_ENV_KEYS = [
     "FALCON_GPT_API_KEY",
     "FALCON_GPT_MODEL",
     "FALCON_GPT_TIMEOUT",
+    "FALCON_COLLECTOR_MAX_POSTS",
+    "FALCON_COLLECTOR_MAX_COMMENTS_PER_POST",
+    "FALCON_ANALYSIS_PROBE_COUNT",
 ]
 
 
@@ -714,15 +717,35 @@ class WebAppTest(unittest.TestCase):
             self.assertNotIn('href="/collector/create"', nav_block)
             self.assertNotIn("任务创建", nav_block)
 
-    def test_settings_page_groups_foundation_tools_as_cards(self):
+    def test_settings_page_groups_layered_configuration(self):
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "falcon.sqlite3"
-            client = TestClient(create_app(db_path))
+            env_path = Path(tmp) / ".env"
+            app = create_app(db_path)
+            app.state.env_path = env_path
+            client = TestClient(app)
 
-            response = client.get("/settings")
+            with isolated_gpt_environment():
+                response = client.get("/settings")
 
             self.assertEqual(response.status_code, 200)
             self.assertIn("<h1>设置</h1>", response.text)
+            self.assertIn('action="/settings/apply"', response.text)
+            self.assertIn('form="runtime-settings-form"', response.text)
+            self.assertIn("采集层", response.text)
+            self.assertIn("分析层", response.text)
+            self.assertIn("执行层", response.text)
+            self.assertIn("通用配置", response.text)
+            self.assertIn("最大采集帖子数", response.text)
+            self.assertIn("最大采集评论数", response.text)
+            self.assertIn("一次性生成探针个数", response.text)
+            self.assertIn("暂未配置执行层参数。", response.text)
+            self.assertIn('name="collector_max_posts"', response.text)
+            self.assertIn('name="collector_max_comments_per_post"', response.text)
+            self.assertIn('name="analysis_probe_count"', response.text)
+            self.assertIn('value="8"', response.text)
+            self.assertIn('value="5"', response.text)
+            self.assertIn("应用配置", response.text)
             self.assertIn('class="settings-card-grid"', response.text)
             self.assertIn('href="/keywords"', response.text)
             self.assertIn('href="/report"', response.text)
@@ -730,6 +753,75 @@ class WebAppTest(unittest.TestCase):
             self.assertIn("关键词池", response.text)
             self.assertIn("日报", response.text)
             self.assertIn("模型配置", response.text)
+
+    def test_runtime_settings_apply_updates_env_and_future_defaults(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project_root = Path(tmp)
+            db_path = project_root / "data" / "falcon.sqlite3"
+            db_path.parent.mkdir()
+            env_path = project_root / ".env"
+            env_path.write_text("FALCON_IMAGE2_MODEL=gpt-image-2\n", encoding="utf-8")
+            app = create_app(db_path)
+            app.state.env_path = env_path
+            profile_root = project_root / "profiles"
+            (profile_root / "xiaohongshu" / "default").mkdir(parents=True)
+            app.state.profile_root = profile_root
+            client = TestClient(app)
+
+            with isolated_gpt_environment():
+                saved = client.post(
+                    "/settings/apply",
+                    data={
+                        "collector_max_posts": "59",
+                        "collector_max_comments_per_post": "80",
+                        "analysis_probe_count": "16",
+                    },
+                    follow_redirects=False,
+                )
+                saved_page = client.get(saved.headers["location"])
+                create_page = client.get("/collector/create")
+                analysis_page = client.get("/analysis")
+
+            self.assertEqual(saved.status_code, 303)
+            self.assertEqual(saved.headers["location"], "/settings?status=saved")
+            self.assertIn("分层运行配置已应用", saved_page.text)
+            content = env_path.read_text(encoding="utf-8")
+            self.assertIn("FALCON_IMAGE2_MODEL=gpt-image-2", content)
+            self.assertIn("FALCON_COLLECTOR_MAX_POSTS=59", content)
+            self.assertIn("FALCON_COLLECTOR_MAX_COMMENTS_PER_POST=80", content)
+            self.assertIn("FALCON_ANALYSIS_PROBE_COUNT=16", content)
+            self.assertIn('name="max_posts" type="number" min="1" value="59"', create_page.text)
+            self.assertIn('name="max_comments_per_post" type="number" min="0" value="80"', create_page.text)
+            self.assertIn("defaultProbeGenerationCount = 16", analysis_page.text)
+
+    def test_runtime_settings_apply_reports_invalid_values_without_writing_env(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project_root = Path(tmp)
+            db_path = project_root / "data" / "falcon.sqlite3"
+            db_path.parent.mkdir()
+            env_path = project_root / ".env"
+            env_path.write_text("FALCON_IMAGE2_MODEL=gpt-image-2\n", encoding="utf-8")
+            app = create_app(db_path)
+            app.state.env_path = env_path
+            client = TestClient(app)
+
+            with isolated_gpt_environment():
+                response = client.post(
+                    "/settings/apply",
+                    data={
+                        "collector_max_posts": "0",
+                        "collector_max_comments_per_post": "6",
+                        "analysis_probe_count": "7",
+                    },
+                    follow_redirects=False,
+                )
+                page = client.get(response.headers["location"])
+
+            self.assertEqual(response.status_code, 303)
+            self.assertIn("greater than or equal to 1", page.text)
+            content = env_path.read_text(encoding="utf-8")
+            self.assertIn("FALCON_IMAGE2_MODEL=gpt-image-2", content)
+            self.assertNotIn("FALCON_COLLECTOR_MAX_POSTS", content)
 
     def test_gpt_settings_page_reads_and_saves_local_env(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1543,17 +1635,21 @@ class WebAppTest(unittest.TestCase):
 
     def test_collector_create_get_renders_task_form(self):
         with tempfile.TemporaryDirectory() as tmp:
-            db_path = Path(tmp) / "falcon.sqlite3"
-            client = TestClient(create_app(db_path))
+            tmp_path = Path(tmp)
+            db_path = tmp_path / "falcon.sqlite3"
+            app = create_app(db_path)
+            app.state.env_path = tmp_path / ".env"
+            client = TestClient(app)
 
-            response = client.get("/collector/create")
+            with isolated_gpt_environment():
+                response = client.get("/collector/create")
 
             self.assertEqual(response.status_code, 200)
             self.assertIn("创建任务", response.text)
             self.assertIn('name="keyword"', response.text)
             self.assertIn('name="max_posts"', response.text)
-            self.assertIn('name="max_posts" type="number" min="1" max="30" value="8"', response.text)
-            self.assertIn('name="max_comments_per_post" type="number" min="0" max="50" value="5"', response.text)
+            self.assertIn('name="max_posts" type="number" min="1" value="8"', response.text)
+            self.assertIn('name="max_comments_per_post" type="number" min="0" value="5"', response.text)
             self.assertIn("保存已加载图片", response.text)
             self.assertIn("截图回退", response.text)
             assert_no_legacy_collection_markers(self, response.text)
@@ -1740,7 +1836,7 @@ class WebAppTest(unittest.TestCase):
             self.assertTrue(request_path.exists())
             self.assertIn('"platform": "xiaohongshu"', request_path.read_text(encoding="utf-8"))
 
-    def test_collector_create_post_clamps_comments_to_fifty(self):
+    def test_collector_create_post_keeps_large_comment_limit(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             db_path = tmp_path / "falcon.sqlite3"
@@ -1763,10 +1859,10 @@ class WebAppTest(unittest.TestCase):
             runs = repo.list_collection_runs()
             self.assertEqual(response.status_code, 303)
             self.assertEqual(len(runs), 1)
-            self.assertEqual(runs[0].max_comments_per_post, 50)
+            self.assertEqual(runs[0].max_comments_per_post, 80)
             request_path = tmp_path / "runtime" / "collector" / runs[0].run_id / "request.json"
             request_payload = json.loads(request_path.read_text(encoding="utf-8"))
-            self.assertEqual(request_payload["max_comments_per_post"], 50)
+            self.assertEqual(request_payload["max_comments_per_post"], 80)
 
     def test_collector_create_post_splits_multiple_keywords_into_runs(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -4498,6 +4594,62 @@ class WebAppTest(unittest.TestCase):
             self.assertIsNone(repo.get_intent_analysis_task(task_id))
             self.assertEqual(repo.get_collection_run("xhs-analysis-queue").status, "completed")
 
+    def test_analysis_queue_shows_running_analysis_as_analyzing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "falcon.sqlite3"
+            repo = FalconRepository(db_path)
+            repo.init_schema()
+            repo.create_collection_run(
+                CollectionRun(
+                    run_id="xhs-analysis-running",
+                    platform="xiaohongshu",
+                    keyword="健身",
+                    profile="default",
+                    status="completed",
+                )
+            )
+            repo.save_collected_post(
+                CollectedPost(
+                    run_id="xhs-analysis-running",
+                    platform="xiaohongshu",
+                    keyword="健身",
+                    title="健身任务",
+                    content="想找健身方案。",
+                    url="local://analysis-running/post",
+                    detail_fingerprint="analysis-running-post",
+                )
+            )
+            task_id = repo.create_intent_analysis_task(
+                IntentAnalysisTask(
+                    platform="xiaohongshu",
+                    user_intent="健身",
+                    status="analyzing",
+                )
+            )
+            repo.add_intent_analysis_sources(task_id, ["xhs-analysis-running"])
+            repo.save_intent_analysis_probe(
+                IntentAnalysisProbe(
+                    task_id=task_id,
+                    probe_key="probe-1",
+                    title="健身需求",
+                    description="识别健身方案需求",
+                    positive_signals="健身",
+                    negative_signals="无关",
+                    sort_order=1,
+                )
+            )
+            client = TestClient(create_app(db_path))
+
+            queue = client.get("/analysis/queue")
+
+            self.assertEqual(queue.status_code, 200)
+            self.assertIn('class="analysis-queue-item status-analyzing is-executing"', queue.text)
+            self.assertIn('aria-busy="true"', queue.text)
+            self.assertIn('class="status status-analyzing">分析中</span>', queue.text)
+            self.assertIn("<span>分析中</span><strong>1</strong>", queue.text)
+            self.assertIn("1 个分析中", queue.text)
+            self.assertRegex(queue.text, r'<button[^>]+disabled[^>]*>执行特定任务</button>')
+
     def test_analysis_task_results_page_groups_matches_from_queue_title(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
@@ -4637,7 +4789,7 @@ class WebAppTest(unittest.TestCase):
                     level="post",
                     score=91,
                     reason="正文表达了按房间和用途做清单的需求。",
-                    excerpt="想按房间和用途做一个清单。",
+                    excerpt="家里物品越来越多...想按房间和用途做一个清单。",
                     summary="用户希望用工具管理家庭物品。",
                 )
             )
@@ -4750,6 +4902,7 @@ class WebAppTest(unittest.TestCase):
             self.assertIn("无命中探针", results.text)
             self.assertIn("收纳数字化需求", results.text)
             self.assertIn("找回物品痛点", results.text)
+            self.assertIn('class="source-keyword-label">关键词 · 归纳 app</span>', results.text)
             self.assertIn("<small>当前</small>", results.text)
             self.assertIn(f'id="result-probe-2-post-{post_id}" class="analysis-result-card"', results.text)
             self.assertIn(f'id="result-probe-3-post-{post_id}" class="analysis-result-card"', results.text)
@@ -4768,7 +4921,12 @@ class WebAppTest(unittest.TestCase):
             self.assertIn("图片显示贴标签的收纳箱", results.text)
             self.assertIn("第二张图展示可贴标签的收纳箱。", results.text)
             self.assertIn("用户希望用工具管理家庭物品。", results.text)
-            self.assertIn("摘录：想按房间和用途做一个清单。", results.text)
+            self.assertIn("<mark>家里物品越来越多</mark>", results.text)
+            self.assertIn("<mark>想按房间和用途做一个清单。</mark>", results.text)
+            self.assertIn("<strong>原帖正文</strong>", results.text)
+            self.assertIn("analysis-result-insight", results.text)
+            self.assertIn("<span>分析结果</span>", results.text)
+            self.assertIn("摘录：家里物品越来越多...想按房间和用途做一个清单。", results.text)
             self.assertIn("<mark>扫码记录收纳箱里的东西</mark>", results.text)
             self.assertIn("<mark>按房间自动分类</mark>", results.text)
             self.assertIn("扫码记录收纳箱里的东西", results.text)

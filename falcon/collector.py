@@ -54,6 +54,8 @@ DEFAULT_COLLECTOR_ACCESS_POLICY = {
     "direct_url_access": False,
     "network_api_access": False,
 }
+DEFAULT_COLLECTOR_MAX_POSTS = 8
+DEFAULT_COLLECTOR_MAX_COMMENTS_PER_POST = 5
 PROFILE_SAFETY_LOCK_REASONS = {
     "account_risk_warning",
     "platform_risk_circuit_breaker",
@@ -136,8 +138,8 @@ class CollectorService:
         platform: str,
         profile: str,
         keyword: str,
-        max_posts: int = 8,
-        max_comments_per_post: int = 5,
+        max_posts: int = DEFAULT_COLLECTOR_MAX_POSTS,
+        max_comments_per_post: int = DEFAULT_COLLECTOR_MAX_COMMENTS_PER_POST,
         headed: bool = False,
         run_id: str = "",
     ) -> CollectionRun:
@@ -157,8 +159,8 @@ class CollectorService:
         platform: str,
         profile: str,
         keyword: str,
-        max_posts: int = 8,
-        max_comments_per_post: int = 5,
+        max_posts: int = DEFAULT_COLLECTOR_MAX_POSTS,
+        max_comments_per_post: int = DEFAULT_COLLECTOR_MAX_COMMENTS_PER_POST,
         headed: bool = True,
         dry_run: bool = False,
         run_id: str = "",

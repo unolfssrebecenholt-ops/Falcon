@@ -245,6 +245,7 @@
   const createStepProgress = { sources: 30, probes: 88, editor: 100 };
   const createStepLabels = { sources: "接入中", probes: "生成中", editor: "写入中", error: "需检查" };
   const gptEndpointStreaming = {{ 'true' if gpt_config.endpoint_streaming else 'false' }};
+  const defaultProbeGenerationCount = {{ default_probe_generation_count }};
   let currentProgress = 0;
   let streamedTextLength = 0;
 
@@ -399,7 +400,7 @@
     if (eventName === "delta") {
       streamedTextLength = Number(payload.chars || 0) || streamedTextLength + String(payload.text || "").length;
       const streamedProgress = Math.min(88, 50 + Math.round(Math.min(streamedTextLength, 1400) / 1400 * 38));
-      setLoadingState("正在生成 5 个语义探针", "GPT-5.5 正在输出可编辑的判断规则。", "probes", payload.progress || streamedProgress);
+      setLoadingState(`正在生成 ${defaultProbeGenerationCount} 个语义探针`, "GPT-5.5 正在输出可编辑的判断规则。", "probes", payload.progress || streamedProgress);
       return "";
     }
     if (eventName === "done") {
@@ -423,7 +424,7 @@
     const message = String(payload.message || "正在处理。");
     const progress = Number(payload.progress || 0) || undefined;
     if (status === "generating_probes") {
-      setLoadingState("正在生成 5 个语义探针", message, "probes", progress || 48);
+      setLoadingState(`正在生成 ${defaultProbeGenerationCount} 个语义探针`, message, "probes", progress || 48);
     } else if (message.includes("校验") || message.includes("写入")) {
       setLoadingState("正在校验并写入本地数据库", message, "editor", progress || 92);
     } else {

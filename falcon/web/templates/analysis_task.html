@@ -45,12 +45,12 @@
   <div class="section-head intent-probe-head">
     <div>
       <h2>意向探针 <button class="help-dot" type="button" data-tip="探针是一组可编辑的语义判断规则。GPT-5.5 会按当前保留的探针去匹配帖子和评论，找出符合分析意图的证据。">?</button></h2>
-      <p class="muted">GPT-5.5 默认生成 5 个探针；执行前可增、删、改，当前保留数量需为 1-12 个。</p>
+      <p class="muted">GPT-5.5 默认生成 {{ default_probe_generation_count }} 个探针；执行前可增、删、改，当前至少保留 1 个。</p>
     </div>
     <div class="probe-head-actions">
       <span class="probe-count-chip">{{ probes|length }} 个探针</span>
       <form id="probe-generate-form" method="post" action="/analysis/tasks/{{ task.task_id }}/probes/generate" data-stream-url="/analysis/tasks/{{ task.task_id }}/probes/generate/stream">
-        <button id="probe-generate-button" class="button" type="submit">生成 5 个探针</button>
+        <button id="probe-generate-button" class="button" type="submit">生成 {{ default_probe_generation_count }} 个探针</button>
       </form>
     </div>
   </div>
@@ -165,6 +165,7 @@
   const error = document.getElementById("probe-stream-error");
   const steps = Array.from(document.querySelectorAll(".probe-stream-steps [data-step]"));
   const gptEndpointStreaming = {{ 'true' if gpt_config.endpoint_streaming else 'false' }};
+  const defaultProbeGenerationCount = {{ default_probe_generation_count }};
 
   const activateStep = (name) => {
     const order = ["preparing", "generating", "saving"];
@@ -220,7 +221,7 @@
       setStatus("生成失败", "error");
       if (button) {
         button.disabled = false;
-        button.textContent = "重新生成 5 个探针";
+        button.textContent = `重新生成 ${defaultProbeGenerationCount} 个探针`;
       }
     }
   };
@@ -272,7 +273,7 @@
       setStatus("生成失败", "error");
       if (button) {
         button.disabled = false;
-        button.textContent = "重新生成 5 个探针";
+        button.textContent = `重新生成 ${defaultProbeGenerationCount} 个探针`;
       }
     }
   });

@@ -2,7 +2,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from falcon.config import load_gpt_config_view, mask_secret, save_gpt_config
+from falcon.config import (
+    load_gpt_config_view,
+    load_runtime_settings_view,
+    mask_secret,
+    save_gpt_config,
+    save_runtime_settings,
+)
 
 
 class GPTConfigTest(unittest.TestCase):
@@ -79,6 +85,68 @@ class GPTConfigTest(unittest.TestCase):
         self.assertEqual(mask_secret(""), "未配置")
         self.assertEqual(mask_secret("short"), "*****")
         self.assertEqual(mask_secret("sk-1234567890"), "sk-1...7890")
+
+    def test_runtime_settings_read_defaults_and_save_env_values(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env_path = Path(tmp) / ".env"
+            env_path.write_text("FALCON_IMAGE2_MODEL=gpt-image-2\n", encoding="utf-8")
+            runtime_env = {}
+
+            defaults = load_runtime_settings_view(env_path, environment=runtime_env)
+            saved = save_runtime_settings(
+                env_path,
+                collector_max_posts=59,
+                collector_max_comments_per_post=80,
+                analysis_probe_count=16,
+                environment=runtime_env,
+            )
+
+            self.assertEqual(defaults.collector_max_posts, 8)
+            self.assertEqual(defaults.collector_max_comments_per_post, 5)
+            self.assertEqual(defaults.analysis_probe_count, 8)
+            self.assertEqual(saved.collector_max_posts, 59)
+            self.assertEqual(saved.collector_max_comments_per_post, 80)
+            self.assertEqual(saved.analysis_probe_count, 16)
+            content = env_path.read_text(encoding="utf-8")
+            self.assertIn("FALCON_IMAGE2_MODEL=gpt-image-2", content)
+            self.assertIn("FALCON_COLLECTOR_MAX_POSTS=59", content)
+            self.assertIn("FALCON_COLLECTOR_MAX_COMMENTS_PER_POST=80", content)
+            self.assertIn("FALCON_ANALYSIS_PROBE_COUNT=16", content)
+            self.assertEqual(runtime_env["FALCON_ANALYSIS_PROBE_COUNT"], "16")
+
+    def test_runtime_settings_reject_invalid_values_without_writing_env(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env_path = Path(tmp) / ".env"
+            env_path.write_text("FALCON_IMAGE2_MODEL=gpt-image-2\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "greater than or equal to 1"):
+                save_runtime_settings(
+                    env_path,
+                    collector_max_posts=0,
+                    collector_max_comments_per_post=5,
+                    analysis_probe_count=8,
+                    environment={},
+                )
+            with self.assertRaisesRegex(ValueError, "greater than or equal to 0"):
+                save_runtime_settings(
+                    env_path,
+                    collector_max_posts=8,
+                    collector_max_comments_per_post=-1,
+                    analysis_probe_count=8,
+                    environment={},
+                )
+            with self.assertRaisesRegex(ValueError, "greater than or equal to 1"):
+                save_runtime_settings(
+                    env_path,
+                    collector_max_posts=8,
+                    collector_max_comments_per_post=5,
+                    analysis_probe_count=0,
+                    environment={},
+                )
+
+            content = env_path.read_text(encoding="utf-8")
+            self.assertIn("FALCON_IMAGE2_MODEL=gpt-image-2", content)
+            self.assertNotIn("FALCON_COLLECTOR_MAX_POSTS", content)
 
 
 if __name__ == "__main__":
